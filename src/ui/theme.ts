@@ -11,6 +11,9 @@ export interface Theme {
   added: string;
   deleted: string;
   warning: string;
+  author: string;
+  divider: string;
+  dividerActive: string;
   folder: string;
   folderBg: string;
   diffAddedBg: string;
@@ -31,11 +34,12 @@ export const oneDarkTheme: Theme = {
   added: "#98C379",
   deleted: "#E06C75",
   warning: "#E5C07B",
+  author: "#C678DD",
+  divider: "#2B5B61",
+  dividerActive: "#315878",
   folder: "#61AFEF",
   folderBg: "#2C313A",
   diffAddedBg: "#30402F",
   diffRemovedBg: "#462C31",
   graph: ["#61AFEF", "#C678DD", "#E5C07B", "#98C379", "#E06C75", "#56B6C2"],
 };
-
-/** @deprecated Use oneDarkTheme. */
