@@ -47,13 +47,27 @@ tuig ~/code/my-project
 
 The path is optional. Running `tuig` without one opens the current directory. Tuig is currently installed from source; it is not yet published to a package registry.
 
-To install a tagged release globally with Bun:
+Command-line options:
+
+```text
+tuig --help                  Show usage
+tuig --version               Show the installed version
+tuig -C ~/code/my-project    Open a repository without changing directories
+tuig update                  Install the latest Tuig release from Git
+```
+
+Run `tuig update` from a Git-based installation. It finds the newest GitHub release tag, then runs Bun's global Git install command with that tag.
+
+To install the repository version globally with Bun:
 
 ```sh
-bun install -g git+https://github.com/lucashutch/tuig.git#v0.1.0
+bun install -g git+https://github.com/lucashutch/tuig.git
 ```
 
 Run `tuig` from any directory after installation.
+
+This command installs the repository's default branch. To switch to the latest
+tagged release, run `tuig update`.
 
 For development without linking:
 
