@@ -41,6 +41,9 @@ describe("graph context menu", () => {
       "checkout-commit",
       "rebase-onto",
       undefined,
+      "create-branch",
+      "cherry-pick",
+      "create-tag",
       "copy-sha",
     ]);
     expect(
@@ -65,7 +68,7 @@ describe("graph context menu", () => {
     ).toBe(false);
   });
 
-  test("offers stash deletion", () => {
+  test("offers stash apply, pop, and drop", () => {
     const stash = {
       ref: "stash@{0}",
       sha: "d",
@@ -73,9 +76,13 @@ describe("graph context menu", () => {
       subject: "work in progress",
     };
     const menu = buildGraphMenu({ sha: stash.sha, stash }, snapshot);
-    expect(menu.items).toMatchObject([
-      { action: "delete-stash", destructive: true },
+    expect(menu.items.map((item) => item.action)).toEqual([
+      "apply-stash",
+      "pop-stash",
+      "drop-stash",
     ]);
+    expect(menu.items[1]?.destructive).toBe(true);
+    expect(menu.items[2]?.destructive).toBe(true);
   });
 
   test("allows deleting a branch that is not checked out", () => {

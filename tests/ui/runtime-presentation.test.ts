@@ -28,11 +28,53 @@ import {
   resizeSidebarBoundary,
   submoduleStatusColor,
 } from "../../src/ui/runtime-presentation.js";
+import {
+  authorAvatar,
+  authorInitials,
+  filterBranchRefs,
+  formatCommitAuthor,
+  formatRelativeTime,
+} from "../../src/ui/history.js";
 
 test("runtime presentation text helpers fit and wrap text", () => {
   expect(fitColumns("abcdef", 4, true)).toBe("abc…");
   expect(fitColumns("猫", 3)).toBe("猫 ");
   expect(wrappedLineCount("abc\ndefgh", 3)).toBe(3);
+});
+
+test("author badges and relative timestamps are deterministic and terminal-safe", () => {
+  expect(authorInitials("Ada Lovelace", "ada@example.test")).toBe("AL");
+  expect(authorAvatar("Ada Lovelace", "ada@example.test")).toBe("[AL]");
+  expect(
+    formatRelativeTime(
+      "2024-01-01T00:00:00Z",
+      Date.parse("2024-01-01T02:00:00Z"),
+    ),
+  ).toBe("2h ago");
+  expect(
+    formatCommitAuthor(
+      "Ada Lovelace",
+      "ada@example.test",
+      "2024-01-01T00:00:00Z",
+      Date.parse("2024-01-01T02:00:00Z"),
+    ),
+  ).toBe("[AL] 2h ago");
+});
+
+test("branch filters match display and full ref names without mutating refs", () => {
+  const refs = [
+    { name: "main", fullName: "refs/heads/main", remote: false },
+    {
+      name: "origin/release",
+      fullName: "refs/remotes/origin/release",
+      remote: true,
+    },
+  ] as RepositorySnapshot["branches"];
+  expect(filterBranchRefs(refs, "RELEASE").map((ref) => ref.name)).toEqual([
+    "origin/release",
+  ]);
+  expect(filterBranchRefs(refs, "")).toEqual(refs);
+  expect(refs).toHaveLength(2);
 });
 
 test("runtime presentation identifies sidebar controls and scroll bounds", () => {

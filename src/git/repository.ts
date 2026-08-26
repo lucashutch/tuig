@@ -467,6 +467,13 @@ export class GitRepositoryService implements GitRepository {
   async rebaseOnto(ref: string) {
     await this.git(["rebase", ref]);
   }
+  async cherryPick(sha: string) {
+    await this.git(["cherry-pick", sha]);
+  }
+  /** Creates a lightweight tag; annotated tags are deliberately not implied. */
+  async createTag(name: string, target?: string) {
+    await this.git(["tag", name, ...(target ? [target] : [])]);
+  }
   async createBranch(n: string, s?: string, c = false) {
     await this.git([
       "branch",
@@ -500,6 +507,9 @@ export class GitRepositoryService implements GitRepository {
   }
   async applyStash(r: string, p = false) {
     await this.git(["stash", p ? "pop" : "apply", r]);
+  }
+  async popStash(r: string) {
+    await this.applyStash(r, true);
   }
   async dropStash(r: string) {
     await this.git(["stash", "drop", r]);
