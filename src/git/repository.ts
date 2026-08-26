@@ -112,28 +112,31 @@ export function parseRefs(data: string): BranchRef[] {
     });
 }
 export function parseLog(data: string): Commit[] {
-  return data
-    .split(data.includes("\x1e") ? /[\x1e\0]/ : "\0")
-    .filter(Boolean)
-    .map((x) => {
-      const f = x.replace(/^\n+/, "").split("\x1f");
-      return {
-        sha: f[0] ?? "",
-        parents: (f[1] ?? "").split(" ").filter(Boolean),
-        author: f[2] ?? "",
-        authorEmail: f[3] ?? "",
-        authoredAt: f[4] ?? "",
-        subject: f[5] ?? "",
-        decorations: (f[6] ?? "")
-          .split(", ")
-          .map((v) => v.trim())
-          .filter(Boolean),
-        body: f
-          .slice(7)
-          .join("\x1f")
-          .replace(/^\n+|\n+$/g, ""),
-      };
-    });
+  return (
+    data
+      // eslint-disable-next-line no-control-regex
+      .split(data.includes("\x1e") ? /[\x1e\0]/ : "\0")
+      .filter(Boolean)
+      .map((x) => {
+        const f = x.replace(/^\n+/, "").split("\x1f");
+        return {
+          sha: f[0] ?? "",
+          parents: (f[1] ?? "").split(" ").filter(Boolean),
+          author: f[2] ?? "",
+          authorEmail: f[3] ?? "",
+          authoredAt: f[4] ?? "",
+          subject: f[5] ?? "",
+          decorations: (f[6] ?? "")
+            .split(", ")
+            .map((v) => v.trim())
+            .filter(Boolean),
+          body: f
+            .slice(7)
+            .join("\x1f")
+            .replace(/^\n+|\n+$/g, ""),
+        };
+      })
+  );
 }
 export const parsePorcelainStatus = parseStatus;
 export const parseForEachRef = parseRefs;

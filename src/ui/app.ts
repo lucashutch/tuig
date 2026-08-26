@@ -46,7 +46,7 @@ export function createTuigApp(
     const branch = s?.branch ?? "No repository";
     const rows = graph
       .slice(state.scroll, state.scroll + Math.max(1, height - 6))
-      .map((r, i) => `${r.laneColors[0] ? "●" : "·"} ${r.commit.subject}`)
+      .map((r) => `${r.laneColors[0] ? "●" : "·"} ${r.commit.subject}`)
       .join("\n");
     return `TUIG  ${branch}\n${"─".repeat(Math.max(1, width))}\nBranches   │ History\n${rows}\n${"─".repeat(Math.max(1, width))}\n${state.status}  ${state.composing ? "COMMIT: " + state.message : "Space stage  c commit  q quit"}`;
   };
