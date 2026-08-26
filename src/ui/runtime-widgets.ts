@@ -74,6 +74,8 @@ export type RuntimeWidgets = {
   commitInfo: TextRenderable;
   authorPhoto: ImageRenderable;
   authorBadge: TextRenderable;
+  commitCoAuthors: TextRenderable;
+  commitCoAuthorProvider: ImageRenderable;
   editMessageButton: TextRenderable;
   commitHeader: TextRenderable;
   commitBody: TextRenderable;
@@ -560,6 +562,28 @@ export function createRuntimeWidgets(
     fg: oneDarkTheme.author,
     content: "",
   });
+  const commitCoAuthors = new TextRenderable(renderer, {
+    ...absolute,
+    id: "commit-coauthors",
+    left: 1,
+    top: 5,
+    width: "95%",
+    height: 1,
+    wrapMode: "word",
+    fg: oneDarkTheme.muted,
+    content: "",
+  });
+  const commitCoAuthorProvider = new ImageRenderable(renderer, {
+    ...absolute,
+    id: "commit-coauthor-provider",
+    left: 1,
+    top: 5,
+    width: 4,
+    height: 2,
+    fit: "cover",
+    protocol: "auto",
+    visible: false,
+  });
   const editMessageButton = new TextRenderable(renderer, {
     ...absolute,
     id: "edit-message",
@@ -604,6 +628,8 @@ export function createRuntimeWidgets(
   commitInfoBox.add(commitInfoLabel);
   commitInfoBox.add(authorPhoto);
   commitInfoBox.add(authorBadge);
+  commitInfoBox.add(commitCoAuthors);
+  commitInfoBox.add(commitCoAuthorProvider);
   commitBodyBox.add(
     sectionLabel("commit-message-label", "COMMIT MESSAGE", oneDarkTheme.text),
   );
@@ -929,6 +955,8 @@ export function createRuntimeWidgets(
     commitInfo,
     authorPhoto,
     authorBadge,
+    commitCoAuthors,
+    commitCoAuthorProvider,
     editMessageButton,
     commitHeader,
     commitBody,

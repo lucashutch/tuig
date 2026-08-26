@@ -9,6 +9,19 @@ const AVATAR_CACHE_TTL = 7 * 24 * 60 * 60 * 1000;
 const githubAvatarCache = new Map<string, string>();
 const authorAvatarCache = new Map<string, string>();
 
+/** Use public provider avatars for recognizable automated co-authors. */
+export function getProviderAvatarUrl(
+  name: string,
+  email: string,
+): string | undefined {
+  const value = `${name} ${email}`.toLowerCase();
+  if (/(?:^|[.@])anthropic\.com\b|\bclaude\b/.test(value))
+    return "https://upload.wikimedia.org/wikipedia/commons/thumb/5/58/Claude-ai-icon.svg/120px-Claude-ai-icon.svg.png";
+  if (/(?:^|[.@])openai\.com\b|\b(?:openai|chatgpt)\b/.test(value))
+    return "https://github.com/openai.png?size=64";
+  return undefined;
+}
+
 /** Return the Gravatar image URL for an author email address. */
 export function getGravatarUrl(email: string): string | undefined {
   const normalized = email.trim().toLowerCase();

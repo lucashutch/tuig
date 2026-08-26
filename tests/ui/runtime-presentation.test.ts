@@ -16,6 +16,8 @@ import {
   toolbarHit,
   wrappedLineCount,
   presentCommitMeta,
+  parseCoAuthors,
+  presentCommitCoAuthors,
   presentCommitDetail,
   layoutCommitDetail,
   workingChangesBanner,
@@ -37,6 +39,7 @@ import {
   formatCommitAuthor,
   formatRelativeTime,
 } from "../../src/ui/history.js";
+import { getProviderAvatarUrl } from "../../src/ui/avatars.js";
 
 test("runtime presentation text helpers fit and wrap text", () => {
   expect(fitColumns("abcdef", 4, true)).toBe("abc…");
@@ -325,7 +328,7 @@ test("commit metadata includes both local author and committer timestamps", () =
   const text = plain(
     presentCommitMeta({
       sha: "abcdef123",
-      parents: [],
+      parents: ["parent"],
       author: "Author",
       authorEmail: "author@test",
       authoredAt: "2024-01-02T03:04:05Z",
@@ -337,11 +340,35 @@ test("commit metadata includes both local author and committer timestamps", () =
       decorations: [],
     }).info,
   );
-  expect(text).toContain("Author: Author");
-  expect(text).toContain("Email: author@test");
-  expect(text).toContain("Authored:");
-  expect(text).toContain("Committer: Committer <commit@test>");
+  expect(text).toContain("Author\nauthor@test");
+  expect(text).toContain("Jan 2, 2024, 3:04 AM");
+  expect(text).not.toContain("Authored:");
+  expect(text).toContain("Parent:");
+  expect(text).toContain("Committed by Committer <commit@test>");
   expect(text).toContain("Committed:");
+});
+
+test("commit metadata extracts and presents co-authors", () => {
+  const authors = parseCoAuthors(
+    "body\n\nCo-authored-by: Ada Lovelace <ada@example.com>\nCo-authored-by: Grace Hopper <grace@example.com>",
+  );
+  expect(authors).toEqual([
+    { name: "Ada Lovelace", email: "ada@example.com" },
+    { name: "Grace Hopper", email: "grace@example.com" },
+  ]);
+  expect(plain(presentCommitCoAuthors(authors))).toContain(
+    "Co-authors: [AL] Ada Lovelace  [GH] Grace Hopper",
+  );
+});
+
+test("known co-author providers use runtime-loaded public avatars", () => {
+  expect(getProviderAvatarUrl("Claude Opus 5", "noreply@anthropic.com")).toBe(
+    "https://upload.wikimedia.org/wikipedia/commons/thumb/5/58/Claude-ai-icon.svg/120px-Claude-ai-icon.svg.png",
+  );
+  expect(getProviderAvatarUrl("OpenAI", "bot@openai.com")).toBe(
+    "https://github.com/openai.png?size=64",
+  );
+  expect(getProviderAvatarUrl("Ada", "ada@example.com")).toBeUndefined();
 });
 
 test("commit metadata omits a duplicate committer", () => {

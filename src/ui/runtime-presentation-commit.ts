@@ -1,6 +1,6 @@
 import { StyledText, fg } from "@opentui/core";
 import type { ChangedFile, Commit, FileState } from "../git/types.js";
-import { formatRelativeTime, shortSha } from "./history.js";
+import { authorAvatar, shortSha } from "./history.js";
 import {
   clipColumns,
   fileViewportSize,
@@ -8,38 +8,83 @@ import {
 } from "./runtime-presentation-text.js";
 import { oneDarkTheme } from "./theme.js";
 
+export type CommitCoAuthor = { name: string; email: string };
+
+export function parseCoAuthors(body = ""): CommitCoAuthor[] {
+  const authors: CommitCoAuthor[] = [];
+  const pattern = /^Co-authored-by:\s*(.*?)\s*<([^<>\r\n]+)>\s*$/gim;
+  for (const match of body.matchAll(pattern)) {
+    const name = match[1]?.trim();
+    const email = match[2]?.trim();
+    if (name && email) authors.push({ name, email });
+  }
+  return authors;
+}
+
+export function presentCommitCoAuthors(
+  coAuthors: readonly CommitCoAuthor[],
+  providerEmails: ReadonlySet<string> = new Set(),
+): StyledText {
+  if (!coAuthors.length) return new StyledText([]);
+  return new StyledText([
+    fg(oneDarkTheme.muted)("Co-authors: "),
+    ...coAuthors.flatMap((author, index) => [
+      ...(providerEmails.has(author.email.toLowerCase())
+        ? []
+        : [fg(oneDarkTheme.author)(authorAvatar(author.name, author.email))]),
+      fg(oneDarkTheme.text)(
+        `${providerEmails.has(author.email.toLowerCase()) ? "" : " "}${author.name}`,
+      ),
+      ...(index < coAuthors.length - 1 ? [fg(oneDarkTheme.muted)("  ")] : []),
+    ]),
+  ]);
+}
+
+export function formatCommitDate(value: string): string {
+  return new Intl.DateTimeFormat(undefined, {
+    dateStyle: "medium",
+    timeStyle: "short",
+  }).format(new Date(value));
+}
+
 export function presentCommitMeta(commit: Commit): {
   info: StyledText;
   header: string;
   body: string;
 } {
-  const formatDate = (value: string) =>
-    new Intl.DateTimeFormat(undefined, {
-      dateStyle: "medium",
-      timeStyle: "medium",
-    }).format(new Date(value));
+  const body = commit.body?.replace(/^(?:[ \t]*\n)+/, "") || "(no body)";
   const committer = `${commit.committer}${commit.committerEmail ? ` <${commit.committerEmail}>` : ""}`;
   const lines = [
-    `Author: ${commit.author}`,
-    ...(commit.authorEmail ? [`Email: ${commit.authorEmail}`] : []),
-    `Authored: ${formatRelativeTime(commit.authoredAt)}`,
-    `Date: ${formatDate(commit.authoredAt)}`,
+    commit.author,
+    ...(commit.authorEmail ? [commit.authorEmail] : []),
+    formatCommitDate(commit.authoredAt),
+    ...(commit.parents.length
+      ? [
+          `Parent: ${commit.parents.map((parent) => shortSha(parent)).join(", ")}`,
+        ]
+      : []),
   ];
   if (
     commit.committer !== commit.author ||
     commit.committerEmail !== commit.authorEmail
   ) {
     lines.push(
-      `Committer: ${committer}`,
-      ...(commit.committerEmail ? [`Email: ${commit.committerEmail}`] : []),
-      `Committed: ${formatRelativeTime(commit.committedAt)}`,
-      `Date: ${formatDate(commit.committedAt)}`,
+      `Committed by ${committer}`,
+      `Committed: ${formatCommitDate(commit.committedAt)}`,
     );
   }
   return {
-    info: new StyledText([fg(oneDarkTheme.muted)(lines.join("\n"))]),
+    info: new StyledText([
+      fg(oneDarkTheme.text)(lines[0] ?? ""),
+      fg(oneDarkTheme.muted)(
+        lines
+          .slice(1)
+          .map((line) => `\n${line}`)
+          .join(""),
+      ),
+    ]),
     header: commit.subject,
-    body: commit.body || "(no body)",
+    body,
   };
 }
 
@@ -120,7 +165,7 @@ export function layoutCommitDetail({
 }: CommitDetailLayoutInput): CommitDetailLayout {
   const width = Math.max(10, Math.floor(detailsWidth) - 8);
   const height = Math.max(0, Math.floor(terminalHeight));
-  const body = commit.body || "(no body)";
+  const body = presentCommitMeta(commit).body;
   // Measure the text that is actually rendered. In particular, formatted
   // dates and the avatar can wrap where the raw commit values would not, and
   // duplicate committer rows are not rendered at all.

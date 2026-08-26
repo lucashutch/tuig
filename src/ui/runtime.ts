@@ -231,6 +231,8 @@ class Runtime {
   private readonly commitInfo: TextRenderable;
   private readonly authorPhoto: ImageRenderable;
   private readonly authorBadge: TextRenderable;
+  private readonly commitCoAuthors: TextRenderable;
+  private readonly commitCoAuthorProvider: ImageRenderable;
   private readonly editMessageButton: TextRenderable;
   private readonly commitHeader: TextRenderable;
   private readonly commitBody: TextRenderable;
@@ -292,6 +294,8 @@ class Runtime {
   private commitHeaderValue = "";
   private commitBodyValue = "";
   private commitInfoValue = "";
+  private commitCoAuthorsValue = "";
+  private commitCoAuthorsProviderVisible = false;
   private avatarRequest = 0;
   private avatarAbort?: AbortController;
   private preferredUnstagedHeight?: number;
@@ -400,6 +404,8 @@ class Runtime {
     this.commitInfo = widgets.commitInfo;
     this.authorPhoto = widgets.authorPhoto;
     this.authorBadge = widgets.authorBadge;
+    this.commitCoAuthors = widgets.commitCoAuthors;
+    this.commitCoAuthorProvider = widgets.commitCoAuthorProvider;
     this.editMessageButton = widgets.editMessageButton;
     this.commitHeader = widgets.commitHeader;
     this.commitBody = widgets.commitBody;
@@ -793,6 +799,8 @@ class Runtime {
         commitInfoBox: this.commitInfoBox,
         authorPhoto: this.authorPhoto,
         authorBadge: this.authorBadge,
+        commitCoAuthors: this.commitCoAuthors,
+        commitCoAuthorProvider: this.commitCoAuthorProvider,
       },
       get snapshot() {
         return runtime.snapshot;
@@ -925,6 +933,18 @@ class Runtime {
       },
       set commitBodyValue(value) {
         runtime.commitBodyValue = value;
+      },
+      get commitCoAuthorsValue() {
+        return runtime.commitCoAuthorsValue;
+      },
+      set commitCoAuthorsValue(value) {
+        runtime.commitCoAuthorsValue = value;
+      },
+      get commitCoAuthorsProviderVisible() {
+        return runtime.commitCoAuthorsProviderVisible;
+      },
+      set commitCoAuthorsProviderVisible(value) {
+        runtime.commitCoAuthorsProviderVisible = value;
       },
       get avatarRequest() {
         return runtime.avatarRequest;
