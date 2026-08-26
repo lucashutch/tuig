@@ -8,6 +8,9 @@ Canonical repository: https://github.com/lucashutch/tuig
 
 - `src/git/` — Git process boundary, parsers, repository service, and domain models.
 - `src/ui/` — OpenTUI rendering, interaction state, panes, menus, and dialogs.
+- `src/ui/runtime-widgets.ts` — typed OpenTUI widget factory, pane wiring, and renderable event bindings for the runtime.
+- `src/ui/graph-menu.ts` — pure model, placement, and hit testing for the graph context menu.
+- `src/ui/runtime-presentation.ts` — typed, pure runtime sidebar, commit metadata, and text-layout presentation helpers.
 - `src/index.ts` — CLI path resolution and app startup.
 - `tests/` — parser, service integration, and state tests.
 
