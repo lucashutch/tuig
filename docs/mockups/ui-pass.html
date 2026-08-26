@@ -1,0 +1,325 @@
+<!doctype html>
+<meta charset="utf-8" />
+<title>tuig — UI pass mockups</title>
+<style>
+  :root {
+    --bg: #282c34;
+    --panel: #21252b;
+    --raised: #2c313a;
+    --text: #abb2bf;
+    --muted: #5c6370;
+    --accent: #61afef;
+    --soft: #56b6c2;
+    --sel: #3e4451;
+    --add: #98c379;
+    --del: #e06c75;
+    --warn: #e5c07b;
+    --purple: #c678dd;
+    --div: #2b5b61;
+    --divon: #315878;
+  }
+  body {
+    background: #15171b;
+    color: var(--text);
+    font:
+      14px/1.6 -apple-system,
+      Segoe UI,
+      Roboto,
+      sans-serif;
+    margin: 0;
+    padding: 32px;
+  }
+  main {
+    max-width: 1180px;
+    margin: 0 auto;
+  }
+  h1 {
+    color: #fff;
+    font-size: 24px;
+    margin: 0 0 4px;
+  }
+  h2 {
+    color: #fff;
+    font-size: 17px;
+    margin: 44px 0 2px;
+  }
+  p.note {
+    color: var(--muted);
+    margin: 0 0 12px;
+    max-width: 70ch;
+  }
+  pre {
+    background: var(--bg);
+    border: 1px solid #000;
+    border-radius: 6px;
+    padding: 14px 16px;
+    overflow-x: auto;
+    font:
+      12px/1.35 "JetBrains Mono",
+      "SFMono-Regular",
+      Menlo,
+      Consolas,
+      monospace;
+    color: var(--text);
+    margin: 0;
+  }
+  .m {
+    color: var(--muted);
+  }
+  .a {
+    color: var(--accent);
+  }
+  .s {
+    color: var(--soft);
+  }
+  .g {
+    color: var(--add);
+  }
+  .r {
+    color: var(--del);
+  }
+  .w {
+    color: var(--warn);
+  }
+  .p {
+    color: var(--purple);
+  }
+  .d {
+    color: var(--div);
+  }
+  .dn {
+    color: var(--divon);
+  }
+  .hi {
+    background: var(--sel);
+  }
+  .pn {
+    background: var(--panel);
+  }
+  .rs {
+    background: var(--raised);
+  }
+  .bar {
+    background: var(--raised);
+    color: #fff;
+  }
+  .focus {
+    color: var(--accent);
+    font-weight: 700;
+  }
+  .addl {
+    background: #30402f;
+  }
+  .dell {
+    background: #462c31;
+  }
+  ul.k {
+    color: var(--muted);
+    margin: 8px 0 0;
+    padding-left: 20px;
+    max-width: 80ch;
+  }
+  ul.k b {
+    color: var(--text);
+    font-weight: 600;
+  }
+</style>
+<main>
+  <h1>tuig — UI pass mockups</h1>
+  <p class="note">
+    Five mockups for the changes in <code>docs/ui-review.md</code>. Rendered at
+    118 columns.
+  </p>
+
+  <h2>1 — Repository header, split status row, visible focus</h2>
+  <p class="note">
+    Fixes review items 1, 2, 3. The header survives pane collapse, the hint row
+    no longer gets eaten by transient messages, and the focused pane is obvious.
+  </p>
+  <pre><span class="bar"> <span class="a">◉ tuig</span>  <span class="w">feat/graph-routing</span>  <span class="g">↑2</span> <span class="r">↓1</span>  <span class="w">7 changed</span>  <span class="m">origin · fetched 3m ago</span>                          <span class="s">[fetch]</span> <span class="s">[pull]</span> <span class="s">[push]</span> <span class="m">?</span> </span>
+<span class="m">├─</span> <span class="m">REPOSITORY</span> <span class="m">──────────────┤</span><span class="d">▌</span><span class="focus">├─ HISTORY ────────────────────────────────────────────────┤</span><span class="dn">▌</span><span class="m">├─ UNSTAGED 4 ──────────────┤</span>
+                            <span class="d">▌</span> <span class="m">BRANCH / TAG        GRAPH   1,284 COMMITS</span>              <span class="dn">▌</span>
+<span class="a">▼</span> LOCAL BRANCHES <span class="m">3</span>         <span class="d">▌</span><span class="rs"> <span class="w">▸ ● Working changes</span>   <span class="m">7 files · 4 unstaged</span>              </span><span class="dn">▌</span> <span class="w">●</span>  src/ui/runtime.ts
+  <span class="a">◉</span>  feat/graph-routing        <span class="d">▌</span><span class="hi"> <span class="a">feat/graph-r</span> <span class="m">▸</span> <span class="a">●</span> <span class="p">│</span> Decompose terminal UI ru… <span class="p">│</span> Lucas H <span class="a">│</span>72ca014</span><span class="dn">▌</span> <span class="g">✚</span>  src/ui/header.ts
+  <span class="s">◆</span>  main                      <span class="d">▌</span>              <span class="m">│</span> <span class="p">●</span> <span class="a">│</span> Improve graph route rend… <span class="p">│</span> Lucas H <span class="a">│</span>6c807ff <span class="dn">▌</span> <span class="w">●</span>  docs/roadmap.md
+  <span class="m">○</span>  fix/diff-scroll           <span class="d">▌</span> <span class="w">v0.2.0</span>       <span class="m">│</span> <span class="a">●</span>   <span class="m">│</span> Initial public release    <span class="m">│</span> Lucas H <span class="a">│</span>209c1e9 <span class="dn">▌</span> <span class="r">✖</span>  src/ui/legacy.ts
+                            <span class="d">▌</span>                                                          <span class="dn">▌</span>
+<span class="a">▼</span> REMOTES <span class="m">2</span>                 <span class="d">▌</span>                                                          <span class="dn">▌</span> <span class="m">── DIFF ─────────────────</span>
+  <span class="s">◆</span>  origin/main               <span class="d">▌</span>                                                          <span class="dn">▌</span> <span class="m">@@ -14,7 +14,9 @@</span>
+  <span class="m">◌</span>  origin/next               <span class="d">▌</span>                                                          <span class="dn">▌</span> <span class="m">14</span>   const t = theme;
+                            <span class="d">▌</span>                                                          <span class="dn">▌</span><span class="dell"> <span class="m">15</span> <span class="r">-</span> layout();          </span>
+<span class="m">▶ STASHES 1   ▶ WORKTREES 2</span>  <span class="d">▌</span>                                                          <span class="dn">▌</span><span class="addl"> <span class="m">15</span> <span class="g">+</span> header.paint();    </span>
+                            <span class="d">▌</span>                                                          <span class="dn">▌</span><span class="addl"> <span class="m">16</span> <span class="g">+</span> layout();          </span>
+<span class="bar"> <span class="m">HISTORY</span>  <span class="a">j/k</span> move  <span class="a">↵</span> open  <span class="a">c</span> commit  <span class="a">⇥</span> next pane  <span class="a">⌃P</span> commands            <span class="s">⠻ pushing to origin…</span>                    </span></pre>
+  <ul class="k">
+    <li>
+      <b>Header</b> is global, so collapsing the left pane no longer hides the
+      branch.
+    </li>
+    <li>
+      <b>Hint row</b> is scoped to the focused pane; messages and spinners live
+      on the right and expire.
+    </li>
+    <li>
+      <b>Focus</b> shown by the accent pane title plus the accent divider —
+      <code>⇥</code> cycles.
+    </li>
+  </ul>
+
+  <h2>2 — Sidebar as one scrollable tree with a filter</h2>
+  <p class="note">
+    Fixes item 4. Replaces the 10-row cap, the 6-stash cap, and Y-arithmetic hit
+    testing.
+  </p>
+  <pre><span class="bar"> <span class="a">◉ tuig</span>  <span class="w">feat/graph-routing</span>  <span class="g">↑2</span> <span class="r">↓1</span>  <span class="w">7 changed</span>                                                       <span class="s">[fetch]</span> <span class="s">[pull]</span> <span class="s">[push]</span> </span>
+<span class="focus">├─ REPOSITORY ───────────────┤</span><span class="dn">▌</span><span class="m">├─ HISTORY ──────────────────────────────────────────────┤</span><span class="d">▌</span><span class="m">├─ UNSTAGED 4 ────────────┤</span>
+<span class="hi"> <span class="a">/</span> graph▏                    </span><span class="dn">▌</span> <span class="m">BRANCH / TAG        GRAPH   1,284 COMMITS</span>             <span class="d">▌</span>
+ <span class="m">3 of 214 refs match</span>        <span class="dn">▌</span><span class="rs"> <span class="w">● Working changes</span>     <span class="m">7 files · 4 unstaged</span>             </span><span class="d">▌</span> <span class="w">●</span>  src/ui/runtime.ts
+                            <span class="dn">▌</span><span class="hi"> <span class="a">feat/graph-r</span> <span class="m">▸</span> <span class="a">●</span> <span class="p">│</span> Decompose terminal UI r… <span class="p">│</span> Lucas <span class="a">│</span>72ca014</span><span class="d">▌</span> <span class="g">✚</span>  src/ui/header.ts
+ <span class="a">▼</span> <span class="m">LOCAL</span> <span class="m">2/3</span>               <span class="dn">▌</span>              <span class="m">│</span> <span class="p">●</span> <span class="a">│</span> Improve <span class="w">graph</span> route ren… <span class="p">│</span> Lucas <span class="a">│</span>6c807ff<span class="d">▌</span> <span class="w">●</span>  docs/roadmap.md
+<span class="hi"> <span class="a">◉</span>  feat/<span class="w">graph</span>-routing <span class="g">↑2</span><span class="r">↓1</span>  </span><span class="dn">▌</span> <span class="w">v0.2.0</span>       <span class="m">│</span> <span class="a">●</span>   <span class="m">│</span> Initial public release   <span class="m">│</span> Lucas <span class="a">│</span>209c1e9<span class="d">▌</span> <span class="r">✖</span>  src/ui/legacy.ts
+ <span class="m">○</span>  fix/<span class="w">graph</span>-labels    <span class="m">↑1</span>  <span class="dn">▌</span>                                                         <span class="d">▌</span>
+ <span class="a">▼</span> <span class="m">REMOTES</span> <span class="m">1/2</span>             <span class="dn">▌</span>                                                         <span class="d">▌</span> <span class="m">── DIFF ───────────────</span>
+ <span class="m">◌</span>  origin/<span class="w">graph</span>-spike       <span class="dn">▌</span>                                                         <span class="d">▌</span> <span class="m">@@ -14,7 +14,9 @@</span>
+ <span class="a">▶</span> <span class="m">TAGS</span> <span class="m">0/11</span>               <span class="dn">▌</span>                                                         <span class="d">▌</span> <span class="m">14</span>   const t = theme;
+ <span class="a">▼</span> <span class="m">STASHES</span> <span class="m">0/1</span>            <span class="dn">▌</span>                                                         <span class="d">▌</span><span class="dell"> <span class="m">15</span> <span class="r">-</span> layout();        </span>
+ <span class="m">◇  stash@{0} wip: theme</span>     <span class="dn">▌</span>                                                         <span class="d">▌</span><span class="addl"> <span class="m">15</span> <span class="g">+</span> header.paint();  </span>
+ <span class="a">▼</span> <span class="m">WORKTREES</span> <span class="m">0/2</span>          <span class="dn">▌</span>                                                         <span class="d">▌</span><span class="addl"> <span class="m">16</span> <span class="g">+</span> layout();        </span>
+ <span class="m">⎇  tuig-release</span>             <span class="dn">▌</span>                                                         <span class="d">▌</span>
+ <span class="a">▶</span> <span class="m">SUBMODULES</span> <span class="m">0/0</span>         <span class="dn">▌</span>                                                         <span class="d">▌</span>
+<span class="bar"> <span class="a">REPOSITORY</span>  <span class="a">↵</span> checkout  <span class="a">n</span> new branch  <span class="a">d</span> delete  <span class="a">esc</span> clear filter                <span class="m">filter: graph</span>                    </span></pre>
+  <ul class="k">
+    <li>
+      Every group is a collapsible section in the same scroll region — no
+      per-section caps.
+    </li>
+    <li>
+      <code>/</code> fuzzy-filters across all sections, matches highlighted,
+      counts become <code>matched/total</code>.
+    </li>
+    <li>
+      Ahead/behind per branch, so <code>◆</code>/<code>○</code> markers no
+      longer carry all the sync meaning.
+    </li>
+  </ul>
+
+  <h2>3 — Command palette</h2>
+  <p class="note">
+    Fixes item 7. Surfaces the actions <code>menu.ts</code> already models plus
+    the ones that have no UI at all, and teaches the keys as a side effect.
+  </p>
+  <pre><span class="bar"> <span class="a">◉ tuig</span>  <span class="w">feat/graph-routing</span>  <span class="g">↑2</span> <span class="r">↓1</span>  <span class="w">7 changed</span>                                                       <span class="s">[fetch]</span> <span class="s">[pull]</span> <span class="s">[push]</span> </span>
+<span class="m">├─ REPOSITORY ──────┤</span><span class="d">▌</span><span class="m">├─ HISTORY ───────────────────────────────────────────────────┤</span><span class="d">▌</span><span class="m">├─ UNSTAGED 4 ──────┤</span>
+ <span class="a">◉</span>  feat/graph-rout  <span class="d">▌</span> <span class="m">BRANCH / TAG        GRAPH   1,284 COMMITS</span>                  <span class="d">▌</span> <span class="w">●</span>  runtime.ts
+ <span class="s">◆</span>  main             <span class="d">▌</span><span class="rs"> <span class="w">● Working changes</span>   <span class="m">7 files</span>                              </span><span class="d">▌</span> <span class="g">✚</span>  header.ts
+ <span class="m">○</span>  fix/diff-scroll  <span class="d">▌</span><span class="hi"> <span class="a">feat/graph-r</span> <span class="m">▸</span> <span class="a">●</span> <span class="p">│</span> Decompose terminal UI runti… <span class="p">│</span>72ca014</span><span class="d">▌</span> <span class="w">●</span>  roadmap.md
+                     <span class="d">▌</span>       <span class="pn">╭──────────────────────────────────────────────────────────╮</span>      <span class="d">▌</span> <span class="r">✖</span>  legacy.ts
+                     <span class="d">▌</span>       <span class="pn">│ <span class="a">⌃P</span> <span class="hi">stash▏                                              </span> │</span>      <span class="d">▌</span>
+                     <span class="d">▌</span>       <span class="pn">├──────────────────────────────────────────────────────────┤</span>      <span class="d">▌</span> <span class="m">── DIFF ──────────</span>
+                     <span class="d">▌</span>       <span class="pn">│ <span class="hi"><span class="a">◇</span> Stash all changes                      <span class="m">git stash -u</span> </span> │</span>      <span class="d">▌</span> <span class="m">@@ -14,7 +14,9 @@</span>
+                     <span class="d">▌</span>       <span class="pn">│   <span class="a">◇</span> Stash staged only                                    │</span>      <span class="d">▌</span> <span class="m">14</span>  const t = th
+                     <span class="d">▌</span>       <span class="pn">│   <span class="a">◇</span> Apply stash@{0} <span class="m">wip: theme</span>                            │</span>      <span class="d">▌</span><span class="dell"> <span class="m">15</span><span class="r">-</span> layout();     </span>
+                     <span class="d">▌</span>       <span class="pn">│   <span class="r">◇</span> Drop stash@{0}                       <span class="m">confirms</span>       │</span>      <span class="d">▌</span><span class="addl"> <span class="m">15</span><span class="g">+</span> header.paint()</span>
+                     <span class="d">▌</span>       <span class="pn">│   <span class="m">─────────────────────────────────────────────────────</span>  │</span>      <span class="d">▌</span><span class="addl"> <span class="m">16</span><span class="g">+</span> layout();     </span>
+                     <span class="d">▌</span>       <span class="pn">│   <span class="a">⎇</span> Restore worktree <span class="m">tuig-release</span>                        │</span>      <span class="d">▌</span>
+                     <span class="d">▌</span>       <span class="pn">╰─ <span class="m">4 of 38 actions · target: working changes</span> ───────────────╯</span>      <span class="d">▌</span>
+<span class="bar"> <span class="a">PALETTE</span>  <span class="a">↑/↓</span> select  <span class="a">↵</span> run  <span class="a">esc</span> close  <span class="m">every action lists its key and its git command</span>                  </span></pre>
+  <ul class="k">
+    <li>
+      Target-aware: the footer names what the action will apply to before you
+      commit to it.
+    </li>
+    <li>
+      Right column shows the real git command — keeps the "does not hide Git"
+      promise.
+    </li>
+    <li>
+      Destructive rows are red and marked <code>confirms</code>, which finally
+      uses <code>MenuItem.destructive</code>.
+    </li>
+  </ul>
+
+  <h2>4 — One diff surface, flexed panes, hunk chips</h2>
+  <p class="note">
+    Fixes items 5, 6, 8. The graph is never hidden, the diff gets the leftover
+    height instead of a fixed 57%, and hunks become clickable.
+  </p>
+  <pre><span class="bar"> <span class="a">◉ tuig</span>  <span class="w">feat/graph-routing</span>  <span class="g">↑2</span> <span class="r">↓1</span>  <span class="w">7 changed</span>                                                       <span class="s">[fetch]</span> <span class="s">[pull]</span> <span class="s">[push]</span> </span>
+<span class="m">├─ REPOSITORY ──────┤</span><span class="d">▌</span><span class="m">├─ HISTORY ─────────────────┤</span><span class="d">▌</span><span class="focus">├─ <span class="hi"> DIFF </span> MESSAGE  FILES 4 ─────────── <span class="s">[unified|split]</span> ─┤</span>
+ <span class="a">◉</span>  feat/graph-rout  <span class="d">▌</span> <span class="m">GRAPH  1,284 COMMITS</span>       <span class="d">▌</span> <span class="w">●</span> <span class="a">src/ui/runtime.ts</span>  <span class="m">+18 −4</span>          <span class="s">[stage file]</span> <span class="r">[discard]</span>
+ <span class="s">◆</span>  main             <span class="d">▌</span><span class="rs"> <span class="w">● Working changes</span>  <span class="m">7</span>      </span><span class="d">▌</span>
+ <span class="m">○</span>  fix/diff-scroll  <span class="d">▌</span><span class="hi"> <span class="m">▸</span> <span class="a">●</span> <span class="p">│</span> Decompose ter…</span><span class="d">▌</span><span class="rs"> <span class="a">▾ HUNK 1/3</span> <span class="m">@@ -14,7 +14,9 @@ layout()</span>       <span class="s">[stage]</span> <span class="r">[discard]</span> </span>
+                     <span class="d">▌</span>   <span class="m">│</span> <span class="p">●</span> <span class="a">│</span> Improve graph… <span class="d">▌</span>  <span class="m">14</span>   const t = theme;
+                     <span class="d">▌</span>   <span class="m">│</span> <span class="a">●</span>   <span class="m">│</span> Initial publi… <span class="d">▌</span><span class="dell">  <span class="m">15</span> <span class="r">-</span>  layout();                                        </span>
+                     <span class="d">▌</span>                            <span class="d">▌</span><span class="addl">  <span class="m">15</span> <span class="g">+</span>  header.paint(snapshot);                          </span>
+                     <span class="d">▌</span>                            <span class="d">▌</span><span class="addl">  <span class="m">16</span> <span class="g">+</span>  layout();                                        </span>
+                     <span class="d">▌</span>                            <span class="d">▌</span>  <span class="m">17</span>   this.paint();
+                     <span class="d">▌</span>                            <span class="d">▌</span>
+                     <span class="d">▌</span>                            <span class="d">▌</span> <span class="m">▸ HUNK 2/3  @@ -88,3 +90,12 @@ paintHistory()   <span class="g">+9</span> <span class="r">−0</span></span>
+                     <span class="d">▌</span>                            <span class="d">▌</span> <span class="m">▸ HUNK 3/3  @@ -211,4 +222,5 @@ layout()        <span class="g">+1</span> <span class="r">−1</span></span>
+                     <span class="d">▌</span>                            <span class="d">▌</span><span class="m">─────────────────────────────── drag to resize ───</span>
+                     <span class="d">▌</span>                            <span class="d">▌</span><span class="hi"> <span class="a">✎</span> Add header bar and hint row▏                     </span>
+<span class="bar"> <span class="a">DIFF</span>  <span class="a">[/]</span> prev/next hunk  <span class="a">s</span> stage hunk  <span class="a">x</span> discard hunk  <span class="a">v</span> split view  <span class="a">esc</span> back to history           </span></pre>
+  <ul class="k">
+    <li>
+      Graph stays visible while a commit diff is open — <code>j/k</code> keep
+      working instead of no-opping.
+    </li>
+    <li>
+      Tabs replace the two-place diff split; file list moves behind a tab rather
+      than a 7-row clamp.
+    </li>
+    <li>
+      Hunk headers are rows with counts and chips; <code>s</code> acts on the
+      selected hunk, not "the first one".
+    </li>
+    <li>
+      Horizontal splitter inside the right pane, so diff height is a user
+      choice, not a percentage.
+    </li>
+  </ul>
+
+  <h2>5 — Confirm strip, empty states, ASCII fallback</h2>
+  <p class="note">
+    Fixes items 9, 10, 11, 12. Same screen shown twice: the top half is a
+    destructive confirm, the bottom is a clean repo in ASCII mode.
+  </p>
+  <pre><span class="bar"> <span class="a">◉ tuig</span>  <span class="w">feat/graph-routing</span>  <span class="g">↑2</span> <span class="r">↓1</span>  <span class="w">7 changed</span>                                                       <span class="s">[fetch]</span> <span class="s">[pull]</span> <span class="s">[push]</span> </span>
+<span class="m">├─ REPOSITORY ──────┤</span><span class="d">▌</span><span class="m">├─ HISTORY ───────────────────────────────────────────────────┤</span><span class="d">▌</span><span class="m">├─ UNSTAGED 4 ──────┤</span>
+ <span class="a">◉</span>  feat/graph-rout  <span class="d">▌</span> <span class="m">BRANCH / TAG        GRAPH   1,284 COMMITS</span>                  <span class="d">▌</span> <span class="w">●</span>  runtime.ts
+ <span class="s">◆</span>  main             <span class="d">▌</span><span class="hi"> <span class="a">main</span> <span class="w">v1.2.0</span> <span class="s">+2</span> <span class="m">▸</span> <span class="a">●</span> <span class="p">│</span> Release 1.2.0        <span class="p">│</span>72ca014 </span><span class="d">▌</span> <span class="g">✚</span>  header.ts
+<span class="hi"> <span class="r">○</span>  fix/diff-scroll  </span><span class="d">▌</span>                <span class="m">│</span> <span class="p">●</span> <span class="a">│</span> Improve graph route… <span class="p">│</span>6c807ff <span class="d">▌</span> <span class="w">●</span>  roadmap.md
+                     <span class="d">▌</span>                                                             <span class="d">▌</span> <span class="r">✖</span>  legacy.ts
+<span class="bar"> <span class="r">⚠ Delete branch fix/diff-scroll?</span> <span class="m">1 commit not on any other ref</span>   <span class="w">y</span> confirm  <span class="w">esc</span> cancel                    </span>
+
+<span class="m">                                    · · · clean repository, ASCII glyph set · · ·</span>
+
+<span class="bar"> <span class="a">[*] tuig</span>  <span class="w">main</span>  <span class="g">up to date</span>  <span class="m">clean</span>                                                            <span class="s">[fetch]</span> <span class="s">[pull]</span> <span class="s">[push]</span> </span>
+<span class="m">+- REPOSITORY -------+</span><span class="d">|</span><span class="m">+- HISTORY ---------------------------------------------------+</span><span class="d">|</span><span class="m">+- CHANGES 0 --------+</span>
+ <span class="a">[*]</span> main             <span class="d">|</span> <span class="m">BRANCH / TAG        GRAPH   1,284 COMMITS</span>                  <span class="d">|</span>
+ <span class="s">[o]</span> next             <span class="d">|</span><span class="hi"> <span class="a">main</span>           <span class="m">&gt;</span> <span class="a">o</span> <span class="p">|</span> Release 1.2.0        <span class="p">|</span>72ca014 </span><span class="d">|</span>    <span class="m">Working tree clean</span>
+                     <span class="d">|</span>                <span class="m">|</span> <span class="p">o</span> <span class="a">|</span> Improve graph route… <span class="p">|</span>6c807ff <span class="d">|</span>
+ <span class="m">&gt; STASHES 0</span>         <span class="d">|</span>                <span class="m">|</span> <span class="a">o</span>   <span class="m">|</span> Initial release      <span class="m">|</span>209c1e9 <span class="d">|</span>  <span class="m">Nothing to stage. Next:</span>
+ <span class="m">&gt; WORKTREES 1</span>       <span class="d">|</span>                                                             <span class="d">|</span>   <span class="a">f</span> <span class="m">fetch origin</span>
+                     <span class="d">|</span> <span class="m">░░░░░░░░░░░  ░ ░░░░░░░░░░░░░░░░░░░  ░░░░░░░  ← loading rows</span> <span class="d">|</span>   <span class="a">^P</span> <span class="m">all commands</span>
+                     <span class="d">|</span> <span class="m">░░░░░░░░░░░  ░ ░░░░░░░░░░░░░░░░░░░  ░░░░░░░</span>                <span class="d">|</span>   <span class="a">?</span> <span class="m">keyboard help</span>
+<span class="bar"> <span class="m">HISTORY</span>  <span class="a">j/k</span> move  <span class="a">^P</span> commands  <span class="m">--ascii --theme=light</span>                                              </span></pre>
+  <ul class="k">
+    <li>
+      Confirms are an inline strip with impact detail, not a modal —
+      <code>y</code>/<code>esc</code>, no focus loss.
+    </li>
+    <li>
+      Graph shows the primary ref plus <code>+2</code> for hidden decorations,
+      and tags are no longer filtered out.
+    </li>
+    <li>
+      <code>--ascii</code> drops the Nerd Font requirement; skeleton rows
+      replace <code>"Loading history…"</code>.
+    </li>
+    <li>
+      Empty states carry the next action instead of a bare
+      <code>"Working tree clean"</code>.
+    </li>
+  </ul>
+</main>
