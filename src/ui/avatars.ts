@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { mkdir, rename, stat } from "node:fs/promises";
+import { mkdir, readFile, rename, stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { NativeImage } from "@opentui/core";
@@ -35,6 +35,34 @@ function avatarCachePath(source: string): string {
   const cacheHome = process.env.XDG_CACHE_HOME || join(homedir(), ".cache");
   const key = createHash("sha256").update(source).digest("hex");
   return join(cacheHome, "tuig", "avatars", `${key}.img`);
+}
+
+function avatarSourceCachePath(source: string): string {
+  const cacheHome = process.env.XDG_CACHE_HOME || join(homedir(), ".cache");
+  const key = createHash("sha256").update(source).digest("hex");
+  return join(cacheHome, "tuig", "avatars", `${key}.url`);
+}
+
+async function readCachedAvatarSource(
+  source: string,
+): Promise<string | undefined> {
+  const path = avatarSourceCachePath(source);
+  try {
+    if (Date.now() - (await stat(path)).mtimeMs >= AVATAR_CACHE_TTL)
+      return undefined;
+    const value = (await readFile(path, "utf8")).trim();
+    return /^https:\/\//.test(value) ? value : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+async function writeCachedAvatarSource(source: string, value: string) {
+  const path = avatarSourceCachePath(source);
+  await mkdir(join(path, ".."), { recursive: true });
+  const temporary = `${path}.${process.pid}.tmp`;
+  await Bun.write(temporary, `${value}\n`);
+  await rename(temporary, path);
 }
 
 /** Load an avatar from the seven-day disk cache, refreshing it when stale. */
@@ -120,10 +148,17 @@ export async function getGitHubCommitAvatar(
     if (authorKey) authorAvatarCache.set(authorKey, cached);
     return cached;
   }
+  const diskCached = await readCachedAvatarSource(url);
+  if (diskCached) {
+    githubAvatarCache.set(url, diskCached);
+    if (authorKey) authorAvatarCache.set(authorKey, diskCached);
+    return diskCached;
+  }
   const result = await resolveGitHubCommitAvatar(url, signal);
   if (result) {
     githubAvatarCache.set(url, result);
     if (authorKey) authorAvatarCache.set(authorKey, result);
+    await writeCachedAvatarSource(url, result).catch(() => undefined);
   }
   return result;
 }
