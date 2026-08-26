@@ -11,7 +11,7 @@ try {
   } else if (action.kind === "version") {
     console.log(`tuig ${VERSION}`);
   } else if (action.kind === "update") {
-    await updateTuig();
+    await updateTuig(VERSION);
   } else {
     const repository = await createGitRepository(action.path);
     await runTuig(repository);

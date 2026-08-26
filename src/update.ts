@@ -7,6 +7,10 @@ export function installSourceForTag(tag: string) {
   return `${GIT_SOURCE}#${tag}`;
 }
 
+export function isCurrentRelease(version: string, tag: string) {
+  return tag.replace(/^v/, "") === version.replace(/^v/, "");
+}
+
 export async function latestReleaseTag(
   fetcher: typeof fetch = fetch,
 ): Promise<string> {
@@ -25,13 +29,25 @@ export async function latestReleaseTag(
   return release.tag_name;
 }
 
-export async function updateTuig() {
+export async function updateTuig(currentVersion: string) {
+  console.log("Checking for updates...");
   const tag = await latestReleaseTag();
+  if (isCurrentRelease(currentVersion, tag)) {
+    console.log("Tuig is up to date.");
+    return;
+  }
+
+  console.log(`Update found (${tag}). Upgrading...`);
   const child = Bun.spawn(["bun", "install", "-g", installSourceForTag(tag)], {
-    stdin: "inherit",
-    stdout: "inherit",
-    stderr: "inherit",
+    stdin: "ignore",
+    stdout: "pipe",
+    stderr: "pipe",
   });
-  if ((await child.exited) !== 0)
-    throw new Error(`Bun could not install tuig ${tag}`);
+  const [exitCode] = await Promise.all([
+    child.exited,
+    new Response(child.stdout).text(),
+    new Response(child.stderr).text(),
+  ]);
+  if (exitCode !== 0) throw new Error(`Bun could not install tuig ${tag}`);
+  console.log(`Tuig ${tag} is ready.`);
 }
