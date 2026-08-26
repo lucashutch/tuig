@@ -31,6 +31,8 @@ type LayoutWidgets = Pick<
   | "editMessageButton"
   | "commitInfo"
   | "commitInfoBox"
+  | "authorPhoto"
+  | "authorBadge"
   | "commitInfoLabel"
   | "commitDiff"
   | "commitDiffEmpty"
@@ -183,13 +185,22 @@ export function layoutRuntime(context: RuntimeLayoutContext) {
     6,
     // Keep a spare row below wrapped identities so the changed-file
     // section can never share a line with the final metadata row.
-    wrappedLineCount(context.commitInfoValue, textWidth) + 2,
+    wrappedLineCount(context.commitInfoValue, Math.max(10, textWidth - 10)) + 2,
   );
   // The metadata text sits below the COMMIT label inside the card.  Its
   // widget has a one-row default height, which silently clipped the author,
   // committer, and timestamp lines even though the surrounding box was
   // resized to fit them.
   context.commitInfo.height = Math.max(1, infoHeight - 1);
+  context.commitInfo.left = 11;
+  context.commitInfo.width = Math.max(10, context.detailsPaneWidth - 13);
+  context.authorPhoto.left = 1;
+  context.authorPhoto.top = 1;
+  context.authorPhoto.width = 8;
+  context.authorPhoto.height = 4;
+  context.authorBadge.left = 1;
+  context.authorBadge.top = 2;
+  context.authorBadge.width = 8;
   const sha = shortSha(
     context.snapshot?.commits[context.commitIndex]?.sha ?? "",
   );

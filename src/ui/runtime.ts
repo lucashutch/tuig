@@ -6,6 +6,7 @@ import {
   DiffRenderable,
   InputRenderable,
   InputRenderableEvents,
+  ImageRenderable,
   TextRenderable,
   createCliRenderer,
   type CliRenderer,
@@ -228,6 +229,8 @@ class Runtime {
   private readonly commitInfoLabel: TextRenderable;
   private readonly commitBodyBox: ScrollBoxRenderable;
   private readonly commitInfo: TextRenderable;
+  private readonly authorPhoto: ImageRenderable;
+  private readonly authorBadge: TextRenderable;
   private readonly editMessageButton: TextRenderable;
   private readonly commitHeader: TextRenderable;
   private readonly commitBody: TextRenderable;
@@ -289,6 +292,8 @@ class Runtime {
   private commitHeaderValue = "";
   private commitBodyValue = "";
   private commitInfoValue = "";
+  private avatarRequest = 0;
+  private avatarAbort?: AbortController;
   private preferredUnstagedHeight?: number;
   private preferredComposerHeight?: number;
   private preferencesTimer?: ReturnType<typeof setTimeout>;
@@ -393,6 +398,8 @@ class Runtime {
     this.commitInfoLabel = widgets.commitInfoLabel;
     this.commitBodyBox = widgets.commitBodyBox;
     this.commitInfo = widgets.commitInfo;
+    this.authorPhoto = widgets.authorPhoto;
+    this.authorBadge = widgets.authorBadge;
     this.editMessageButton = widgets.editMessageButton;
     this.commitHeader = widgets.commitHeader;
     this.commitBody = widgets.commitBody;
@@ -784,6 +791,8 @@ class Runtime {
         commitBody: this.commitBody,
         commitBodyBox: this.commitBodyBox,
         commitInfoBox: this.commitInfoBox,
+        authorPhoto: this.authorPhoto,
+        authorBadge: this.authorBadge,
       },
       get snapshot() {
         return runtime.snapshot;
@@ -917,6 +926,21 @@ class Runtime {
       set commitBodyValue(value) {
         runtime.commitBodyValue = value;
       },
+      get avatarRequest() {
+        return runtime.avatarRequest;
+      },
+      set avatarRequest(value) {
+        runtime.avatarRequest = value;
+      },
+      get avatarAbort() {
+        return runtime.avatarAbort;
+      },
+      set avatarAbort(value) {
+        runtime.avatarAbort = value;
+      },
+      // OpenTUI's block protocol can render images even without Kitty or
+      // Sixel, so keep photo loading enabled on ordinary terminals too.
+      avatarSupported: true,
       files: () => this.files(),
       selectedFile: () => this.selectedFile(),
       ensureFileVisible: () => this.ensureFileVisible(),
@@ -1084,7 +1108,14 @@ class Runtime {
   }
 
   private moveCommit(delta: number) {
+    const wasCommitView = this.view === "commit";
     moveHistoryCommit(this.historyContext(), delta);
+    if (
+      wasCommitView &&
+      this.view === "commit" &&
+      this.historySelection === "commit"
+    )
+      void this.openCommit();
   }
   private queueHistoryScroll(delta: number) {
     queueRuntimeHistoryScroll(this.historyContext(), delta);
@@ -1345,6 +1376,7 @@ class Runtime {
       return;
     }
     if (key.name === "q" || (key.ctrl && key.name === "c")) {
+      this.avatarAbort?.abort();
       if (this.refreshTimer) clearInterval(this.refreshTimer);
       if (this.remoteFetchTimer) clearInterval(this.remoteFetchTimer);
       if (this.scrollTimer) clearTimeout(this.scrollTimer);
