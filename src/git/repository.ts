@@ -476,11 +476,13 @@ export class GitRepositoryService implements GitRepository {
     ]);
     if (c) await this.switchBranch(n);
   }
-  async deleteBranch(n: string, f = false) {
-    await this.git(["branch", f ? "-D" : "-d", n]);
+  async deleteBranch(n: string, f = false, remote = false) {
+    await this.git(["branch", ...(remote ? ["-r"] : []), f ? "-D" : "-d", n]);
   }
   async fetch(r?: string) {
-    await this.git(["fetch", ...(r ? [r] : [])]);
+    // Remove remote-tracking refs that disappeared from the remote. Without
+    // pruning, the sidebar and graph keep showing branches deleted upstream.
+    await this.git(["fetch", "--prune", ...(r ? [r] : [])]);
   }
   async pull(rebase = false) {
     await this.git(["pull", ...(rebase ? ["--rebase"] : [])]);

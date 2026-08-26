@@ -193,6 +193,31 @@ test("snapshot enriches recursively reported submodules with .gitmodules names",
   ]);
 });
 
+test("fetch prunes remote-tracking branches deleted on the remote", async () => {
+  const root = await mkdtemp(join(tmpdir(), "tuig-fetch-test-"));
+  const remote = await mkdtemp(join(tmpdir(), "tuig-fetch-remote-"));
+  cleanup.push(root, remote);
+  await runGit(["init", "-b", "main"], root);
+  await runGit(["config", "user.name", "Test User"], root);
+  await runGit(["config", "user.email", "test@example.com"], root);
+  await Bun.write(join(root, "file"), "initial\n");
+  await runGit(["add", "file"], root);
+  await runGit(["commit", "-m", "initial"], root);
+  await runGit(["clone", "--bare", root, remote]);
+  await runGit(["remote", "add", "origin", remote], root);
+  await runGit(["switch", "-c", "topic"], root);
+  await runGit(["push", "-u", "origin", "topic"], root);
+  const repo = await GitRepositoryService.open(root);
+  expect(
+    (await repo.snapshot()).branches.some((ref) => ref.name === "origin/topic"),
+  ).toBe(true);
+  await runGit(["push", "origin", "--delete", "topic"], root);
+  await repo.fetch();
+  expect(
+    (await repo.snapshot()).branches.some((ref) => ref.name === "origin/topic"),
+  ).toBe(false);
+});
+
 test("snapshot tolerates a malformed .gitmodules file", async () => {
   const root = await mkdtemp(join(tmpdir(), "tuig-submodule-test-"));
   cleanup.push(root);

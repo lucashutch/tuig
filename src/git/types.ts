@@ -121,7 +121,7 @@ export interface GitRepository {
     startPoint?: string,
     checkout?: boolean,
   ): Promise<void>;
-  deleteBranch(name: string, force?: boolean): Promise<void>;
+  deleteBranch(name: string, force?: boolean, remote?: boolean): Promise<void>;
   fetch(remote?: string): Promise<void>;
   pull(rebase?: boolean): Promise<void>;
   push(remote?: string, setUpstream?: boolean): Promise<void>;

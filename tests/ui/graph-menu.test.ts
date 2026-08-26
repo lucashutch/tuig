@@ -57,6 +57,27 @@ describe("graph context menu", () => {
     expect(remove?.disabled).toBe(true);
   });
 
+  test("allows deleting remote-tracking branches", () => {
+    const remote = refs[1]!;
+    const menu = buildGraphMenu({ sha: remote.sha, branch: remote }, snapshot);
+    expect(
+      menu.items.find((item) => item.action === "delete-branch")?.disabled,
+    ).toBe(false);
+  });
+
+  test("offers stash deletion", () => {
+    const stash = {
+      ref: "stash@{0}",
+      sha: "d",
+      createdAt: "now",
+      subject: "work in progress",
+    };
+    const menu = buildGraphMenu({ sha: stash.sha, stash }, snapshot);
+    expect(menu.items).toMatchObject([
+      { action: "delete-stash", destructive: true },
+    ]);
+  });
+
   test("allows deleting a branch that is not checked out", () => {
     const menu = buildGraphMenu({ sha: "c", branch: refs[2]! }, snapshot);
     expect(
