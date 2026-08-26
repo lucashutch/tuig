@@ -1,4 +1,4 @@
-import type { BranchRef, RepositorySnapshot } from "../git/types.js";
+import type { BranchRef, RepositorySnapshot, Stash } from "../git/types.js";
 import { displayBranchName, shortSha } from "./history.js";
 
 export type GraphMenuAction =
@@ -9,6 +9,7 @@ export type GraphMenuAction =
   | "reset-hard"
   | "rebase-onto"
   | "delete-branch"
+  | "delete-stash"
   | "copy-sha"
   | "copy-branch";
 
@@ -25,6 +26,7 @@ export interface GraphMenuItem {
 export interface GraphMenuTarget {
   sha: string;
   branch?: BranchRef;
+  stash?: Stash;
 }
 
 /** A menu pane placed in terminal coordinates. */
@@ -50,6 +52,18 @@ export function buildGraphMenu(
   const current = snapshot.branch ?? "HEAD";
   const items: GraphMenuItem[] = [];
   const branch = target.branch;
+  if (target.stash) {
+    return {
+      title: `stash · ${shortSha(target.sha)}`,
+      items: [
+        {
+          label: `Delete ${target.stash.ref}`,
+          action: "delete-stash",
+          destructive: true,
+        },
+      ],
+    };
+  }
   if (branch) {
     const name = branch.name;
     items.push(
@@ -71,7 +85,7 @@ export function buildGraphMenu(
         label: `Delete ${displayBranchName(name)}`,
         action: "delete-branch",
         destructive: true,
-        disabled: branch.current || branch.remote,
+        disabled: branch.current,
       },
       { label: "", separator: true },
     );

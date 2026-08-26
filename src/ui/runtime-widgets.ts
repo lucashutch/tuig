@@ -85,7 +85,7 @@ export type RuntimeWidgets = {
 };
 
 export type RuntimeWidgetActions = {
-  sidebarClick(y: number, button: number): void;
+  sidebarClick(x: number, y: number, button: number): void;
   sidebarToggle(section: SidebarSection): void;
   sidebarScroll(y: number, delta: number): void;
   sidebarResize(section: SidebarSection, y: number): void;
@@ -128,7 +128,7 @@ export function createRuntimeWidgets(
     left: 0,
     top: PANE_TOP,
     backgroundColor: oneDarkTheme.panel,
-    onMouseDown: (e) => actions.sidebarClick(e.y, e.button),
+    onMouseDown: (e) => actions.sidebarClick(e.x, e.y, e.button),
     onMouseScroll: (e) =>
       actions.sidebarScroll(e.y, e.scroll?.direction === "up" ? -3 : 3),
   });
