@@ -12,6 +12,8 @@ import type {
   ResetMode,
 } from "./types";
 import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 export class GitCommandError extends Error {
   constructor(
@@ -116,32 +118,34 @@ export function parseRefs(data: string): BranchRef[] {
     });
 }
 export function parseLog(data: string): Commit[] {
-  return data
-    // eslint-disable-next-line no-control-regex
-    .split(data.includes("\x1e") ? /[\x1e\0]/ : "\0")
-    .filter(Boolean)
-    .map((x) => {
-      const f = x.replace(/^\n+/, "").split("\x1f");
-      return {
-        sha: f[0] ?? "",
-        parents: (f[1] ?? "").split(" ").filter(Boolean),
-        author: f[2] ?? "",
-        authorEmail: f[3] ?? "",
-        authoredAt: f[4] ?? "",
-        committer: f[5] ?? "",
-        committerEmail: f[6] ?? "",
-        committedAt: f[7] ?? "",
-        subject: f[8] ?? "",
-        decorations: (f[9] ?? "")
-          .split(", ")
-          .map((v) => v.trim())
-          .filter(Boolean),
-        body: f
-          .slice(10)
-          .join("\x1f")
-          .replace(/^\n+|\n+$/g, ""),
-      };
-    });
+  return (
+    data
+      // eslint-disable-next-line no-control-regex
+      .split(data.includes("\x1e") ? /[\x1e\0]/ : "\0")
+      .filter(Boolean)
+      .map((x) => {
+        const f = x.replace(/^\n+/, "").split("\x1f");
+        return {
+          sha: f[0] ?? "",
+          parents: (f[1] ?? "").split(" ").filter(Boolean),
+          author: f[2] ?? "",
+          authorEmail: f[3] ?? "",
+          authoredAt: f[4] ?? "",
+          committer: f[5] ?? "",
+          committerEmail: f[6] ?? "",
+          committedAt: f[7] ?? "",
+          subject: f[8] ?? "",
+          decorations: (f[9] ?? "")
+            .split(", ")
+            .map((v) => v.trim())
+            .filter(Boolean),
+          body: f
+            .slice(10)
+            .join("\x1f")
+            .replace(/^\n+|\n+$/g, ""),
+        };
+      })
+  );
 }
 export const parsePorcelainStatus = parseStatus;
 export const parseForEachRef = parseRefs;
@@ -399,7 +403,7 @@ export class GitRepositoryService implements GitRepository {
     const parents = (
       await this.git(["show", "-s", "--format=%P", target])
     ).stdout.trim();
-    const dir = await mkdtemp("/tmp/opencode/tuig-reword-");
+    const dir = await mkdtemp(join(tmpdir(), "tuig-reword-"));
     const messagePath = `${dir}/message`;
     const sequenceEditor = `${dir}/sequence-editor`;
     const editor = `${dir}/editor`;
