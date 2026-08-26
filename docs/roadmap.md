@@ -4,8 +4,8 @@ Tuig already has a compact colored commit graph with merge edges and branch labe
 
 ## Finish the core workflow
 
-- Render real right-click menus for commits, branches, files, stashes, and worktrees.
-- Add branch checkout/create/delete dialogs and risky-action confirmations.
+- Extend right-click menus from graph rows to file, stash, and worktree rows.
+- Add a branch-create dialog with a name field.
 - Wire stash create/apply/pop/drop and worktree add/lock/remove actions.
 - Add a hunk selector with next/previous navigation and selected-line patch construction.
 - Serialize mutations, support cancellation, and show credential prompts without freezing the UI.
@@ -15,7 +15,7 @@ Tuig already has a compact colored commit graph with merge edges and branch labe
 
 - Show tags alongside branch labels and add optional author avatars.
 - Add repository tabs, recent repositories, filesystem discovery, and per-tab command state.
-- Add commit operations such as cherry-pick, revert, reset, rebase, and tag management with safety dialogs.
+- Add commit operations such as cherry-pick, revert, and tag management with safety dialogs.
 
 ## Presentation
 
