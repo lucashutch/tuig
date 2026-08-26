@@ -468,11 +468,32 @@ export class GitRepositoryService implements GitRepository {
     await this.git(["rebase", ref]);
   }
   async cherryPick(sha: string) {
-    await this.git(["cherry-pick", sha]);
+    if (!sha.trim() || sha.includes("\0"))
+      throw new Error("A commit is required for cherry-pick");
+    // Keep a ref supplied by a caller from being interpreted as a cherry-pick
+    // option (for example, `--abort`).
+    await this.git(["cherry-pick", "--", sha]);
   }
   /** Creates a lightweight tag; annotated tags are deliberately not implied. */
   async createTag(name: string, target?: string) {
-    await this.git(["tag", name, ...(target ? [target] : [])]);
+    if (!name.trim() || name.includes("\0"))
+      throw new Error("A tag name is required");
+    if (target !== undefined && (!target.trim() || target.includes("\0")))
+      throw new Error("A tag target is required");
+    // Let Git validate the complete ref name so names containing `..`, a
+    // trailing dot, or other invalid ref syntax are rejected before creation.
+    await this.git([
+      "check-ref-format",
+      "--allow-onelevel",
+      `refs/tags/${name}`,
+    ]);
+    // `--` also makes otherwise valid names beginning with `-` safe.
+    await this.git([
+      "tag",
+      "--",
+      name,
+      ...(target !== undefined ? [target] : []),
+    ]);
   }
   async createBranch(n: string, s?: string, c = false) {
     await this.git([

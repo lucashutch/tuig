@@ -95,6 +95,12 @@ describe("graph context menu", () => {
     ).toBe("Rebase main onto topic");
   });
 
+  test("keeps cherry-pick and tag creation available from branch labels", () => {
+    const menu = buildGraphMenu({ sha: "c", branch: refs[2]! }, snapshot);
+    expect(menu.items.map((item) => item.action)).toContain("cherry-pick");
+    expect(menu.items.map((item) => item.action)).toContain("create-tag");
+  });
+
   test("marks a hard reset as the destructive choice", () => {
     const reset = buildGraphMenu({ sha: "a" }, snapshot).items.find(
       (item) => item.submenu,
