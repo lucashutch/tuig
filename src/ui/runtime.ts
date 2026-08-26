@@ -1,11 +1,10 @@
 import {
   BoxRenderable,
+  TextareaRenderable,
   ScrollBoxRenderable,
   DiffRenderable,
   InputRenderable,
-  InputRenderableEvents,
   MouseButton,
-  CliRenderEvents,
   StyledText,
   TextRenderable,
   bg,
@@ -15,10 +14,12 @@ import {
   type KeyEvent,
 } from "@opentui/core";
 import type {
+  BranchRef,
   ChangedFile,
   Commit,
   GitRepository,
   RepositorySnapshot,
+  ResetMode,
 } from "../git/types.js";
 import { splitPatchHunks } from "../git/hunks.js";
 import {
@@ -26,24 +27,62 @@ import {
   fitTreeLabel,
   flattenVisible,
   toggleExpansion,
-  type FileTreeNode,
 } from "./file-tree.js";
 import { layoutGraph, type GraphRow } from "./graph.js";
 import { resolveMaterialIcon } from "./icon-theme.js";
 import {
   buildCommitBranchHints,
-  branchPresence,
-  branchPresenceIcon,
   displayBranchName,
-  formatBranchDecoration,
-  LAPTOP_BRANCH_ICON,
-  REMOTE_BRANCH_ICON,
+  primaryDecorationRef,
+  resolveHeadSha,
   shortSha,
+  summariseDecorations,
 } from "./history.js";
+import {
+  buildGraphMenu,
+  menuRowAt,
+  menuWidth,
+  placeMenu,
+  renderMenuLine,
+  type ConfirmRequest,
+  type GraphMenuAction,
+  type GraphMenuItem,
+} from "./graph-menu.js";
 import { oneDarkTheme } from "./theme.js";
-
-const dividerColor = "#2B5B61";
-const activeDividerColor = "#315878";
+import {
+  layoutChangeSections,
+  fileColor,
+  fileViewportSize,
+  fileIcon,
+  clipColumns,
+  fitColumns,
+  formatHints,
+  presentCommitMeta,
+  workingChangesBannerLines,
+  workingChangesBannerRows,
+  renderToolbar,
+  toolbarButtons,
+  toolbarHit,
+  type ToolbarAction,
+  type ToolbarHit,
+  renderHeader,
+  SIDEBAR_SECTIONS,
+  layoutSidebarSections,
+  sidebarHeader,
+  sidebarRows,
+  renderSidebarViewport,
+  renderSubmoduleSidebarViewport,
+  resizeSidebarBoundary,
+  type SidebarSection,
+  wrappedLineCount,
+} from "./runtime-presentation.js";
+import { loadLayoutPreferences, saveLayoutPreferences } from "./preferences.js";
+import {
+  COMMIT_DIFF_TOP,
+  PANE_TOP,
+  createRuntimeWidgets,
+  type ChangeSection,
+} from "./runtime-widgets.js";
 
 export async function runTuig(repository: GitRepository): Promise<void> {
   const renderer = await createCliRenderer({
@@ -57,12 +96,29 @@ export async function runTuig(repository: GitRepository): Promise<void> {
   await app.start();
 }
 
+/** Window in which a second click on the same graph row counts as a double. */
+const DOUBLE_CLICK_MS = 400;
+
+interface PopupPane {
+  items: GraphMenuItem[];
+  left: number;
+  top: number;
+  width: number;
+  hover?: number;
+}
+
+interface Popup extends PopupPane {
+  title: string;
+  submenu?: PopupPane & { parent: number };
+  select(item: GraphMenuItem): void;
+}
+
 class Runtime {
   private snapshot?: RepositorySnapshot;
   private commitIndex = 0;
   private historySelection: "working" | "commit" = "working";
   private fileIndex = 0;
-  private mode: "unstaged" | "staged" = "unstaged";
+  private mode: ChangeSection = "unstaged";
   private view: "history" | "commit" | "working" = "history";
   private commitFiles: ChangedFile[] = [];
   private graphRows: GraphRow[] = [];
@@ -71,7 +127,19 @@ class Runtime {
   private historyStart = 0;
   private historyViewportDetached = false;
   private historyContentWidth = 1;
+  // Mouse events carry absolute terminal columns, so the column the history
+  // text starts at is kept to translate them into row offsets.
+  private historyContentLeft = 1;
   private fileStart = 0;
+  private sectionCollapsed: Record<ChangeSection, boolean> = {
+    unstaged: false,
+    staged: false,
+  };
+  private sectionStart: Record<ChangeSection, number> = {
+    unstaged: 0,
+    staged: 0,
+  };
+  private discardArmed = false;
   private diffRequest = 0;
   private commitFilesRequest = 0;
   private snapshotRequest = 0;
@@ -79,374 +147,233 @@ class Runtime {
   private scrollTimer?: ReturnType<typeof setTimeout>;
   private pendingScroll = 0;
   private historyShaHits = new Map<number, { start: number; end: number }>();
+  private historyLabelHits = new Map<
+    number,
+    { start: number; end: number; ref?: BranchRef }
+  >();
+  private popup?: Popup;
+  private lastGraphClick?: { row: number; at: number; label: boolean };
   private expandedFiles = new Set<string>();
+  private focus: "history" | "changes" = "history";
+  private syncedAt?: number;
+  private messageTimer?: ReturnType<typeof setTimeout>;
+  // Reading `content` back off a renderable returns a StyledText, so the
+  // message text is tracked here for width and layout maths.
+  private messageText = "";
   private busy = false;
   private refreshPending = false;
   private pendingRefreshMessage?: string;
+  private readonly header: TextRenderable;
+  private readonly toolbar: TextRenderable;
   private readonly sidebar: BoxRenderable;
   private readonly history: BoxRenderable;
   private readonly details: BoxRenderable;
-  private readonly status: TextRenderable;
+  private readonly hints: TextRenderable;
+  private readonly message: TextRenderable;
   private readonly sidebarText: TextRenderable;
+  private readonly sidebarSections: ReturnType<
+    typeof createRuntimeWidgets
+  >["sidebarSections"];
   private readonly historyText: TextRenderable;
-  private readonly diff: DiffRenderable;
   private readonly commitDiff: DiffRenderable;
-  private readonly diffEmpty: TextRenderable;
   private readonly commitDiffEmpty: TextRenderable;
-  private readonly filesText: TextRenderable;
+  private readonly unstagedLabel: TextRenderable;
+  private readonly unstagedText: TextRenderable;
+  private readonly stagedLabel: TextRenderable;
+  private readonly stagedText: TextRenderable;
+  private readonly unstagedDivider: BoxRenderable;
+  private readonly composerDivider: BoxRenderable;
+  private readonly unstagedDividerBar: TextRenderable;
+  private readonly composerDividerBar: TextRenderable;
+  private readonly discardButton: TextRenderable;
+  private readonly stageAllButton: TextRenderable;
+  private readonly unstageAllButton: TextRenderable;
+  private readonly composerBox: BoxRenderable;
+  private readonly composerSummary: InputRenderable;
+  private readonly composerBody: TextareaRenderable;
+  private readonly commitButton: TextRenderable;
+  private readonly amendButton: TextRenderable;
+  private readonly workingBanner: TextRenderable;
   private readonly commitInfoBox: BoxRenderable;
-  private readonly commitHeaderBox: BoxRenderable;
   private readonly commitBodyBox: ScrollBoxRenderable;
   private readonly commitInfo: TextRenderable;
+  private readonly editMessageButton: TextRenderable;
   private readonly commitHeader: TextRenderable;
   private readonly commitBody: TextRenderable;
-  private readonly composer: InputRenderable;
   private readonly leftDivider: BoxRenderable;
   private readonly rightDivider: BoxRenderable;
   private readonly leftDividerBar: TextRenderable;
   private readonly rightDividerBar: TextRenderable;
+  private readonly overlayCatcher: BoxRenderable;
+  private readonly menuBox: BoxRenderable;
+  private readonly menuText: TextRenderable;
+  private readonly submenuBox: BoxRenderable;
+  private readonly submenuText: TextRenderable;
   private leftWidth = 28;
   private detailsWidth = 44;
   private leftCollapsed = false;
-  private localBranchesCollapsed = false;
-  private remoteBranchesCollapsed = false;
-  private localBranchStart = 0;
-  private remoteBranchStart = 0;
+  private sidebarCollapsed: Record<SidebarSection, boolean> = {
+    local: false,
+    remote: false,
+    submodules: false,
+    stashes: false,
+    worktrees: false,
+  };
+  private sidebarPreferred: Record<SidebarSection, number | undefined> = {
+    local: undefined,
+    remote: undefined,
+    submodules: undefined,
+    stashes: undefined,
+    worktrees: undefined,
+  };
+  private sidebarStart: Record<SidebarSection, number> = {
+    local: 0,
+    remote: 0,
+    submodules: 0,
+    stashes: 0,
+    worktrees: 0,
+  };
   private detailsCollapsed = false;
-  private dividerMoved = false;
   private commitFilesTop = 19;
+  // Widths read back off renderables can lag by a frame, so panes keep the
+  // numeric widths from the latest layout pass for width-dependent painting.
+  private sidebarPaneWidth = 28;
+  private detailsPaneWidth = 44;
+  private toolbarHits: ToolbarHit[] = [];
   private commitHeaderValue = "";
   private commitBodyValue = "";
+  private commitInfoValue = "";
+  private preferredUnstagedHeight?: number;
+  private preferredComposerHeight?: number;
+  private preferencesTimer?: ReturnType<typeof setTimeout>;
+  private amend = false;
+  private amendDraft?: { summary: string; body: string };
+  private editingCommitSha?: string;
+  private editReturnState?: {
+    summary: string;
+    body: string;
+    amend: boolean;
+    amendDraft?: { summary: string; body: string };
+  };
 
   constructor(
     private renderer: CliRenderer,
     private repository: GitRepository,
   ) {
-    const absolute = { position: "absolute" as const };
-    this.sidebar = new BoxRenderable(renderer, {
-      ...absolute,
-      id: "sidebar",
-      left: 0,
-      top: 0,
-      height: "100%",
-      backgroundColor: oneDarkTheme.panel,
-      onMouseDown: (e) => this.sidebarClick(e.y, e.button),
-      onMouseScroll: (e) =>
-        this.sidebarScroll(e.y, e.scroll?.direction === "up" ? -3 : 3),
-    });
-    this.history = new BoxRenderable(renderer, {
-      ...absolute,
-      id: "history",
-      top: 0,
-      height: "100%",
-      backgroundColor: oneDarkTheme.bg,
-      onMouseScroll: (e) =>
-        this.queueHistoryScroll(e.scroll?.direction === "up" ? -3 : 3),
-    });
-    this.details = new BoxRenderable(renderer, {
-      ...absolute,
-      id: "details",
-      top: 0,
-      height: "100%",
-      backgroundColor: oneDarkTheme.panel,
-    });
-    this.leftDivider = this.makeDivider("left-divider", (x) => {
-      this.leftWidth = Math.max(
-        16,
-        Math.min(x, this.renderer.terminalWidth - 45),
-      );
-      this.leftCollapsed = false;
-    });
-    this.rightDivider = this.makeDivider("right-divider", (x) => {
-      this.detailsWidth = Math.max(
-        30,
-        Math.min(
-          this.renderer.terminalWidth - x - 1,
-          this.renderer.terminalWidth - 35,
-        ),
-      );
-      this.detailsCollapsed = false;
-    });
-    this.leftDividerBar = this.makeDividerBar("left-divider-bar");
-    this.rightDividerBar = this.makeDividerBar("right-divider-bar");
-    this.sidebarText = new TextRenderable(renderer, {
-      ...absolute,
-      id: "sidebar-content",
-      left: 1,
-      top: 1,
-      width: "95%",
-      height: "95%",
-      fg: oneDarkTheme.text,
-      content: "Loading repository…",
-    });
-    this.historyText = new TextRenderable(renderer, {
-      ...absolute,
-      id: "history-content",
-      left: 1,
-      top: 1,
-      width: "97%",
-      height: "95%",
-      fg: oneDarkTheme.text,
-      content: "Loading history…",
-      wrapMode: "none",
-      onMouseDown: (e) => this.historyClick(e.x, e.y, e.button),
-    });
-    this.filesText = new TextRenderable(renderer, {
-      ...absolute,
-      id: "files",
-      left: 1,
-      top: 1,
-      width: "97%",
-      height: 6,
-      wrapMode: "none",
-      fg: oneDarkTheme.text,
-      content: "",
-      onMouseScroll: (e) => {
-        const rows = flattenVisible(
-          buildFileTree(this.files()),
-          this.expandedFiles,
-        );
-        this.fileStart = Math.max(
-          0,
-          Math.min(
-            Math.max(0, rows.length - this.fileViewportSize()),
-            this.fileStart + (e.scroll?.direction === "up" ? -3 : 3),
-          ),
-        );
-        this.paintFiles();
+    const widgets = createRuntimeWidgets(renderer, {
+      sidebarClick: (y, button) => this.sidebarClick(y - PANE_TOP, button),
+      sidebarToggle: (section) => this.toggleSidebarSection(section),
+      sidebarScroll: (y, delta) => this.sidebarScroll(y - PANE_TOP, delta),
+      sidebarResize: (section, y) => this.resizeSidebar(section, y),
+      historyScroll: (delta) => this.queueHistoryScroll(delta),
+      historyClick: (x, y, button) =>
+        this.historyClick(x, y - PANE_TOP, button),
+      filesScroll: (section, delta) => this.filesScroll(section, delta),
+      filesClick: (section, y) => this.filesClick(section, y - PANE_TOP),
+      toggleSection: (section) => this.toggleSection(section),
+      resizeChangeSplit: (y) => this.resizeChangeSplit(y),
+      resizeComposer: (y) => this.resizeComposer(y),
+      discardAll: () => void this.discardAll(),
+      stageAll: () => void this.stageAll(),
+      unstageAll: () => void this.unstageAll(),
+      resizeLeft: (x) => {
+        this.leftWidth = Math.max(16, Math.min(x, renderer.terminalWidth - 45));
+        this.leftCollapsed = false;
+        this.persistLayoutPreferences();
+        this.layout();
       },
-      onMouseDown: (e) => {
-        const row =
-          e.y -
-          (this.view === "commit" ? this.commitFilesTop : 1) +
-          this.fileStart;
-        const visible = flattenVisible(
-          buildFileTree(this.files()),
-          this.expandedFiles,
+      resizeRight: (x) => {
+        this.detailsWidth = Math.max(
+          30,
+          Math.min(renderer.terminalWidth - x - 1, renderer.terminalWidth - 35),
         );
-        const node = visible[row]?.node;
-        if (!node) return;
-        if (node.kind === "directory") {
-          this.expandedFiles = toggleExpansion(this.expandedFiles, node.path);
-          this.paintFiles();
-          return;
-        }
-        this.fileIndex = Math.max(
-          0,
-          this.files().findIndex((file) => file.path === node.path),
-        );
-        this.ensureFileVisible();
-        this.paintFiles();
-        if (this.view === "history") void this.openWorkingDiff();
-        else {
-          this.historyText.visible = false;
-          this.commitDiff.visible = true;
-          this.commitDiffEmpty.visible = false;
-          void this.loadDiff().catch((x) => this.setStatus(String(x)));
-        }
+        this.detailsCollapsed = false;
+        this.persistLayoutPreferences();
+        this.layout();
       },
+      toggleLeft: () => {
+        this.leftCollapsed = !this.leftCollapsed;
+        this.layout();
+      },
+      toggleRight: () => {
+        this.detailsCollapsed = !this.detailsCollapsed;
+        this.layout();
+      },
+      resize: () => this.layout(),
+      keypress: (key) => void this.key(key),
+      toolbarClick: (x) => void this.toolbarPress(x),
+      commit: () => void this.commit(),
+      toggleAmend: () => this.toggleAmend(),
+      viewWorkingChanges: () => this.closeDiff(),
+      editMessage: () => this.editMessage(),
+      overlayDismiss: () => this.closePopup(),
+      menuHover: (x, y) => this.hoverPopup(x, y, false),
+      menuClick: (x, y) => this.clickPopup(x, y, false),
+      submenuHover: (x, y) => this.hoverPopup(x, y, true),
+      submenuClick: (x, y) => this.clickPopup(x, y, true),
     });
-    this.commitInfoBox = new BoxRenderable(renderer, {
-      ...absolute,
-      id: "commit-info-box",
-      left: 1,
-      top: 1,
-      width: "97%",
-      height: 4,
-      visible: false,
-      border: false,
-      backgroundColor: oneDarkTheme.panelRaised,
-      shouldFill: true,
-    });
-    this.commitHeaderBox = new BoxRenderable(renderer, {
-      ...absolute,
-      id: "commit-header-box",
-      left: 1,
-      top: 5,
-      width: "97%",
-      height: 4,
-      visible: false,
-      border: false,
-      backgroundColor: oneDarkTheme.panelRaised,
-      shouldFill: true,
-    });
-    this.commitBodyBox = new ScrollBoxRenderable(renderer, {
-      ...absolute,
-      id: "commit-body-box",
-      left: 1,
-      top: 9,
-      width: "97%",
-      height: 9,
-      visible: false,
-      border: false,
-      backgroundColor: oneDarkTheme.panelRaised,
-      shouldFill: true,
-      scrollY: true,
-      scrollX: false,
-      viewportCulling: true,
-    });
-    this.commitInfo = new TextRenderable(renderer, {
-      id: "commit-info",
-      left: 1,
-      top: 1,
-      width: "95%",
-      height: 1,
-      fg: oneDarkTheme.text,
-      content: "",
-    });
-    this.commitHeader = new TextRenderable(renderer, {
-      id: "commit-header",
-      left: 1,
-      top: 1,
-      width: "95%",
-      height: 1,
-      fg: oneDarkTheme.text,
-      content: "",
-    });
-    this.commitBody = new TextRenderable(renderer, {
-      id: "commit-body",
-      left: 1,
-      top: 1,
-      width: "95%",
-      height: "auto",
-      wrapMode: "word",
-      fg: "#7F8794",
-      content: "",
-    });
-    const sectionLabel = (id: string, content: string, color: string) =>
-      new TextRenderable(renderer, {
-        id,
-        left: 1,
-        top: 0,
-        width: "95%",
-        height: 1,
-        fg: color,
-        content,
-      });
-    this.commitInfoBox.add(
-      sectionLabel("commit-info-label", "COMMIT", oneDarkTheme.accent),
-    );
-    this.commitBodyBox.add(
-      sectionLabel("commit-message-label", "COMMIT MESSAGE", oneDarkTheme.text),
-    );
-    this.commitInfoBox.add(this.commitInfo);
-    this.commitBodyBox.add(this.commitHeader);
-    this.commitBodyBox.add(this.commitBody);
-    this.diff = new DiffRenderable(renderer, {
-      ...absolute,
-      id: "diff",
-      left: 1,
-      top: 8,
-      width: "97%",
-      height: "57%",
-      visible: false,
-      diff: "",
-      view: "unified",
-      showLineNumbers: true,
-      wrapMode: "none",
-      fg: oneDarkTheme.text,
-      addedBg: oneDarkTheme.diffAddedBg,
-      removedBg: oneDarkTheme.diffRemovedBg,
-      addedContentBg: oneDarkTheme.diffAddedBg,
-      removedContentBg: oneDarkTheme.diffRemovedBg,
-      addedSignColor: oneDarkTheme.added,
-      removedSignColor: oneDarkTheme.deleted,
-      contextBg: oneDarkTheme.panel,
-    });
-    this.commitDiff = new DiffRenderable(renderer, {
-      ...absolute,
-      id: "commit-diff",
-      left: 1,
-      top: 2,
-      width: "97%",
-      height: "95%",
-      visible: false,
-      diff: "",
-      view: "unified",
-      showLineNumbers: true,
-      wrapMode: "none",
-      fg: oneDarkTheme.text,
-      addedBg: oneDarkTheme.diffAddedBg,
-      removedBg: oneDarkTheme.diffRemovedBg,
-      addedContentBg: oneDarkTheme.diffAddedBg,
-      removedContentBg: oneDarkTheme.diffRemovedBg,
-      addedSignColor: oneDarkTheme.added,
-      removedSignColor: oneDarkTheme.deleted,
-      contextBg: oneDarkTheme.bg,
-    });
-    this.diffEmpty = new TextRenderable(renderer, {
-      ...absolute,
-      id: "diff-empty",
-      left: 3,
-      top: 10,
-      width: "90%",
-      height: 2,
-      visible: false,
-      fg: oneDarkTheme.muted,
-      content: "No textual diff for this file.",
-    });
-    this.commitDiffEmpty = new TextRenderable(renderer, {
-      ...absolute,
-      id: "commit-diff-empty",
-      left: 3,
-      top: 4,
-      width: "90%",
-      height: 2,
-      visible: false,
-      fg: oneDarkTheme.muted,
-      content: "This commit has no textual diff to display.",
-    });
-    this.composer = new InputRenderable(renderer, {
-      ...absolute,
-      id: "composer",
-      left: 1,
-      bottom: 2,
-      width: "97%",
-      value: "",
-      placeholder: "Commit message  ·  Enter to commit",
-      backgroundColor: oneDarkTheme.panelRaised,
-      focusedBackgroundColor: oneDarkTheme.selected,
-      textColor: oneDarkTheme.text,
-    });
-    this.status = new TextRenderable(renderer, {
-      ...absolute,
-      id: "status",
-      left: 1,
-      bottom: 0,
-      width: "98%",
-      height: 1,
-      fg: oneDarkTheme.muted,
-      content:
-        "r refresh  f fetch  l pull  p push  s stage  u unstage  c commit  q quit",
-    });
-    this.sidebar.add(this.sidebarText);
-    this.history.add(this.historyText);
-    this.history.add(this.commitDiff);
-    this.history.add(this.commitDiffEmpty);
-    this.details.add(this.commitInfoBox);
-    this.details.add(this.commitBodyBox);
-    this.details.add(this.filesText);
-    this.details.add(this.diff);
-    this.details.add(this.diffEmpty);
-    this.details.add(this.composer);
-    this.details.add(this.status);
-    renderer.root.add(this.sidebar);
-    renderer.root.add(this.history);
-    renderer.root.add(this.details);
-    renderer.root.add(this.leftDividerBar);
-    renderer.root.add(this.rightDividerBar);
-    renderer.root.add(this.leftDivider);
-    renderer.root.add(this.rightDivider);
-    renderer.on(CliRenderEvents.RESIZE, () => this.layout());
-    renderer.keyInput.on("keypress", (key) => void this.key(key));
-    this.composer.on(InputRenderableEvents.ENTER, () => void this.commit());
+    this.sidebar = widgets.sidebar;
+    this.history = widgets.history;
+    this.details = widgets.details;
+    this.header = widgets.header;
+    this.toolbar = widgets.toolbar;
+    this.hints = widgets.hints;
+    this.message = widgets.message;
+    this.sidebarText = widgets.sidebarText;
+    this.sidebarSections = widgets.sidebarSections;
+    this.historyText = widgets.historyText;
+    this.commitDiff = widgets.commitDiff;
+    this.commitDiffEmpty = widgets.commitDiffEmpty;
+    this.unstagedLabel = widgets.unstagedLabel;
+    this.unstagedText = widgets.unstagedText;
+    this.stagedLabel = widgets.stagedLabel;
+    this.stagedText = widgets.stagedText;
+    this.unstagedDivider = widgets.unstagedDivider;
+    this.composerDivider = widgets.composerDivider;
+    this.unstagedDividerBar = widgets.unstagedDividerBar;
+    this.composerDividerBar = widgets.composerDividerBar;
+    this.discardButton = widgets.discardButton;
+    this.stageAllButton = widgets.stageAllButton;
+    this.unstageAllButton = widgets.unstageAllButton;
+    this.composerBox = widgets.composerBox;
+    this.composerSummary = widgets.composerSummary;
+    this.composerBody = widgets.composerBody;
+    this.commitButton = widgets.commitButton;
+    this.amendButton = widgets.amendButton;
+    this.workingBanner = widgets.workingBanner;
+    this.commitInfoBox = widgets.commitInfoBox;
+    this.commitBodyBox = widgets.commitBodyBox;
+    this.commitInfo = widgets.commitInfo;
+    this.editMessageButton = widgets.editMessageButton;
+    this.commitHeader = widgets.commitHeader;
+    this.commitBody = widgets.commitBody;
+    this.leftDivider = widgets.leftDivider;
+    this.rightDivider = widgets.rightDivider;
+    this.leftDividerBar = widgets.leftDividerBar;
+    this.rightDividerBar = widgets.rightDividerBar;
+    this.overlayCatcher = widgets.overlayCatcher;
+    this.menuBox = widgets.menuBox;
+    this.menuText = widgets.menuText;
+    this.submenuBox = widgets.submenuBox;
+    this.submenuText = widgets.submenuText;
   }
 
   async start() {
+    const preferences = await loadLayoutPreferences();
+    this.leftWidth = preferences.leftWidth ?? this.leftWidth;
+    this.detailsWidth = preferences.detailsWidth ?? this.detailsWidth;
+    this.preferredUnstagedHeight = preferences.unstagedHeight;
+    this.preferredComposerHeight = preferences.composerHeight;
+    this.sidebarPreferred = {
+      ...this.sidebarPreferred,
+      ...preferences.sidebarHeights,
+    };
+    this.sidebarCollapsed = {
+      ...this.sidebarCollapsed,
+      ...preferences.sidebarCollapsed,
+    };
     this.renderer.start();
     // Terminal dimensions are reliable only after the renderer has started.
-    // Laying out earlier can leave the history at a one-column initial width
-    // until the first resize event.
     await Bun.sleep(0);
     this.layout();
     await this.refresh();
@@ -454,50 +381,166 @@ class Runtime {
     // the live snapshot so startup follows the same path as a manual resize.
     this.layout();
     this.refreshTimer = setInterval(() => {
-      if (this.renderer.currentFocusedEditor !== this.composer)
-        void this.refresh("Auto-refreshing…");
+      if (!this.composing) void this.refresh("Auto-refreshing…");
     }, 60_000);
   }
-  private makeDivider(id: string, resize: (x: number) => void) {
-    return new BoxRenderable(this.renderer, {
-      position: "absolute",
-      id,
-      top: 0,
-      width: 3,
-      height: "100%",
-      zIndex: 10,
-      onMouseDown: () => {
-        this.dividerMoved = false;
-      },
-      onMouseDrag: (e) => {
-        this.dividerMoved = true;
-        resize(e.x);
-        this.layout();
-      },
-      onMouseUp: () => {
-        if (!this.dividerMoved) {
-          if (id.startsWith("left")) this.leftCollapsed = !this.leftCollapsed;
-          else this.detailsCollapsed = !this.detailsCollapsed;
-          this.layout();
-        }
-      },
+  private persistLayoutPreferences() {
+    if (this.preferencesTimer) clearTimeout(this.preferencesTimer);
+    this.preferencesTimer = setTimeout(() => {
+      this.preferencesTimer = undefined;
+      void this.flushLayoutPreferences().catch(() => undefined);
+    }, 150);
+  }
+  private async flushLayoutPreferences() {
+    if (this.preferencesTimer) {
+      clearTimeout(this.preferencesTimer);
+      this.preferencesTimer = undefined;
+    }
+    await saveLayoutPreferences({
+      leftWidth: this.leftWidth,
+      detailsWidth: this.detailsWidth,
+      unstagedHeight: this.preferredUnstagedHeight,
+      composerHeight: this.preferredComposerHeight,
+      sidebarHeights: this.sidebarPreferred,
+      sidebarCollapsed: this.sidebarCollapsed,
     });
   }
-  private makeDividerBar(id: string) {
-    return new TextRenderable(this.renderer, {
-      position: "absolute",
-      id,
-      top: 0,
-      width: 1,
-      height: "100%",
-      zIndex: 9,
-      fg: dividerColor,
-      content: "",
+  /** True while either commit-message editor holds the keyboard. */
+  private get composing(): boolean {
+    const focused = this.renderer.currentFocusedEditor;
+    return focused === this.composerSummary || focused === this.composerBody;
+  }
+  private label(section: ChangeSection): TextRenderable {
+    return section === "unstaged" ? this.unstagedLabel : this.stagedLabel;
+  }
+  private list(section: ChangeSection): TextRenderable {
+    return section === "unstaged" ? this.unstagedText : this.stagedText;
+  }
+  /** Rows the given list can show, which is its rendered height. */
+  private sectionViewport(section: ChangeSection): number {
+    if (this.view === "commit")
+      return Math.max(
+        1,
+        fileViewportSize(this.view, this.contentHeight, this.commitFilesTop) -
+          1,
+      );
+    return Math.max(0, Number(this.list(section).height));
+  }
+  private filesViewport(): number {
+    return Math.max(1, this.sectionViewport(this.mode));
+  }
+  /** Rows available to the panes, once the header row is taken out. */
+  private get contentHeight(): number {
+    return Math.max(1, this.renderer.terminalHeight - PANE_TOP);
+  }
+  /**
+   * Show a transient message on the right of the bottom row.
+   *
+   * Messages expire so the keybinding hints on the left, which they never
+   * overwrite, remain the resting state of the row.
+   */
+  private notify(text: string, tone: "info" | "error" | "busy" = "info") {
+    if (this.messageTimer) clearTimeout(this.messageTimer);
+    this.messageTimer = undefined;
+    const limit = Math.max(20, Math.floor(this.renderer.terminalWidth / 2));
+    this.messageText = clipColumns(tone === "busy" ? `⠿ ${text}` : text, limit);
+    this.message.content = this.messageText;
+    this.message.fg =
+      tone === "error"
+        ? oneDarkTheme.deleted
+        : tone === "busy"
+          ? oneDarkTheme.accentSoft
+          : oneDarkTheme.muted;
+    this.positionMessage();
+    this.paintHints();
+    if (tone === "busy") return;
+    this.messageTimer = setTimeout(() => {
+      this.messageText = "";
+      this.message.content = "";
+      this.messageTimer = undefined;
+      this.positionMessage();
+      this.paintHints();
+    }, 6000);
+  }
+  private fail(error: unknown) {
+    this.notify(
+      error instanceof Error ? error.message : String(error),
+      "error",
+    );
+  }
+  private positionMessage() {
+    const width = Bun.stringWidth(this.messageText);
+    this.message.width = Math.max(1, width);
+    this.message.left = Math.max(1, this.renderer.terminalWidth - width - 1);
+  }
+  private paintHints() {
+    const text = formatHints({
+      focus: this.focus,
+      view: this.view,
+      composing: this.composing,
     });
+    const room = Math.max(
+      10,
+      this.renderer.terminalWidth - Bun.stringWidth(this.messageText) - 4,
+    );
+    // Hints must not pad, or the padding would erase the message beside them.
+    const content = clipColumns(text, room);
+    this.hints.width = Math.max(1, Bun.stringWidth(content));
+    this.hints.content = content;
+  }
+  private paintHeader() {
+    this.header.width = Math.max(1, this.renderer.terminalWidth);
+    this.header.content = renderHeader({
+      snapshot: this.snapshot,
+      repositoryRoot: this.repository.root,
+      width: Math.max(1, this.renderer.terminalWidth),
+      syncedAt: this.syncedAt,
+    });
+  }
+  private paintToolbar() {
+    const width = Math.max(1, this.renderer.terminalWidth);
+    const toolbar = renderToolbar(toolbarButtons(this.snapshot), width);
+    this.toolbar.width = width;
+    this.toolbar.content = toolbar.content;
+    this.toolbarHits = toolbar.hits;
+  }
+  private async toolbarPress(x: number) {
+    const action = toolbarHit(this.toolbarHits, x);
+    if (!action) return;
+    await this.runToolbarAction(action);
+  }
+  private async runToolbarAction(action: ToolbarAction) {
+    if (action === "refresh") return void this.refresh();
+    if (action === "fetch")
+      return void this.perform(
+        "Fetching…",
+        () => this.repository.fetch(),
+        true,
+      );
+    if (action === "pull")
+      return void this.perform("Pulling…", () => this.repository.pull(), true);
+    if (action === "push")
+      return void this.perform("Pushing…", () => this.repository.push(), true);
+    if (action === "stash")
+      return void this.perform("Stashing…", () =>
+        this.repository.stash(undefined, true),
+      );
+    const stash = this.snapshot?.stashes[0];
+    if (!stash) return this.notify("No stash to pop", "error");
+    await this.perform(`Popping ${stash.ref}…`, () =>
+      this.repository.applyStash(stash.ref, true),
+    );
+  }
+  private setFocus(focus: "history" | "changes") {
+    if (this.focus === focus) return;
+    this.focus = focus;
+    this.paintHints();
+    this.paint();
   }
   private layout() {
     const total = Math.max(1, this.renderer.terminalWidth);
-    const height = Math.max(1, this.renderer.terminalHeight);
+    // The header and toolbar own the top rows, so the panes start below them.
+    const height = this.contentHeight;
     const available = Math.max(3, total - 2);
     const leftMin = this.leftCollapsed ? 1 : Math.min(12, available);
     const rightMin = this.detailsCollapsed ? 1 : Math.min(20, available);
@@ -512,73 +555,318 @@ class Runtime {
       ? 1
       : Math.min(this.detailsWidth, Math.max(1, available - left - centerMin));
     const center = Math.max(1, available - left - right);
-    this.sidebar.width = Math.min(left, total);
+    this.sidebarPaneWidth = Math.min(left, total);
+    this.sidebar.width = this.sidebarPaneWidth;
+    this.sidebar.height = height;
+    this.history.height = height;
+    this.details.height = height;
+    // Dividers stop above the bottom row so they cannot draw over the hints.
+    const dividerHeight = Math.max(1, height - 1);
+    this.leftDivider.height = dividerHeight;
+    this.rightDivider.height = dividerHeight;
+    this.leftDividerBar.height = dividerHeight;
+    this.rightDividerBar.height = dividerHeight;
     this.sidebar.visible = !this.leftCollapsed && total > 1;
+    // A collapsed pane keeps only its divider column, so the graph starts
+    // immediately beside whichever divider is showing.
     const leftBoundary = this.leftCollapsed ? 0 : left;
+    const rightBoundary = this.detailsCollapsed
+      ? Math.max(leftBoundary + 2, total - 1)
+      : left + center + 1;
     this.leftDivider.left = Math.max(0, Math.min(total - 1, leftBoundary - 1));
     this.leftDividerBar.left = Math.max(0, Math.min(total - 1, leftBoundary));
-    this.history.left = Math.min(total - 1, left + 1);
-    this.history.width = Math.max(
+    // Positions and sizes are computed as plain numbers, because reading them
+    // back off a renderable returns the previous frame's value.
+    const historyLeft = Math.min(total - 1, leftBoundary + 1);
+    const historyWidth = Math.max(
       1,
-      Math.min(center, total - Number(this.history.left)),
+      Math.min(rightBoundary - historyLeft, total - historyLeft),
     );
-    this.historyContentWidth = Math.max(1, Number(this.history.width) - 2);
+    this.history.left = historyLeft;
+    this.history.width = historyWidth;
+    this.historyContentLeft = historyLeft + 1;
+    this.historyContentWidth = Math.max(1, historyWidth - 2);
     this.historyText.width = this.historyContentWidth;
     this.historyText.height = Math.max(1, height - 2);
-    const rightBoundary = left + center + 1;
     this.rightDivider.left = Math.max(
       0,
       Math.min(total - 1, rightBoundary - 1),
     );
     this.rightDividerBar.left = Math.max(0, Math.min(total - 1, rightBoundary));
-    this.details.left = Math.min(total - 1, left + center + 2);
-    this.details.width = Math.max(
+    const detailsLeft = Math.min(total, rightBoundary + 1);
+    this.details.left = detailsLeft;
+    this.detailsPaneWidth = Math.max(
       1,
-      Math.min(right, total - Number(this.details.left)),
+      Math.min(right, Math.max(1, total - detailsLeft)),
     );
-    this.details.visible =
-      !this.detailsCollapsed && Number(this.details.left) < total - 1;
-    const infoHeight = 4;
+    this.details.width = this.detailsPaneWidth;
+    this.details.visible = !this.detailsCollapsed && detailsLeft < total - 1;
     // Leave room for the box borders, text inset, scrollbar, and percentage
     // width rounding used by OpenTUI's nested renderables.
-    const textWidth = Math.max(10, Number(this.details.width) - 8);
-    const headerLines = this.wrappedLineCount(
-      this.commitHeaderValue,
-      textWidth,
-    );
-    const bodyLines = this.wrappedLineCount(this.commitBodyValue, textWidth);
+    const textWidth = Math.max(10, this.detailsPaneWidth - 8);
+    const headerLines = wrappedLineCount(this.commitHeaderValue, textWidth);
+    const bodyLines = wrappedLineCount(this.commitBodyValue, textWidth);
     const messageHeight = headerLines + Math.min(15, bodyLines) + 3;
     this.commitHeader.height = headerLines;
     this.commitHeader.top = 1;
     this.commitBody.height = bodyLines;
     this.commitBody.top = headerLines + 2;
-    this.commitInfoBox.top = 1;
-    this.commitInfoBox.height = infoHeight;
-    this.commitBodyBox.top = 2 + infoHeight;
+    const bannerRows =
+      this.view === "commit" && !this.editingCommitSha
+        ? workingChangesBannerRows(this.snapshot?.files.length ?? 0)
+        : 0;
+    // Inspection follows GitKraken's reading order: message first, metadata,
+    // then files.  The cards' explicit rows keep narrow wrapping collision-free.
+    this.commitBodyBox.top = bannerRows;
     this.commitBodyBox.height = messageHeight;
+    this.editMessageButton.left = Math.max(1, this.detailsPaneWidth - 18);
+    const infoHeight = Math.max(
+      5,
+      wrappedLineCount(this.commitInfoValue, textWidth) + 1,
+    );
+    this.commitInfoBox.top = bannerRows + messageHeight;
+    this.commitInfoBox.height = infoHeight;
     this.commitFilesTop = Math.min(
       Math.max(1, height - 1),
-      3 + infoHeight + messageHeight,
+      bannerRows + messageHeight + infoHeight,
     );
-    this.leftDividerBar.fg = this.leftCollapsed
-      ? activeDividerColor
-      : dividerColor;
-    this.rightDividerBar.fg = this.detailsCollapsed
-      ? activeDividerColor
-      : dividerColor;
-    const dividerContent = Array.from({ length: height }, () => "▌").join("\n");
+    this.layoutChanges(height);
+    // The diff takes whatever height the commit metadata leaves, rather than a
+    // fixed share of the terminal.
+    this.commitDiff.height = Math.max(1, height - COMMIT_DIFF_TOP - 1);
+    const verticalGripHeight = Math.max(
+      3,
+      Math.min(9, Math.floor(dividerHeight / 3)),
+    );
+    const verticalGripStart = Math.max(
+      0,
+      Math.floor((dividerHeight - verticalGripHeight) / 2),
+    );
+    const dividerContent = Array.from({ length: dividerHeight }, (_, row) =>
+      row >= verticalGripStart && row < verticalGripStart + verticalGripHeight
+        ? "║"
+        : "│",
+    ).join("\n");
     this.leftDividerBar.content = dividerContent;
     this.rightDividerBar.content = dividerContent;
+    this.paintHeader();
+    this.paintToolbar();
+    this.paintHints();
+    this.positionMessage();
     if (this.snapshot) {
       this.paint();
     }
   }
-  private files(): ChangedFile[] {
+  /**
+   * Place the changes pane: pane actions, the two file sections, and the
+   * commit composer, or the commit-file list when a commit is open.
+   */
+  private layoutChanges(height: number) {
+    const commitView = this.view === "commit";
+    const editing = !!this.editingCommitSha;
+    const width = Math.max(1, this.detailsPaneWidth);
+    for (const widget of [
+      this.discardButton,
+      this.stageAllButton,
+      this.unstageAllButton,
+      this.composerBox,
+      this.stagedLabel,
+      this.stagedText,
+    ])
+      widget.visible = !commitView || (widget === this.composerBox && editing);
+    this.amendButton.visible = !commitView;
+    this.workingBanner.visible =
+      commitView && !editing && (this.snapshot?.files.length ?? 0) > 0;
+    this.workingBanner.height = workingChangesBannerRows(
+      this.snapshot?.files.length ?? 0,
+    );
+    this.editMessageButton.visible = commitView && !editing;
+    for (const widget of [
+      this.unstagedDivider,
+      this.composerDivider,
+      this.unstagedDividerBar,
+      this.composerDividerBar,
+    ])
+      widget.visible = !commitView && !editing;
+    if (commitView && !editing) {
+      this.unstagedLabel.top = this.commitFilesTop;
+      this.unstagedText.top = this.commitFilesTop + 1;
+      this.unstagedText.height = this.sectionViewport("unstaged");
+      return;
+    }
+    if (editing) {
+      this.composerBox.top = 1;
+      const composerHeight = Math.max(0, height - 2);
+      this.composerBox.height = composerHeight;
+      this.composerBox.visible = composerHeight > 0 && width >= 2;
+      const boxWidth = Math.max(1, width - 2);
+      const fieldWidth = Math.max(1, boxWidth - 1);
+      this.composerBox.width = boxWidth;
+      this.composerSummary.width = fieldWidth;
+      this.composerBody.width = fieldWidth;
+      this.commitButton.width = fieldWidth;
+      this.layoutComposerChildren(composerHeight, boxWidth);
+      return;
+    }
+    this.discardButton.top = 0;
+    this.discardButton.left = 1;
+    this.stageAllButton.top = 0;
+    this.stageAllButton.left = Math.max(
+      Number(this.discardButton.width) + 2,
+      width - Number(this.stageAllButton.width) - 2,
+    );
+    const layout = layoutChangeSections({
+      // The bottom row belongs to the hints, so the pane stops one row short.
+      available: Math.max(0, height - 1),
+      unstagedRows: this.sectionRows("unstaged").length,
+      stagedRows: this.sectionRows("staged").length,
+      unstagedCollapsed: this.sectionCollapsed.unstaged,
+      stagedCollapsed: this.sectionCollapsed.staged,
+      preferredUnstagedHeight: this.preferredUnstagedHeight,
+      preferredComposerHeight: this.preferredComposerHeight,
+    });
+    this.unstagedLabel.top = layout.unstagedTop;
+    this.unstagedText.top = layout.unstagedTop + 1;
+    this.unstagedText.height = Math.max(1, layout.unstagedHeight);
+    this.unstagedText.visible = layout.unstagedHeight > 0;
+    this.stagedLabel.top = layout.stagedTop;
+    this.unstageAllButton.top = layout.stagedTop;
+    this.unstageAllButton.left = Math.max(
+      1,
+      width - Number(this.unstageAllButton.width) - 2,
+    );
+    this.unstageAllButton.visible =
+      !this.sectionCollapsed.staged && this.files("staged").length > 0;
+    this.stagedText.top = layout.stagedTop + 1;
+    this.stagedText.height = Math.max(1, layout.stagedHeight);
+    this.stagedText.visible = layout.stagedHeight > 0;
+    this.composerBox.top = layout.composerTop;
+    this.composerBox.height = layout.composerHeight;
+    this.composerBox.visible = layout.composerHeight > 0 && width >= 2;
+    // Percentage widths round unpredictably inside nested renderables, so the
+    // composer's children are sized from the pane width directly.
+    const boxWidth = Math.max(1, width - 2);
+    this.composerBox.width = boxWidth;
+    const fieldWidth = Math.max(1, boxWidth - 1);
+    this.composerSummary.width = fieldWidth;
+    this.composerBody.width = fieldWidth;
+    this.commitButton.width = fieldWidth;
+    this.layoutComposerChildren(layout.composerHeight, boxWidth);
+    const gripWidth = Math.max(3, Math.min(9, Math.floor(width / 3)));
+    const gripStart = Math.max(0, Math.floor((width - gripWidth) / 2));
+    const divider = `${"─".repeat(gripStart)}${"═".repeat(gripWidth)}${"─".repeat(Math.max(0, width - gripStart - gripWidth))}`;
+    this.unstagedDivider.top = Math.max(0, layout.unstagedDividerTop - 1);
+    this.unstagedDivider.left = Math.floor(width / 4);
+    this.unstagedDivider.width = Math.min(
+      width,
+      Math.max(5, Math.floor(width / 2)),
+    );
+    this.unstagedDivider.visible = true;
+    this.unstagedDividerBar.top = this.unstagedDivider.top;
+    this.unstagedDividerBar.width = width;
+    this.unstagedDividerBar.content = divider;
+    this.unstagedDividerBar.visible = this.unstagedDivider.visible;
+    this.composerDivider.top = Math.max(0, layout.composerDividerTop - 1);
+    this.composerDivider.left = Math.floor(width / 4);
+    this.composerDivider.width = Math.min(
+      width,
+      Math.max(5, Math.floor(width / 2)),
+    );
+    this.composerDivider.visible = true;
+    this.composerDividerBar.top = this.composerDivider.top;
+    this.composerDividerBar.width = width;
+    this.composerDividerBar.content = divider;
+    this.composerDividerBar.visible = true;
+  }
+  private layoutComposerChildren(height: number, width: number) {
+    this.composerBody.top = 2;
+    const hasFieldRoom = width >= 2;
+    this.composerSummary.visible = hasFieldRoom && height >= 2;
+    this.composerBody.visible = hasFieldRoom && height >= 3;
+    this.composerBody.height = Math.max(1, height - 6);
+    const showActions = hasFieldRoom && height >= 6;
+    this.amendButton.visible = showActions && !this.editingCommitSha;
+    this.commitButton.visible = showActions;
+    this.amendButton.top = height - 3;
+    this.commitButton.top = height - 2;
+  }
+  private files(section: ChangeSection = this.mode): ChangedFile[] {
     return this.view === "commit"
       ? this.commitFiles
       : (this.snapshot?.files ?? []).filter((f) =>
-          this.mode === "staged" ? f.staged : f.unstaged,
+          section === "staged" ? f.staged : f.unstaged,
         );
+  }
+  private sectionRows(section: ChangeSection) {
+    return flattenVisible(
+      buildFileTree(this.files(section)),
+      this.expandedFiles,
+    );
+  }
+  private toggleSection(section: ChangeSection) {
+    if (this.view === "commit") return;
+    this.sectionCollapsed[section] = !this.sectionCollapsed[section];
+    this.layout();
+  }
+  private resizeChangeSplit(y: number) {
+    if (this.view !== "history") return;
+    // Labels are positioned within the pane; the staged label starts after
+    // the unstaged heading and list, so its row directly expresses the split.
+    this.preferredUnstagedHeight = Math.max(0, y - 2);
+    this.persistLayoutPreferences();
+    this.layout();
+  }
+  private resizeComposer(y: number) {
+    if (this.view !== "history") return;
+    // y is pane-relative (the widget explicitly removes PANE_TOP).  Everything
+    // below the divider belongs to the composer.
+    this.preferredComposerHeight = Math.max(0, this.contentHeight - 2 - y);
+    this.persistLayoutPreferences();
+    this.layout();
+  }
+  private filesScroll(section: ChangeSection, delta: number) {
+    this.setFocus("changes");
+    const rows = this.sectionRows(section);
+    this.sectionStart[section] = Math.max(
+      0,
+      Math.min(
+        Math.max(0, rows.length - this.sectionViewport(section)),
+        this.sectionStart[section] + delta,
+      ),
+    );
+    if (section === this.mode) this.fileStart = this.sectionStart[section];
+    this.paintFiles();
+  }
+  private filesClick(section: ChangeSection, y: number) {
+    this.setFocus("changes");
+    if (this.view !== "commit" && section !== this.mode) {
+      this.mode = section;
+      this.fileStart = this.sectionStart[section];
+      this.fileIndex = 0;
+    }
+    const list = this.list(section);
+    const row = y - Number(list.top) + this.sectionStart[section];
+    const visible = this.sectionRows(section);
+    const node = visible[row]?.node;
+    if (!node) return;
+    if (node.kind === "directory") {
+      this.expandedFiles = toggleExpansion(this.expandedFiles, node.path);
+      this.paintFiles();
+      return;
+    }
+    this.fileIndex = Math.max(
+      0,
+      this.files().findIndex((file) => file.path === node.path),
+    );
+    this.ensureFileVisible();
+    this.paintFiles();
+    if (this.view === "history") void this.openWorkingDiff();
+    else {
+      this.historyText.visible = false;
+      this.commitDiff.visible = true;
+      this.commitDiffEmpty.visible = false;
+      void this.loadDiff().catch((error) => this.fail(error));
+    }
   }
   private selectedFile() {
     return this.files()[this.fileIndex];
@@ -597,14 +885,18 @@ class Runtime {
     ++this.commitFilesRequest;
     const selectedSha = this.snapshot?.commits[this.commitIndex]?.sha;
     const selectedPath = this.selectedFile()?.path;
-    this.setStatus(message ?? "Refreshing…");
+    this.notify(message ?? "Refreshing…", "busy");
     try {
       const snapshot = await this.repository.snapshot(1000);
       if (request !== this.snapshotRequest) return;
       // A request that arrived while this one was in flight gets the only paint.
       if (this.refreshPending) return;
       this.snapshot = snapshot;
-      this.graphRows = layoutGraph(this.snapshot.commits, oneDarkTheme.graph);
+      this.graphRows = layoutGraph(
+        this.snapshot.commits,
+        oneDarkTheme.graph,
+        resolveHeadSha(this.snapshot.branches, this.snapshot.commits),
+      );
       this.branchHints = buildCommitBranchHints(
         this.snapshot.commits,
         this.snapshot.branches,
@@ -637,11 +929,11 @@ class Runtime {
       this.ensureFileVisible();
       this.paint();
       if (this.view === "commit") void this.openCommit();
-      this.setStatus(
-        `${this.snapshot.branch ?? "detached"}  ↑${this.snapshot.ahead} ↓${this.snapshot.behind}  ·  ${this.snapshot.files.length} changed`,
-      );
+      // Branch, sync, and dirty state now live in the header, so a successful
+      // refresh only needs to clear the in-flight message.
+      this.notify("");
     } catch (error) {
-      this.setStatus(error instanceof Error ? error.message : String(error));
+      this.fail(error);
     } finally {
       this.busy = false;
       if (this.refreshPending) {
@@ -656,70 +948,76 @@ class Runtime {
   private paint() {
     const s = this.snapshot;
     if (!s) return;
-    const localBranches = s.branches.filter((b) => !b.remote);
-    const remoteBranches = s.branches.filter((b) => b.remote);
-    const branchLimit = 10;
-    this.localBranchStart = Math.max(
-      0,
-      Math.min(this.localBranchStart, localBranches.length - branchLimit),
+    const rects = layoutSidebarSections(
+      this.contentHeight,
+      this.sidebarPreferred,
+      this.sidebarCollapsed,
     );
-    this.remoteBranchStart = Math.max(
-      0,
-      Math.min(this.remoteBranchStart, remoteBranches.length - branchLimit),
-    );
-    const local =
-      localBranches
-        .slice(this.localBranchStart, this.localBranchStart + branchLimit)
-        .map(
-          (b) =>
-            `${branchPresenceIcon(branchPresence(b, s.branches), b.current)} ${LAPTOP_BRANCH_ICON} ${displayBranchName(b.name)}`,
-        )
-        .join("\n") || "  (none)";
-    const remote =
-      remoteBranches
-        .slice(this.remoteBranchStart, this.remoteBranchStart + branchLimit)
-        .map(
-          (b) =>
-            `${branchPresenceIcon(branchPresence(b, s.branches), b.current)} ${REMOTE_BRANCH_ICON} ${displayBranchName(b.name)}`,
-        )
-        .join("\n") || "  (none)";
-    const localSection = this.localBranchesCollapsed ? "" : `\n${local}`;
-    const localRange =
-      localBranches.length > branchLimit
-        ? ` ${this.localBranchStart + 1}-${Math.min(this.localBranchStart + branchLimit, localBranches.length)}/${localBranches.length}`
-        : "";
-    const remoteRange =
-      remoteBranches.length > branchLimit
-        ? ` ${this.remoteBranchStart + 1}-${Math.min(this.remoteBranchStart + branchLimit, remoteBranches.length)}/${remoteBranches.length}`
-        : "";
-    const remoteSection = this.remoteBranchesCollapsed ? "" : `\n${remote}`;
-    const sectionWidth = Math.max(8, Number(this.sidebar.width) - 3);
-    const fillSection = (value: string) =>
-      value
-        .split("\n")
-        .map((line) => ` ${line}`.slice(0, sectionWidth).padEnd(sectionWidth))
-        .join("\n");
-    const localBlock = fillSection(
-      `${this.localBranchesCollapsed ? "▶" : "▼"} LOCAL BRANCHES${localRange}${localSection}`,
-    );
-    const remoteBlock = fillSection(
-      `${this.remoteBranchesCollapsed ? "▶" : "▼"} REMOTES${remoteRange}${remoteSection}`,
-    );
-    const repositoryTail = `\n\n SUBMODULES  ${s.submodules.length}\n${s.submodules.map((x) => ` ${x.state === "clean" ? "✓" : "!"} ${x.path}`).join("\n") || "  (none)"}\n\n STASHES  ${s.stashes.length}\n${
-      s.stashes
-        .slice(0, 6)
-        .map((x) => ` ◇ ${x.ref} ${x.subject}`)
-        .join("\n") || "  (none)"
-    }\n\n WORKTREES  ${s.worktrees.length}\n${s.worktrees.map((x) => ` ⎇ ${x.path.split("/").at(-1)}`).join("\n")}`;
-    this.sidebarText.content = new StyledText([
-      fg(oneDarkTheme.text)(
-        ` TUIG\n ${displayBranchName(s.branch ?? "detached HEAD")}\n\n`,
-      ),
-      bg(oneDarkTheme.panelRaised)(fg(oneDarkTheme.text)(localBlock)),
-      fg(oneDarkTheme.text)("\n\n"),
-      bg(oneDarkTheme.panelRaised)(fg(oneDarkTheme.text)(remoteBlock)),
-      fg(oneDarkTheme.text)(repositoryTail),
-    ]);
+    for (const section of SIDEBAR_SECTIONS) {
+      const rect = rects[section],
+        widgets = this.sidebarSections[section];
+      const rows = sidebarRows(s, section, this.sidebarPaneWidth);
+      const requested = this.sidebarStart[section];
+      const start = Math.max(
+        0,
+        Math.min(Math.max(0, rows.length - rect.contentHeight), requested),
+      );
+      this.sidebarStart[section] = start;
+      widgets.box.top = rect.headerTop;
+      widgets.box.height = Math.max(1, 1 + rect.contentHeight);
+      widgets.box.width = this.sidebarPaneWidth;
+      widgets.box.visible = rect.headerTop < this.contentHeight;
+      widgets.header.content = sidebarHeader(
+        section,
+        section === "local"
+          ? s.branches.filter((b) => !b.remote).length
+          : section === "remote"
+            ? s.branches.filter((b) => b.remote).length
+            : section === "submodules"
+              ? s.submodules.length
+              : section === "stashes"
+                ? s.stashes.length
+                : s.worktrees.length,
+        this.sidebarCollapsed[section],
+      );
+      widgets.text.top = 1;
+      widgets.text.height = Math.max(1, rect.contentHeight);
+      widgets.text.visible =
+        !this.sidebarCollapsed[section] && rect.contentHeight > 0;
+      widgets.text.content =
+        section === "submodules" && s.submodules.length > 0
+          ? renderSubmoduleSidebarViewport(
+              s.submodules,
+              this.sidebarPaneWidth,
+              start,
+              rect.contentHeight,
+            )
+          : renderSidebarViewport(
+              rows,
+              this.sidebarPaneWidth,
+              start,
+              rect.contentHeight,
+            ).join("\n");
+      const showDivider = rect.dividerTop !== undefined;
+      widgets.divider.top = Math.max(0, (rect.dividerTop ?? 0) - 1);
+      // Keep the forgiving drag target around the visible centre grip instead
+      // of covering the full section width and intercepting nearby content.
+      widgets.divider.left = Math.floor(this.sidebarPaneWidth / 4);
+      widgets.divider.width = Math.min(
+        this.sidebarPaneWidth,
+        Math.max(5, Math.floor(this.sidebarPaneWidth / 2)),
+      );
+      widgets.divider.visible = showDivider;
+      widgets.dividerBar.top = rect.dividerTop ?? 0;
+      widgets.dividerBar.width = this.sidebarPaneWidth;
+      const dividerWidth = Math.max(1, this.sidebarPaneWidth);
+      const gripWidth = Math.max(3, Math.min(9, Math.floor(dividerWidth / 3)));
+      const gripStart = Math.max(0, Math.floor((dividerWidth - gripWidth) / 2));
+      widgets.dividerBar.content = `${"─".repeat(gripStart)}${"═".repeat(gripWidth)}${"─".repeat(Math.max(0, dividerWidth - gripStart - gripWidth))}`;
+      widgets.dividerBar.visible = showDivider;
+    }
+    this.paintHeader();
+    this.paintToolbar();
     this.paintHistory();
     this.paintFiles();
   }
@@ -728,7 +1026,7 @@ class Runtime {
     if (!s) return;
     const hasWorking = s.files.length > 0;
     // `visible` counts selectable rows (not the heading), everywhere below.
-    const visible = Math.max(1, this.renderer.terminalHeight - 3);
+    const visible = Math.max(1, this.contentHeight - 3);
     const totalDisplayRows = this.graphRows.length + (hasWorking ? 1 : 0);
     const selectedDisplay =
       this.historySelection === "working" && hasWorking
@@ -746,11 +1044,12 @@ class Runtime {
       Math.min(maxHistoryStart, this.historyStart),
     );
     const chunks = [
-      fg(oneDarkTheme.muted)(
+      fg(this.focus === "history" ? oneDarkTheme.accent : oneDarkTheme.muted)(
         ` BRANCH / TAG          GRAPH  ${s.commits.length} COMMITS\n`,
       ),
     ];
     this.historyShaHits.clear();
+    this.historyLabelHits.clear();
     const labelWidth = Math.min(
       22,
       Math.max(14, Math.floor(this.historyContentWidth * 0.28)),
@@ -779,22 +1078,24 @@ class Runtime {
         const rowBg = selected
           ? oneDarkTheme.selected
           : oneDarkTheme.panelRaised;
+        const workingLabel = selected
+          ? "▸ ● Working changes"
+          : "  ● Working changes";
+        const fileCount = `  ${s.files.length} files`;
+        const fileCountWidth = Math.max(
+          Bun.stringWidth(fileCount),
+          this.historyContentWidth - Bun.stringWidth(workingLabel) - 1,
+        );
         chunks.push(
+          bg(rowBg)(fg(oneDarkTheme.warning)(workingLabel)),
+          bg(rowBg)(fg(oneDarkTheme.muted)(fileCount.padEnd(fileCountWidth))),
           bg(rowBg)(
-            fg(oneDarkTheme.warning)(
-              selected ? "▸ ● Working changes" : "  ● Working changes",
-            ),
+            fg(
+              scrollbarThumb(offset)
+                ? oneDarkTheme.accent
+                : oneDarkTheme.border,
+            )(`${scrollbar(offset)}\n`),
           ),
-          bg(rowBg)(
-            fg(oneDarkTheme.muted)(
-              `  ${s.files.length} files`.padEnd(
-                Math.max(1, this.historyContentWidth - 21),
-              ),
-            ),
-          ),
-          fg(
-            scrollbarThumb(offset) ? oneDarkTheme.accent : oneDarkTheme.border,
-          )(`${scrollbar(offset)}\n`),
         );
         continue;
       }
@@ -802,16 +1103,19 @@ class Runtime {
       const row = this.graphRows[commitRow]!;
       const selected =
         this.historySelection === "commit" && commitRow === this.commitIndex;
-      const labels = row.commit.decorations
-        .filter((label) => !label.startsWith("tag: "))
-        .map((label) => formatBranchDecoration(label, s.branches));
-      if (selected && labels.length === 0) {
-        const hint = this.branchHints.get(row.commit.sha);
-        if (hint) labels.push(hint);
-      }
-      const label = this.fitColumns(labels[0] ?? "", labelWidth - 2, true);
+      const summary = summariseDecorations(row.commit.decorations, s.branches);
+      let primary = summary.label;
+      if (selected && !primary)
+        primary = this.branchHints.get(row.commit.sha) ?? "";
+      // Refs that do not fit are counted, so a commit never silently hides
+      // the tag or branch you were looking for.
+      const chip = summary.extra > 0 ? ` +${summary.extra}` : "";
+      const label = primary
+        ? fitColumns(primary, labelWidth - 2 - chip.length, true).trimEnd() +
+          chip
+        : "";
       const labelText = label
-        ? this.fitColumns(` ${label} `, labelWidth)
+        ? fitColumns(` ${label} `, labelWidth)
         : "".padEnd(labelWidth);
       const graphColor = row.cells[row.lane]?.color ?? oneDarkTheme.accent;
       const rowBg = selected
@@ -822,17 +1126,21 @@ class Runtime {
       const textWidth = Math.max(2, rowWidth - nonTextWidth);
       const authorWidth = Math.max(1, Math.min(11, textWidth - 8));
       const subjectWidth = Math.max(1, textWidth - authorWidth);
-      const subject = this.fitColumns(row.commit.subject, subjectWidth, true);
+      const subject = fitColumns(row.commit.subject, subjectWidth, true);
       const cellPadding = Math.max(0, graphColumns - row.cells.length);
-      const author = this.fitColumns(row.commit.author, authorWidth, true);
+      const author = fitColumns(row.commit.author, authorWidth, true);
       chunks.push(
         bg(rowBg)(fg(label ? graphColor : oneDarkTheme.muted)(labelText)),
         bg(rowBg)(fg(oneDarkTheme.muted)(selected ? "▸ " : "  ")),
         ...row.cells.map((cell) => bg(rowBg)(fg(cell.color)(cell.symbol))),
         bg(rowBg)(fg(oneDarkTheme.muted)("  ".repeat(cellPadding))),
-        bg(rowBg)(fg(oneDarkTheme.text)(subject)),
+        // HEAD's subject takes the marker colour so the checked-out commit
+        // reads at a glance without stealing width from the row.
+        bg(rowBg)(
+          fg(row.head ? oneDarkTheme.warning : oneDarkTheme.text)(subject),
+        ),
         bg(rowBg)(fg(oneDarkTheme.border)(" │ ")),
-        bg(rowBg)(fg("#C678DD")(author)),
+        bg(rowBg)(fg(oneDarkTheme.author)(author)),
         bg(rowBg)(fg(oneDarkTheme.border)(" │ ")),
         bg(rowBg)(fg(oneDarkTheme.accent)(shortSha(row.commit.sha))),
         bg(rowBg)(
@@ -847,36 +1155,87 @@ class Runtime {
         start: shaStart,
         end: shaStart + 8,
       });
+      if (label)
+        this.historyLabelHits.set(commitRow, {
+          start: 0,
+          end: labelWidth,
+          ref: primaryDecorationRef(row.commit.decorations, s.branches),
+        });
     }
     this.historyText.content = new StyledText(chunks);
   }
   private paintFiles() {
-    const files = this.files();
-    this.details.title =
-      this.view === "commit"
-        ? ` COMMIT FILES ${files.length} `
-        : ` ${this.mode.toUpperCase()} ${files.length} `;
-    this.filesText.top = this.view === "commit" ? this.commitFilesTop : 1;
-    const limit = this.fileViewportSize();
-    this.filesText.height = limit;
+    // File counts change with every refresh, so the sections are re-measured
+    // before they are drawn.
+    this.layoutChanges(this.contentHeight);
+    if (this.view === "commit") {
+      this.paintSection("unstaged");
+      return;
+    }
+    this.paintSection("unstaged");
+    this.paintSection("staged");
+    this.paintComposer();
+  }
+  /** Draw one changed-files list, its heading, and its empty state. */
+  private paintSection(section: ChangeSection) {
+    const commitView = this.view === "commit";
+    const files = this.files(commitView ? this.mode : section);
+    const label = this.label(section);
+    const list = this.list(section);
+    const active = !commitView && section === this.mode;
+    const collapsed = !commitView && this.sectionCollapsed[section];
+    label.content = new StyledText([
+      fg(
+        this.focus === "changes" && (active || commitView)
+          ? oneDarkTheme.accent
+          : oneDarkTheme.muted,
+      )(
+        commitView
+          ? ` COMMIT FILES  ${files.length}`
+          : ` ${collapsed ? "▶" : "▼"} ${section === "staged" ? "Staged" : "Unstaged"} files (${files.length})`,
+      ),
+    ]);
+    if (collapsed) {
+      list.content = "";
+      return;
+    }
+    const limit = this.sectionViewport(section);
+    if (commitView) list.height = limit;
     const tree = buildFileTree(files);
     if (this.expandedFiles.size === 0)
       for (const node of tree.children)
         if (node.kind === "directory") this.expandedFiles.add(node.path);
     const allRows = flattenVisible(tree, this.expandedFiles);
-    this.ensureFileVisible(allRows);
-    const rows = allRows.slice(this.fileStart, this.fileStart + limit);
+    const start = Math.max(
+      0,
+      Math.min(
+        Math.max(0, allRows.length - limit),
+        active || commitView ? this.fileStart : this.sectionStart[section],
+      ),
+    );
+    this.sectionStart[section] = start;
+    if (active || commitView) this.fileStart = start;
+    const rows = allRows.slice(start, start + limit);
     if (rows.length === 0) {
-      this.filesText.content =
-        this.view === "commit" ? "  No changed files" : "  Working tree clean";
+      list.content = commitView
+        ? new StyledText([
+            fg(oneDarkTheme.muted)("  No changed files in this commit\n"),
+            fg(oneDarkTheme.muted)("  esc  back to the graph"),
+          ])
+        : new StyledText([
+            fg(oneDarkTheme.muted)(
+              section === "staged" ? "  Nothing staged" : "  Nothing to stage",
+            ),
+          ]);
       return;
     }
-    const selectedPath = this.selectedFile()?.path;
+    const selectedPath =
+      active || commitView ? this.selectedFile()?.path : undefined;
     const chunks = [];
     for (const { node, depth } of rows) {
       const selected = node.kind === "file" && node.path === selectedPath;
-      const statusIcon = this.fileIcon(node);
-      const statusColor = this.fileColor(node);
+      const statusIcon = fileIcon(node);
+      const statusColor = fileColor(node);
       const materialIcon = resolveMaterialIcon(
         node.name,
         node.kind === "directory",
@@ -884,8 +1243,8 @@ class Runtime {
       );
       const nameColor =
         node.kind === "directory" ? oneDarkTheme.folder : oneDarkTheme.text;
-      const available = Math.max(6, this.details.width - depth * 2 - 11);
-      const label = fitTreeLabel(node.name, available);
+      const available = Math.max(6, this.detailsPaneWidth - depth * 2 - 11);
+      const treeLabel = fitTreeLabel(node.name, available);
       chunks.push(
         selected
           ? bg(oneDarkTheme.selected)("▸ ")
@@ -901,18 +1260,47 @@ class Runtime {
           ? fg(oneDarkTheme.muted)("")
           : fg(statusColor)(`${statusIcon} `),
         selected
-          ? bg(oneDarkTheme.selected)(fg(nameColor)(label))
-          : fg(nameColor)(label),
+          ? bg(oneDarkTheme.selected)(fg(nameColor)(treeLabel))
+          : fg(nameColor)(treeLabel),
         fg(oneDarkTheme.muted)("\n"),
       );
     }
-    this.filesText.content = new StyledText(chunks);
+    list.content = new StyledText(chunks);
   }
-
-  private fileViewportSize() {
-    return this.view === "commit"
-      ? Math.max(1, this.renderer.terminalHeight - this.commitFilesTop - 2)
-      : Math.max(1, Math.min(7, this.renderer.terminalHeight - 3));
+  /** Refresh the commit button's label and enabled colours. */
+  private paintComposer() {
+    if (this.editingCommitSha) {
+      this.commitButton.fg = oneDarkTheme.added;
+      this.commitButton.content = "Save message";
+      return;
+    }
+    const staged = this.files("staged").length;
+    const ready = staged > 0 && this.composerSummary.value.trim().length > 0;
+    const width = Math.max(10, this.detailsPaneWidth - 4);
+    const text = ready
+      ? `Commit ${staged} staged file${staged === 1 ? "" : "s"}`
+      : staged === 0
+        ? "Stage files to commit"
+        : "Write a summary to commit";
+    const padding = Math.max(
+      0,
+      Math.floor((width - Bun.stringWidth(text)) / 2),
+    );
+    this.commitButton.fg = ready ? oneDarkTheme.added : oneDarkTheme.muted;
+    this.commitButton.content = new StyledText([
+      bg(ready ? oneDarkTheme.selected : oneDarkTheme.panelRaised)(
+        fg(ready ? oneDarkTheme.added : oneDarkTheme.muted)(
+          fitColumns(
+            `${" ".repeat(padding)}${ready ? "✓ " : ""}${text}`,
+            width,
+          ),
+        ),
+      ),
+    ]);
+    this.amendButton.content = `${this.amend ? "[x]" : "[ ]"} Amend previous commit`;
+    this.amendButton.fg = this.amend
+      ? oneDarkTheme.warning
+      : oneDarkTheme.muted;
   }
 
   private ensureFileVisible(
@@ -922,7 +1310,7 @@ class Runtime {
     const selectedRow = path
       ? rows.findIndex(({ node }) => node.path === path)
       : -1;
-    const limit = this.fileViewportSize();
+    const limit = this.filesViewport();
     const maxStart = Math.max(0, rows.length - limit);
     if (selectedRow >= 0) {
       if (selectedRow < this.fileStart) this.fileStart = selectedRow;
@@ -930,28 +1318,6 @@ class Runtime {
         this.fileStart = selectedRow - limit + 1;
     }
     this.fileStart = Math.max(0, Math.min(maxStart, this.fileStart));
-  }
-
-  private fileIcon(node: FileTreeNode) {
-    if (node.kind === "directory") return "";
-    return {
-      modified: "●",
-      added: "✚",
-      untracked: "✚",
-      deleted: "✖",
-      renamed: "➜",
-      copied: "⧉",
-      conflicted: "⚠",
-    }[node.state];
-  }
-
-  private fileColor(node: FileTreeNode) {
-    const state = node.kind === "directory" ? node.status : node.state;
-    if (state === "deleted" || state === "conflicted")
-      return oneDarkTheme.deleted;
-    if (state === "added" || state === "untracked") return oneDarkTheme.added;
-    if (state === "renamed" || state === "copied") return oneDarkTheme.accent;
-    return oneDarkTheme.warning;
   }
 
   private async loadDiff() {
@@ -991,12 +1357,6 @@ class Runtime {
       this.commitDiffEmpty.visible = value.length === 0;
     }
   }
-  private setStatus(text: string) {
-    this.status.content = text.slice(
-      0,
-      Math.max(20, this.renderer.terminalWidth - 3),
-    );
-  }
   private moveCommit(delta: number) {
     if (!this.snapshot || this.commitDiff.visible) return;
     this.historyViewportDetached = false;
@@ -1034,7 +1394,7 @@ class Runtime {
     if (!this.snapshot || this.commitDiff.visible) return;
     const total =
       this.graphRows.length + (this.snapshot.files.length > 0 ? 1 : 0);
-    const visible = Math.max(1, this.renderer.terminalHeight - 3);
+    const visible = Math.max(1, this.contentHeight - 3);
     this.historyViewportDetached = true;
     this.historyStart = Math.max(
       0,
@@ -1044,6 +1404,7 @@ class Runtime {
   }
   private historyClick(x: number, y: number, button: number) {
     if (this.commitDiff.visible) return;
+    this.setFocus("history");
     if (this.scrollTimer) {
       clearTimeout(this.scrollTimer);
       this.scrollTimer = undefined;
@@ -1060,29 +1421,330 @@ class Runtime {
       return;
     }
     const row = displayIndex - (hasWorking ? 1 : 0);
-    if (row >= 0 && row < (this.snapshot?.commits.length ?? 0)) {
-      this.commitIndex = row;
-      this.historySelection = "commit";
-      this.paintHistory();
-      const hit = this.historyShaHits.get(row);
-      if (
-        button !== MouseButton.RIGHT &&
-        hit &&
-        x >= hit.start &&
-        x < hit.end
-      ) {
-        const sha = shortSha(this.snapshot!.commits[row]!.sha);
-        if (this.renderer.copyToClipboardOSC52(sha))
-          this.setStatus(`Copied ${sha}`);
-      } else if (button !== MouseButton.RIGHT) void this.openCommit();
-    }
+    if (row < 0 || row >= (this.snapshot?.commits.length ?? 0)) return;
+    this.commitIndex = row;
+    this.historySelection = "commit";
+    this.paintHistory();
+    const commit = this.snapshot!.commits[row]!;
+    const column = x - this.historyContentLeft;
+    const labelHit = this.historyLabelHits.get(row);
+    const onLabel =
+      !!labelHit && column >= labelHit.start && column < labelHit.end;
     if (button === MouseButton.RIGHT) {
-      const sha = this.snapshot?.commits[this.commitIndex]?.sha;
-      const value = sha ? shortSha(sha) : undefined;
-      if (value && this.renderer.copyToClipboardOSC52(value))
-        this.setStatus(`Copied ${value}`);
+      this.openGraphMenu(x, y + PANE_TOP, {
+        sha: commit.sha,
+        branch: onLabel ? labelHit?.ref : undefined,
+      });
+      return;
     }
+    const shaHit = this.historyShaHits.get(row);
+    if (shaHit && column >= shaHit.start && column < shaHit.end) {
+      const sha = shortSha(commit.sha);
+      if (this.renderer.copyToClipboardOSC52(sha)) this.notify(`Copied ${sha}`);
+      return;
+    }
+    const now = Date.now();
+    const previous = this.lastGraphClick;
+    this.lastGraphClick = { row, at: now, label: onLabel };
+    const doubled =
+      !!previous &&
+      previous.row === row &&
+      previous.label === onLabel &&
+      now - previous.at < DOUBLE_CLICK_MS;
+    if (doubled) {
+      this.lastGraphClick = undefined;
+      if (onLabel && labelHit?.ref)
+        return void this.checkoutBranch(labelHit.ref);
+      if (onLabel) return this.notify("That label is a tag, not a branch");
+    }
+    void this.openCommit();
   }
+
+  /** Open the graph context menu at a terminal position. */
+  private openGraphMenu(
+    x: number,
+    y: number,
+    target: { sha: string; branch?: BranchRef },
+  ) {
+    if (!this.snapshot) return;
+    const built = buildGraphMenu(target, this.snapshot);
+    this.openPopup(built.title, built.items, x, y, (item) => {
+      if (item.action) void this.runMenuAction(item.action, target);
+    });
+  }
+
+  private async runMenuAction(
+    action: GraphMenuAction,
+    target: { sha: string; branch?: BranchRef },
+  ) {
+    const branch = target.branch;
+    const reference = branch ? branch.name : target.sha;
+    if (action === "copy-sha") {
+      const sha = shortSha(target.sha);
+      return void (
+        this.renderer.copyToClipboardOSC52(sha) && this.notify(`Copied ${sha}`)
+      );
+    }
+    if (action === "copy-branch") {
+      if (!branch) return;
+      return void (
+        this.renderer.copyToClipboardOSC52(branch.name) &&
+        this.notify(`Copied ${branch.name}`)
+      );
+    }
+    if (action === "checkout-branch")
+      return void (branch && this.checkoutBranch(branch));
+    if (action === "checkout-commit")
+      return this.perform(`Checking out ${shortSha(target.sha)}…`, () =>
+        this.repository.checkoutCommit(target.sha),
+      );
+    if (action === "rebase-onto")
+      return this.perform(`Rebasing onto ${reference}…`, () =>
+        this.repository.rebaseOnto(reference),
+      );
+    if (action === "delete-branch") {
+      if (!branch) return;
+      return this.confirmThen(
+        {
+          title: "Delete branch",
+          lines: [
+            `Delete the local branch ${displayBranchName(branch.name)}?`,
+            "Commits only on this branch become unreachable.",
+          ],
+          confirmLabel: `Delete ${displayBranchName(branch.name)}`,
+          destructive: true,
+        },
+        () =>
+          this.perform(`Deleting ${branch.name}…`, () =>
+            this.repository.deleteBranch(branch.name, true),
+          ),
+      );
+    }
+    const mode: ResetMode =
+      action === "reset-soft"
+        ? "soft"
+        : action === "reset-hard"
+          ? "hard"
+          : "mixed";
+    const label = `${this.snapshot?.branch ?? "HEAD"} → ${branch ? displayBranchName(branch.name) : shortSha(target.sha)}`;
+    if (mode !== "hard")
+      return this.perform(`Resetting (${mode}) ${label}…`, () =>
+        this.repository.resetTo(reference, mode),
+      );
+    return this.confirmThen(
+      {
+        title: "Hard reset",
+        lines: [
+          `Move ${this.snapshot?.branch ?? "HEAD"} to ${branch ? displayBranchName(branch.name) : shortSha(target.sha)}`,
+          "and throw away all uncommitted changes to tracked files.",
+          "This cannot be undone from the working tree.",
+        ],
+        confirmLabel: "Reset --hard",
+        destructive: true,
+      },
+      () =>
+        this.perform(`Resetting (hard) ${label}…`, () =>
+          this.repository.resetTo(reference, "hard"),
+        ),
+    );
+  }
+
+  /**
+   * Check out a branch from the graph.
+   *
+   * A remote branch is checked out through its local counterpart. When that
+   * local branch already exists and has diverged, the move discards the local
+   * commits, so it is confirmed first.
+   */
+  private async checkoutBranch(branch: BranchRef) {
+    if (branch.current) return this.notify(`Already on ${branch.name}`);
+    if (!branch.remote)
+      return this.perform(`Switching to ${branch.name}…`, () =>
+        this.repository.switchBranch(branch.name),
+      );
+    const short = displayBranchName(branch.name);
+    const local = this.snapshot?.branches.find(
+      (ref) => !ref.remote && ref.name === short,
+    );
+    if (!local)
+      return this.perform(`Switching to ${short}…`, () =>
+        this.repository.checkoutRemoteBranch(short, branch.name, false),
+      );
+    if (local.sha === branch.sha)
+      return this.perform(`Switching to ${short}…`, () =>
+        this.repository.switchBranch(short),
+      );
+    return this.confirmThen(
+      {
+        title: "Overwrite local branch",
+        lines: [
+          `Your local ${short} differs from ${branch.name}.`,
+          "Continuing moves the local branch onto the remote tip,",
+          "abandoning any local commits it has.",
+        ],
+        confirmLabel: `Overwrite local ${short}`,
+        destructive: true,
+      },
+      () =>
+        this.perform(`Resetting ${short} to ${branch.name}…`, () =>
+          this.repository.checkoutRemoteBranch(short, branch.name, true),
+        ),
+    );
+  }
+
+  /** Ask before running an action that loses work. */
+  private confirmThen(request: ConfirmRequest, run: () => Promise<void>) {
+    const items: GraphMenuItem[] = [
+      ...request.lines.map((line) => ({ label: line, disabled: true })),
+      { label: "", separator: true },
+      { label: request.confirmLabel, destructive: request.destructive },
+      { label: "Cancel" },
+    ];
+    const width = menuWidth(items);
+    this.openPopup(
+      request.title,
+      items,
+      Math.max(0, Math.floor((this.renderer.terminalWidth - width) / 2)),
+      Math.max(
+        0,
+        Math.floor((this.renderer.terminalHeight - items.length) / 2),
+      ),
+      (item) => {
+        if (item.label === request.confirmLabel) void run();
+      },
+    );
+  }
+
+  private openPopup(
+    title: string,
+    items: GraphMenuItem[],
+    x: number,
+    y: number,
+    select: (item: GraphMenuItem) => void,
+  ) {
+    const width = menuWidth(items);
+    const { left, top } = placeMenu(
+      x,
+      y,
+      width,
+      items.length,
+      this.renderer.terminalWidth,
+      this.renderer.terminalHeight,
+    );
+    this.popup = { title, items, left, top, width, select };
+    this.paintPopup();
+  }
+
+  private closePopup() {
+    this.popup = undefined;
+    this.paintPopup();
+  }
+
+  private paintPopup() {
+    const popup = this.popup;
+    const visible = !!popup;
+    for (const widget of [this.overlayCatcher, this.menuBox, this.menuText])
+      widget.visible = visible;
+    const submenuVisible = !!popup?.submenu;
+    this.submenuBox.visible = submenuVisible;
+    this.submenuText.visible = submenuVisible;
+    if (!popup) return;
+    this.menuBox.left = popup.left;
+    this.menuBox.top = popup.top;
+    this.menuBox.width = popup.width;
+    this.menuBox.height = popup.items.length + 2;
+    this.menuBox.title = ` ${clipColumns(popup.title, popup.width - 4)} `;
+    this.menuText.left = popup.left + 1;
+    this.menuText.top = popup.top + 1;
+    this.menuText.width = popup.width - 2;
+    this.menuText.height = popup.items.length;
+    this.menuText.content = this.popupContent(popup);
+    const submenu = popup.submenu;
+    if (!submenu) return;
+    this.submenuBox.left = submenu.left;
+    this.submenuBox.top = submenu.top;
+    this.submenuBox.width = submenu.width;
+    this.submenuBox.height = submenu.items.length + 2;
+    this.submenuBox.title = "";
+    this.submenuText.left = submenu.left + 1;
+    this.submenuText.top = submenu.top + 1;
+    this.submenuText.width = submenu.width - 2;
+    this.submenuText.height = submenu.items.length;
+    this.submenuText.content = this.popupContent(submenu);
+  }
+
+  private popupContent(pane: PopupPane): StyledText {
+    const width = pane.width - 2;
+    return new StyledText(
+      pane.items.map((item, index) => {
+        const line = renderMenuLine(item, width);
+        const suffix = index === pane.items.length - 1 ? "" : "\n";
+        if (item.separator) return fg(oneDarkTheme.border)(`${line}${suffix}`);
+        const rowBg =
+          index === pane.hover && !item.disabled
+            ? oneDarkTheme.selected
+            : oneDarkTheme.panelRaised;
+        const color = item.disabled
+          ? oneDarkTheme.muted
+          : item.destructive
+            ? oneDarkTheme.deleted
+            : oneDarkTheme.text;
+        return bg(rowBg)(fg(color)(`${line}${suffix}`));
+      }),
+    );
+  }
+
+  private hoverPopup(x: number, y: number, inSubmenu: boolean) {
+    const popup = this.popup;
+    if (!popup) return;
+    const pane = inSubmenu ? popup.submenu : popup;
+    if (!pane) return;
+    const row = menuRowAt(pane, x, y);
+    if (pane.hover === row) return;
+    pane.hover = row;
+    // Moving onto another top-level row closes a submenu that is no longer
+    // under the pointer, which is what a menu is expected to do.
+    if (!inSubmenu && row !== undefined && popup.submenu?.parent !== row)
+      popup.submenu = undefined;
+    if (!inSubmenu && row !== undefined) this.openSubmenuFor(row);
+    this.paintPopup();
+  }
+
+  private openSubmenuFor(row: number) {
+    const popup = this.popup;
+    const item = popup?.items[row];
+    if (!popup || !item?.submenu || popup.submenu?.parent === row) return;
+    const width = menuWidth(item.submenu);
+    const { left, top } = placeMenu(
+      popup.left + popup.width,
+      popup.top + 1 + row,
+      width,
+      item.submenu.length,
+      this.renderer.terminalWidth,
+      this.renderer.terminalHeight,
+    );
+    popup.submenu = { parent: row, items: item.submenu, left, top, width };
+  }
+
+  private clickPopup(x: number, y: number, inSubmenu: boolean) {
+    const popup = this.popup;
+    if (!popup) return;
+    const pane = inSubmenu ? popup.submenu : popup;
+    if (!pane) return;
+    const row = menuRowAt(pane, x, y);
+    if (row === undefined) return;
+    const item = pane.items[row];
+    if (!item || item.disabled) return;
+    if (item.submenu) {
+      this.openSubmenuFor(row);
+      this.paintPopup();
+      return;
+    }
+    const select = popup.select;
+    this.closePopup();
+    select(item);
+  }
+
   private async openCommit() {
     const commit = this.snapshot?.commits[this.commitIndex];
     if (!commit) return;
@@ -1098,13 +1760,18 @@ class Runtime {
     this.historyText.visible = true;
     this.commitDiff.visible = false;
     this.commitDiffEmpty.visible = false;
-    this.diff.visible = false;
-    this.composer.visible = false;
     this.showCommitMeta(commit);
-    this.status.content =
-      "Commit selected  ·  click a changed file to open its diff";
+    this.workingBanner.content = workingChangesBannerLines(
+      this.snapshot?.files.length ?? 0,
+      Math.max(1, this.detailsPaneWidth - 2),
+    ).join("\n");
+    this.workingBanner.height = this.workingBanner.visible ? 2 : 1;
+    this.layout();
+    this.notify("Commit selected · click a changed file for its diff");
     this.commitFiles = [];
-    this.filesText.content = "  Loading changed files…";
+    this.unstagedText.content = new StyledText([
+      fg(oneDarkTheme.muted)("  ░░░░░░░░░░░░░░░\n  ░░░░░░░░░░\n  ░░░░░░░░░░░░"),
+    ]);
     this.commitDiffEmpty.content = "Select a changed file to open its diff.";
     try {
       const files = await this.repository.commitFiles(commit.sha);
@@ -1126,8 +1793,8 @@ class Runtime {
       if (token !== this.commitFilesRequest || this.snapshot !== snapshot)
         return;
       const message = e instanceof Error ? e.message : String(e);
-      this.filesText.content = `  Failed to load changed files\n  ${message}`;
-      this.setStatus(message);
+      this.unstagedText.content = `  Failed to load changed files\n  ${message}`;
+      this.notify(message, "error");
     }
   }
   private async openWorkingDiff() {
@@ -1138,15 +1805,13 @@ class Runtime {
     this.historyText.visible = false;
     this.commitDiff.visible = true;
     this.commitDiffEmpty.visible = false;
-    this.diff.visible = false;
-    this.diffEmpty.visible = false;
     this.setCommitMetaVisible(false);
-    this.status.content =
-      "Esc back to graph  ·  click another file to view its diff";
+    this.paintHints();
+    this.layout();
     try {
       await this.loadDiff();
     } catch (error) {
-      this.setStatus(error instanceof Error ? error.message : String(error));
+      this.fail(error);
     }
   }
   private closeDiff() {
@@ -1159,135 +1824,199 @@ class Runtime {
     this.commitDiff.visible = false;
     this.commitDiffEmpty.visible = false;
     this.setCommitMetaVisible(false);
-    this.diff.visible = true;
-    this.composer.visible = true;
-    this.paint();
+    this.paintHints();
+    // A view change moves the file list and the diff, so geometry has to be
+    // recomputed rather than only repainted.
+    this.layout();
   }
   private showCommitMeta(commit: Commit) {
-    const date = new Intl.DateTimeFormat(undefined, {
-      dateStyle: "medium",
-      timeStyle: "medium",
-    }).format(new Date(commit.authoredAt));
-    this.commitInfo.content = new StyledText([
-      fg(oneDarkTheme.accent)(shortSha(commit.sha)),
-      fg(oneDarkTheme.muted)(`  ${commit.author}  ${date}`),
-    ]);
-    this.commitHeaderValue = commit.subject;
-    this.commitHeader.content = this.commitHeaderValue;
-    const body = commit.body || "(no body)";
-    this.commitBodyValue = body;
-    this.commitBody.content = body;
-    const bodyWidth = Math.max(10, Number(this.details.width) - 8);
-    this.commitBody.height = this.wrappedLineCount(body, bodyWidth);
+    const meta = presentCommitMeta(commit);
+    this.commitInfo.content = meta.info;
+    this.commitInfoValue = `${shortSha(commit.sha)}\nAuthor: ${commit.author}${commit.authorEmail ? ` <${commit.authorEmail}>` : ""}\nAuthored: ${commit.authoredAt}\nCommitter: ${commit.committer}${commit.committerEmail ? ` <${commit.committerEmail}>` : ""}\nCommitted: ${commit.committedAt}`;
+    this.commitHeaderValue = meta.header;
+    this.commitHeader.content = meta.header;
+    this.commitBodyValue = meta.body;
+    this.commitBody.content = meta.body;
+    const bodyWidth = Math.max(10, this.detailsPaneWidth - 8);
+    this.commitBody.height = wrappedLineCount(meta.body, bodyWidth);
     this.commitBodyBox.scrollTo(0);
     this.setCommitMetaVisible(true);
     this.layout();
   }
-  private wrappedLineCount(value: string, width: number) {
-    return Math.max(
-      1,
-      value
-        .split("\n")
-        .reduce(
-          (lines, line) => lines + Math.max(1, Math.ceil(line.length / width)),
-          0,
-        ),
-    );
-  }
-  private fitColumns(value: string, width: number, ellipsis = false) {
-    if (width <= 0) return "";
-    if (Bun.stringWidth(value) <= width)
-      return value + " ".repeat(width - Bun.stringWidth(value));
-    const suffix = ellipsis && width > 1 ? "…" : "";
-    const target = width - Bun.stringWidth(suffix);
-    let result = "";
-    for (const character of value) {
-      if (Bun.stringWidth(result + character) > target) break;
-      result += character;
-    }
-    result += suffix;
-    return result + " ".repeat(Math.max(0, width - Bun.stringWidth(result)));
-  }
   private setCommitMetaVisible(visible: boolean) {
     this.commitInfoBox.visible = visible;
-    this.commitHeaderBox.visible = false;
     this.commitBodyBox.visible = visible;
   }
+  private toggleAmend() {
+    if (this.amend) {
+      this.amend = false;
+      if (this.amendDraft) {
+        this.composerSummary.value = this.amendDraft.summary;
+        this.composerBody.setText(this.amendDraft.body);
+      }
+      this.amendDraft = undefined;
+    } else {
+      const headSha = this.snapshot
+        ? resolveHeadSha(this.snapshot.branches, this.snapshot.commits)
+        : undefined;
+      const head = headSha
+        ? this.snapshot?.commits.find((commit) => commit.sha === headSha)
+        : undefined;
+      if (!head) return this.notify("No previous commit to amend", "error");
+      this.amendDraft = {
+        summary: this.composerSummary.value,
+        body: this.composerBody.plainText,
+      };
+      this.amend = true;
+      this.composerSummary.value = head.subject;
+      this.composerBody.setText(head.body ?? "");
+    }
+    this.paintComposer();
+  }
+  private editMessage() {
+    const commit = this.snapshot?.commits[this.commitIndex];
+    if (!commit) return;
+    this.editReturnState = {
+      summary: this.composerSummary.value,
+      body: this.composerBody.plainText,
+      amend: this.amend,
+      amendDraft: this.amendDraft && { ...this.amendDraft },
+    };
+    this.editingCommitSha = commit.sha;
+    this.composerSummary.value = commit.subject;
+    this.composerBody.setText(commit.body ?? "");
+    this.setCommitMetaVisible(false);
+    this.layout();
+    this.paintComposer();
+    setTimeout(() => this.composerSummary.focus(), 0);
+  }
+  private restoreEditReturnState() {
+    const state = this.editReturnState;
+    this.editReturnState = undefined;
+    if (!state) return;
+    this.composerSummary.value = state.summary;
+    this.composerBody.setText(state.body);
+    this.amend = state.amend;
+    this.amendDraft = state.amendDraft;
+  }
+  private cancelEditMessage() {
+    this.composerSummary.blur();
+    this.composerBody.blur();
+    this.editingCommitSha = undefined;
+    this.restoreEditReturnState();
+    const commit = this.snapshot?.commits[this.commitIndex];
+    if (commit) this.showCommitMeta(commit);
+    this.paintComposer();
+    this.paintHints();
+  }
   private sidebarClick(y: number, button: number) {
-    if (button !== MouseButton.RIGHT && (y === 3 || y === 4)) {
-      this.localBranchesCollapsed = !this.localBranchesCollapsed;
-      this.paint();
-      return;
-    }
-    const localCount =
-      this.snapshot?.branches.filter((branch) => !branch.remote).length ?? 0;
-    const renderedLocal = this.localBranchesCollapsed
-      ? 0
-      : Math.min(10, localCount);
-    const remoteHeaderY = 6 + renderedLocal;
-    if (
-      button !== MouseButton.RIGHT &&
-      (y === remoteHeaderY || y === remoteHeaderY + 1)
-    ) {
-      this.remoteBranchesCollapsed = !this.remoteBranchesCollapsed;
-      this.paint();
-      return;
-    }
     if (button === MouseButton.RIGHT) {
       const branch = this.snapshot?.branch;
       if (branch && this.renderer.copyToClipboardOSC52(branch))
-        this.setStatus(`Copied ${branch}`);
+        this.notify(`Copied ${branch}`);
     }
   }
+  private toggleSidebarSection(section: SidebarSection) {
+    this.sidebarCollapsed[section] = !this.sidebarCollapsed[section];
+    this.persistLayoutPreferences();
+    this.paint();
+  }
   private sidebarScroll(y: number, delta: number) {
-    const branches = this.snapshot?.branches;
-    if (!branches) return;
-    const localCount = branches.filter((branch) => !branch.remote).length;
-    const remoteCount = branches.length - localCount;
-    const renderedLocal = this.localBranchesCollapsed
-      ? 0
-      : Math.min(10, localCount);
-    const remoteHeaderY = 6 + renderedLocal;
-    if (y < remoteHeaderY && !this.localBranchesCollapsed) {
-      this.localBranchStart = Math.max(
-        0,
-        Math.min(localCount - 10, this.localBranchStart + delta),
-      );
-    } else if (!this.remoteBranchesCollapsed) {
-      this.remoteBranchStart = Math.max(
-        0,
-        Math.min(remoteCount - 10, this.remoteBranchStart + delta),
-      );
-    }
+    if (!this.snapshot) return;
+    const rects = layoutSidebarSections(
+      this.contentHeight,
+      this.sidebarPreferred,
+      this.sidebarCollapsed,
+    );
+    const section = SIDEBAR_SECTIONS.find(
+      (s) =>
+        y >= rects[s].contentTop &&
+        y < rects[s].contentTop + rects[s].contentHeight,
+    );
+    if (!section || this.sidebarCollapsed[section]) return;
+    const rows = sidebarRows(this.snapshot, section, this.sidebarPaneWidth);
+    this.sidebarStart[section] = Math.max(
+      0,
+      Math.min(
+        Math.max(0, rows.length - rects[section].contentHeight),
+        this.sidebarStart[section] + delta,
+      ),
+    );
+    this.paint();
+  }
+  private resizeSidebar(section: SidebarSection, y: number) {
+    const layout = layoutSidebarSections(
+      this.contentHeight,
+      this.sidebarPreferred,
+      this.sidebarCollapsed,
+    );
+    this.sidebarPreferred = resizeSidebarBoundary(
+      layout,
+      this.sidebarPreferred,
+      this.sidebarCollapsed,
+      section,
+      y,
+    );
+    this.persistLayoutPreferences();
     this.paint();
   }
 
   private async key(key: KeyEvent) {
-    if (
-      this.renderer.currentFocusedEditor === this.composer &&
-      key.name !== "escape"
-    )
+    if (this.composing && key.name !== "escape" && key.name !== "tab") {
+      // The editors own every other key while composing, but the button label
+      // tracks the summary, so repaint after the keystroke lands.
+      setTimeout(() => this.paintComposer(), 0);
       return;
+    }
+    if (this.composing && key.name === "tab") {
+      const next =
+        this.renderer.currentFocusedEditor === this.composerSummary
+          ? this.composerBody
+          : this.composerSummary;
+      next.focus();
+      return;
+    }
     if (key.name === "escape") {
-      if (this.renderer.currentFocusedEditor === this.composer)
-        this.composer.blur();
-      else if (this.view !== "history") this.closeDiff();
+      if (this.popup) return this.closePopup();
+      // A failed reword can leave the editor blurred; edit mode itself still
+      // owns Escape so its saved working draft is never stranded.
+      if (this.editingCommitSha) return this.cancelEditMessage();
+      if (this.composing) {
+        this.composerSummary.blur();
+        this.composerBody.blur();
+        this.paintHints();
+      } else if (this.view !== "history") this.closeDiff();
       return;
     }
     if (key.name === "q" || (key.ctrl && key.name === "c")) {
       if (this.refreshTimer) clearInterval(this.refreshTimer);
       if (this.scrollTimer) clearTimeout(this.scrollTimer);
+      if (this.messageTimer) clearTimeout(this.messageTimer);
+      await this.flushLayoutPreferences().catch(() => undefined);
       return this.renderer.destroy();
     }
-    if (key.name === "up" || key.name === "k") return this.moveCommit(-1);
-    if (key.name === "down" || key.name === "j") return this.moveCommit(1);
-    if (key.name === "enter" && this.view === "history")
-      return void this.openCommit();
     if (key.name === "tab") {
+      this.setFocus(this.focus === "history" ? "changes" : "history");
+      return;
+    }
+    if (key.name === "up" || key.name === "k")
+      return this.focus === "changes" ? this.moveFile(-1) : this.moveCommit(-1);
+    if (key.name === "down" || key.name === "j")
+      return this.focus === "changes" ? this.moveFile(1) : this.moveCommit(1);
+    // OpenTUI reports the Enter key as "return"; both names are accepted so
+    // the binding cannot break with a rename upstream.
+    if (key.name === "enter" || key.name === "return") {
+      if (this.focus === "changes") return void this.openSelectedFile();
+      if (this.view === "history") return void this.openCommit();
+      return;
+    }
+    if (key.name === "t") {
       this.mode = this.mode === "staged" ? "unstaged" : "staged";
       this.fileIndex = 0;
+      this.fileStart = this.sectionStart[this.mode];
+      this.setFocus("changes");
       this.paint();
-      return void this.loadDiff().catch((e) => this.setStatus(String(e)));
+      return void this.loadDiff().catch((e) => this.fail(e));
     }
     if (key.name === "[") {
       this.leftCollapsed = !this.leftCollapsed;
@@ -1297,32 +2026,19 @@ class Runtime {
       this.detailsCollapsed = !this.detailsCollapsed;
       return this.layout();
     }
-    if (key.name === "left") {
-      this.fileIndex = Math.max(0, this.fileIndex - 1);
-      this.ensureFileVisible();
-      this.paintFiles();
-      if (this.view !== "history")
-        return void this.loadDiff().catch((e) => this.setStatus(String(e)));
-      return;
-    }
-    if (key.name === "right") {
-      this.fileIndex = Math.min(
-        Math.max(0, this.files().length - 1),
-        this.fileIndex + 1,
-      );
-      this.ensureFileVisible();
-      this.paintFiles();
-      if (this.view !== "history")
-        return void this.loadDiff().catch((e) => this.setStatus(String(e)));
-      return;
-    }
+    if (key.name === "left") return this.moveFile(-1);
+    if (key.name === "right") return this.moveFile(1);
     if (key.name === "r") return void this.refresh();
     if (key.name === "f")
-      return void this.perform("Fetching…", () => this.repository.fetch());
+      return void this.perform(
+        "Fetching…",
+        () => this.repository.fetch(),
+        true,
+      );
     if (key.name === "l")
-      return void this.perform("Pulling…", () => this.repository.pull());
+      return void this.perform("Pulling…", () => this.repository.pull(), true);
     if (key.name === "p")
-      return void this.perform("Pushing…", () => this.repository.push());
+      return void this.perform("Pushing…", () => this.repository.push(), true);
     if (key.name === "s" && this.selectedFile())
       return void this.perform("Staging…", () =>
         this.repository.stage([this.selectedFile()!.path]),
@@ -1333,23 +2049,111 @@ class Runtime {
       );
     if (key.name === "h" && this.selectedFile())
       return void this.stageFirstHunk();
-    if (key.name === "c") this.composer.focus();
+    if (key.name === "a") return void this.stageAll();
+    if (key.name === "d") return void this.discardAll();
+    if (key.name === "c") {
+      // Focus after this keypress has been dispatched, otherwise the same "c"
+      // also reaches the input and starts the commit message with it.
+      setTimeout(() => {
+        this.composerSummary.focus();
+        this.paintHints();
+      }, 0);
+    }
   }
-  private async perform(label: string, action: () => Promise<void>) {
-    this.setStatus(label);
+  private moveFile(delta: number) {
+    this.setFocus("changes");
+    this.fileIndex = Math.max(
+      0,
+      Math.min(Math.max(0, this.files().length - 1), this.fileIndex + delta),
+    );
+    this.ensureFileVisible();
+    this.paintFiles();
+    if (this.view !== "history")
+      void this.loadDiff().catch((e) => this.fail(e));
+  }
+  private async openSelectedFile() {
+    if (!this.selectedFile()) return this.notify("No file selected");
+    if (this.view === "history") return void this.openWorkingDiff();
+    this.historyText.visible = false;
+    this.commitDiff.visible = true;
+    this.commitDiffEmpty.visible = false;
+    await this.loadDiff().catch((e) => this.fail(e));
+  }
+  private async perform(
+    label: string,
+    action: () => Promise<void>,
+    remote = false,
+  ) {
+    this.notify(label, "busy");
     try {
       await action();
+      if (remote) this.syncedAt = Date.now();
       await this.refresh();
     } catch (e) {
-      this.setStatus(e instanceof Error ? e.message : String(e));
+      this.fail(e);
     }
   }
   private async commit() {
-    const message = this.composer.value.trim();
-    if (!message) return this.setStatus("Commit message cannot be empty");
-    this.composer.blur();
-    await this.perform("Committing…", () => this.repository.commit(message));
-    this.composer.value = "";
+    const summary = this.composerSummary.value.trim();
+    if (!summary) return this.notify("Commit summary cannot be empty", "error");
+    if (!this.editingCommitSha && this.files("staged").length === 0)
+      return this.notify("Nothing staged to commit", "error");
+    const body = this.composerBody.plainText.trim();
+    const message = body ? `${summary}\n\n${body}` : summary;
+    this.composerSummary.blur();
+    this.composerBody.blur();
+    const reword = this.editingCommitSha;
+    try {
+      this.notify(reword ? "Saving message…" : "Committing…", "busy");
+      if (reword) await this.repository.rewordCommit(reword, message);
+      else if (this.amend) await this.repository.amendCommit(message);
+      else await this.repository.commit(message);
+      this.editingCommitSha = undefined;
+      if (reword) this.restoreEditReturnState();
+      else {
+        this.amend = false;
+        this.amendDraft = undefined;
+        this.composerSummary.value = "";
+        this.composerBody.setText("");
+      }
+      await this.refresh();
+      this.paintComposer();
+    } catch (error) {
+      this.fail(error);
+      if (reword) setTimeout(() => this.composerSummary.focus(), 0);
+    }
+  }
+  private async stageAll() {
+    const paths = this.files("unstaged").map((file) => file.path);
+    if (paths.length === 0) return this.notify("Nothing to stage");
+    await this.perform("Staging all…", () => this.repository.stage(paths));
+  }
+  private async unstageAll() {
+    const paths = this.files("staged").map((file) => file.path);
+    if (paths.length === 0) return this.notify("Nothing to unstage");
+    await this.perform("Unstaging all…", () => this.repository.unstage(paths));
+  }
+  /**
+   * Discard every unstaged change, including untracked files.
+   *
+   * The first press only arms the action, because nothing here is recoverable
+   * from Git afterwards.
+   */
+  private async discardAll() {
+    if (this.files("unstaged").length === 0)
+      return this.notify("Nothing to discard");
+    if (!this.discardArmed) {
+      this.discardArmed = true;
+      setTimeout(() => {
+        this.discardArmed = false;
+      }, 5000);
+      return this.notify(
+        "Discard all unstaged changes? Press again to confirm",
+        "error",
+      );
+    }
+    this.discardArmed = false;
+    await this.perform("Discarding…", () => this.repository.discardAll());
   }
   private async stageFirstHunk() {
     const file = this.selectedFile();
@@ -1361,11 +2165,11 @@ class Runtime {
         context: 3,
       });
       const hunk = splitPatchHunks(patch)[0];
-      if (!hunk) return this.setStatus("No applicable hunk");
+      if (!hunk) return this.notify("No applicable hunk", "error");
       await this.repository.applyPatch(hunk.patch, this.mode === "staged");
       await this.refresh("Applied hunk");
     } catch (e) {
-      this.setStatus(e instanceof Error ? e.message : String(e));
+      this.fail(e);
     }
   }
 }
