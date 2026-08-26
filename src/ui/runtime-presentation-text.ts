@@ -1,21 +1,11 @@
 import type { FileTreeNode } from "./file-tree.js";
 import { oneDarkTheme } from "./theme.js";
 
-export function fileIcon(node: FileTreeNode): string {
-  if (node.kind === "directory") return "";
-  return {
-    modified: "●",
-    added: "✚",
-    untracked: "✚",
-    deleted: "✖",
-    renamed: "➜",
-    copied: "⧉",
-    conflicted: "⚠",
-  }[node.state];
-}
-
-export function fileColor(node: FileTreeNode): string {
+/** Status colour for a tree node; the material icon carries the git state. */
+export function fileColor(node: FileTreeNode): string | undefined {
   const state = node.kind === "directory" ? node.status : node.state;
+  if (!state)
+    return node.kind === "directory" ? oneDarkTheme.folder : undefined;
   if (state === "deleted" || state === "conflicted")
     return oneDarkTheme.deleted;
   if (state === "added" || state === "untracked") return oneDarkTheme.added;

@@ -12,7 +12,6 @@ interface MaterialIconData {
   definitions: Record<string, ResolvedIcon>;
   names: Record<string, string>;
   extensions: Record<string, string>;
-  folders: Record<string, string>;
 }
 
 const material = materialExtension.icons[0] as MaterialIconData;
@@ -30,12 +29,9 @@ export function resolveMaterialIcon(
   open = false,
 ): ResolvedIcon {
   const lower = name.toLowerCase();
-  if (directory) {
-    const id = material.folders[lower];
-    if (open && id && material.definitions[`${id}-open`])
-      return material.definitions[`${id}-open`]!;
-    return definition(id, open ? material.folderOpen : material.folder);
-  }
+  // Folders always use the generic folder glyph: name-specific folder icons
+  // (git, src, tests, ...) read as file-type icons in a dense tree.
+  if (directory) return open ? material.folderOpen : material.folder;
 
   const named = material.names[lower];
   if (named) return definition(named, material.file);
