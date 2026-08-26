@@ -21,11 +21,29 @@ describe("layout preferences", () => {
         composerHeight: -4,
       }),
     ).toEqual({
+      remoteFetchIntervalMinutes: undefined,
       leftWidth: 31,
       detailsWidth: 52,
       unstagedHeight: 0,
       composerHeight: undefined,
     });
     expect(parseLayoutPreferences("invalid")).toEqual({});
+  });
+
+  test("reads the automatic remote fetch interval", () => {
+    expect(parseLayoutPreferences({ remoteFetchIntervalMinutes: 15 })).toEqual({
+      remoteFetchIntervalMinutes: 15,
+      leftWidth: undefined,
+      detailsWidth: undefined,
+      unstagedHeight: undefined,
+      composerHeight: undefined,
+    });
+    expect(parseLayoutPreferences({ remoteFetchIntervalMinutes: -1 })).toEqual({
+      remoteFetchIntervalMinutes: undefined,
+      leftWidth: undefined,
+      detailsWidth: undefined,
+      unstagedHeight: undefined,
+      composerHeight: undefined,
+    });
   });
 });
