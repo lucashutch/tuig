@@ -2,8 +2,29 @@ import type { BranchRef, Commit } from "../git/types.js";
 
 export type BranchPresence = "local" | "remote" | "both" | "none";
 
+export const HEAD_ICON = "◉";
+
 export const LAPTOP_BRANCH_ICON = "󰌢";
 export const REMOTE_BRANCH_ICON = "󰖟";
+
+/**
+ * Resolve the commit HEAD points at.
+ *
+ * A checked-out branch is authoritative; a detached HEAD has no current branch,
+ * so it is recovered from the bare `HEAD` decoration git puts on the commit.
+ */
+export function resolveHeadSha(
+  branches: readonly BranchRef[],
+  commits: readonly Commit[],
+): string | undefined {
+  const current = branches.find((branch) => branch.current);
+  if (current) return current.sha;
+  return commits.find((commit) =>
+    commit.decorations.some(
+      (label) => label === "HEAD" || label.startsWith("HEAD -> "),
+    ),
+  )?.sha;
+}
 
 /** Return the abbreviated object name used in history rows. */
 export function shortSha(sha: string, length = 8): string {
@@ -50,14 +71,8 @@ export function branchPresenceIcon(
 ): string {
   // Keep the checked-out marker distinct from a branch that merely happens
   // to have a local and a remote ref.
-  if (current) return "◉";
+  if (current) return HEAD_ICON;
   return presence === "both" ? "◆" : presence === "remote" ? "◌" : "○";
-}
-
-/** Compact branch marker; checked-out branches use a distinct marker. */
-export function branchIcon(ref: Pick<BranchRef, "current" | "remote">): string {
-  if (ref.current) return "◉";
-  return ref.remote ? "◌" : "○";
 }
 
 /**
@@ -72,6 +87,7 @@ export function formatBranchDecoration(
   label: string,
   refs: readonly BranchRef[],
 ): string {
+  const head = label.startsWith("HEAD -> ") || label === "HEAD";
   const name = label.replace(/^HEAD -> /, "");
   const ref = refs.find(
     (candidate) =>
@@ -81,14 +97,17 @@ export function formatBranchDecoration(
       candidate.fullName === `refs/remotes/${name}`,
   );
   const displayName = displayBranchName(name);
-  if (!ref) return displayName;
+  if (!ref) return head ? `${HEAD_ICON} ${displayName}` : displayName;
   const presence = branchPresence(ref, refs);
+  // The checked-out ref takes the HEAD marker in place of the local icon: it
+  // is necessarily local, and the column has no room for both.
+  const local = head ? HEAD_ICON : LAPTOP_BRANCH_ICON;
   const icons =
     presence === "both"
-      ? `${LAPTOP_BRANCH_ICON} ${REMOTE_BRANCH_ICON}`
+      ? `${local} ${REMOTE_BRANCH_ICON}`
       : ref.remote
         ? REMOTE_BRANCH_ICON
-        : LAPTOP_BRANCH_ICON;
+        : local;
   return `${icons} ${displayName}`;
 }
 
@@ -132,6 +151,72 @@ export function buildCommitBranchHints(
   );
 }
 
-export function formatHistoryCommit(commit: Commit): string {
-  return `${shortSha(commit.sha)}  ${commit.subject}`;
+export const TAG_ICON = "";
+
+/**
+ * Summarise every decoration on a commit.
+ *
+ * The history row has space for one label, so the primary ref is formatted in
+ * full and the remainder is reported as a count instead of being dropped.
+ * Tags are included, with their own glyph, because a release tag is often the
+ * most useful thing about a commit.
+ */
+export function summariseDecorations(
+  decorations: readonly string[],
+  refs: readonly BranchRef[],
+): { label: string; extra: number } {
+  const tags = [
+    ...new Set(
+      decorations
+        .filter((label) => label.startsWith("tag: "))
+        .map((label) => label.slice(5)),
+    ),
+  ];
+  const branches = decorations.filter((label) => !label.startsWith("tag: "));
+  const head = branches.find((label) => label.startsWith("HEAD -> "));
+  const ordered = [
+    ...(head ? [head] : []),
+    ...branches.filter((label) => label !== head),
+  ];
+  // A branch present locally and remotely is one branch: the label already
+  // carries both icons, so counting it twice would invent a hidden ref.
+  const distinct = new Set(
+    ordered.map((label) => displayBranchName(label.replace(/^HEAD -> /, ""))),
+  );
+  const total = distinct.size + tags.length;
+  if (total === 0) return { label: "", extra: 0 };
+  const label = ordered[0]
+    ? formatBranchDecoration(ordered[0], refs)
+    : `${TAG_ICON} ${tags[0]}`;
+  return { label, extra: total - 1 };
+}
+
+/**
+ * Resolve the ref behind the label a history row shows.
+ *
+ * The row prints one decoration, so this returns the ref that decoration names,
+ * keeping a remote ref remote: checking out a remote label has to go through
+ * the local counterpart, and only the caller knows whether that is safe.
+ */
+export function primaryDecorationRef(
+  decorations: readonly string[],
+  refs: readonly BranchRef[],
+): BranchRef | undefined {
+  const branches = decorations.filter((label) => !label.startsWith("tag: "));
+  const head = branches.find((label) => label.startsWith("HEAD -> "));
+  const ordered = [
+    ...(head ? [head] : []),
+    ...branches.filter((label) => label !== head),
+  ];
+  const first = ordered[0];
+  if (!first) return undefined;
+  const name = first.replace(/^HEAD -> /, "");
+  if (name === "HEAD") return undefined;
+  return refs.find(
+    (ref) =>
+      ref.name === name ||
+      ref.fullName === name ||
+      ref.fullName === `refs/heads/${name}` ||
+      ref.fullName === `refs/remotes/${name}`,
+  );
 }
