@@ -61,7 +61,7 @@ bun run format
 bun run check
 ```
 
-`bun run check` verifies Prettier formatting, TypeScript types, and the Bun test suite.
+`bun run check` verifies Prettier formatting, ESLint rules, TypeScript types, and the Bun test suite. The same checks run in GitHub Actions for every push and pull request.
 
 Add tests for behavior, not implementation details. Parser fixtures should include spaces, unusual paths, empty repositories, and relevant failure output.
 

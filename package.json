@@ -27,15 +27,19 @@
     "test": "bun test",
     "format": "prettier --write . --ignore-unknown",
     "format:check": "prettier --check . --ignore-unknown",
-    "check": "bun run format:check && bun run typecheck && bun test"
+    "check": "bun run format:check && bun run lint && bun run typecheck && bun test",
+    "lint": "eslint ."
   },
   "dependencies": {
     "@opentui/core": "0.5.7"
   },
   "devDependencies": {
+    "@eslint/js": "^10.0.1",
     "@types/bun": "latest",
+    "eslint": "^10.9.1",
     "prettier": "3.6.2",
-    "typescript": "^5.9.3"
+    "typescript": "^5.9.3",
+    "typescript-eslint": "^8.68.0"
   },
   "engines": {
     "bun": ">=1.2.0"
