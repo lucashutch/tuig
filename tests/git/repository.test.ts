@@ -451,11 +451,15 @@ test("creates branches and lightweight tags, cherry-picks, and manages stashes",
   expect((await repo.snapshot()).branch).toBe("main");
   expect(await Bun.file(join(root, "topic")).text()).toBe("topic\n");
 
-  await repo.createTag("v1");
+  await repo.createTag("v1", topicCommit);
   expect(
     (await runGit(["cat-file", "-t", "refs/tags/v1"], root)).stdout.trim(),
   ).toBe("commit");
   expect((await runGit(["rev-parse", "v1"], root)).stdout.trim()).toBe(
+    topicCommit,
+  );
+  await repo.createTag("head-tag");
+  expect((await runGit(["rev-parse", "head-tag"], root)).stdout.trim()).toBe(
     (await runGit(["rev-parse", "HEAD"], root)).stdout.trim(),
   );
 
@@ -474,4 +478,21 @@ test("creates branches and lightweight tags, cherry-picks, and manages stashes",
   const dropRef = (await repo.snapshot()).stashes[0]!.ref;
   await repo.dropStash(dropRef);
   expect((await repo.snapshot()).stashes).toHaveLength(0);
+});
+
+test("rejects empty or invalid tag names before creating a ref", async () => {
+  const root = await mkdtemp(join(tmpdir(), "tuig-tag-validation-test-"));
+  cleanup.push(root);
+  await runGit(["init", "-b", "main"], root);
+  await runGit(["config", "user.name", "Test User"], root);
+  await runGit(["config", "user.email", "test@example.com"], root);
+  await Bun.write(join(root, "file"), "base\n");
+  await runGit(["add", "file"], root);
+  await runGit(["commit", "-m", "base"], root);
+  const repo = await GitRepositoryService.open(root);
+
+  for (const name of ["", "   ", "invalid..name", "invalid~name"]) {
+    await expect(repo.createTag(name)).rejects.toThrow();
+  }
+  expect((await runGit(["tag", "--list"], root)).stdout).toBe("");
 });
