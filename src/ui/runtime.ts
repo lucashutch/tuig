@@ -6,12 +6,8 @@ import {
   DiffRenderable,
   InputRenderable,
   InputRenderableEvents,
-  MouseButton,
-  StyledText,
   TextRenderable,
-  bg,
   createCliRenderer,
-  fg,
   type CliRenderer,
   type KeyEvent,
   type Selection,
@@ -19,77 +15,104 @@ import {
 import type {
   BranchRef,
   ChangedFile,
-  Commit,
   GitRepository,
   RepositorySnapshot,
-  ResetMode,
   Stash,
 } from "../git/types.js";
-import { splitPatchHunks } from "../git/hunks.js";
+import { type GraphRow } from "./graph.js";
 import {
-  buildFileTree,
-  fitTreeLabel,
-  flattenVisible,
-  toggleExpansion,
-} from "./file-tree.js";
-import { layoutGraph, type GraphRow } from "./graph.js";
-import { resolveMaterialIcon } from "./icon-theme.js";
-import {
-  buildCommitBranchHints,
   branchRefsForSection,
   clampBranchSelection,
-  displayBranchName,
-  filterBranchRefs,
   moveBranchSelection,
-  primaryDecorationRef,
   resolveHeadSha,
   shortSha,
-  summariseDecorations,
 } from "./history.js";
+import { buildGraphMenu, type GraphMenuItem } from "./graph-menu.js";
+import { RuntimePopupController } from "./runtime-popup.js";
 import {
-  buildGraphMenu,
-  menuRowAt,
-  menuWidth,
-  placeMenu,
-  renderMenuLine,
-  type ConfirmRequest,
-  type GraphMenuAction,
-  type GraphMenuItem,
-} from "./graph-menu.js";
+  layoutRuntime,
+  layoutChanges,
+  type RuntimeLayoutContext,
+} from "./runtime-layout.js";
+import {
+  paint as paintRuntime,
+  paintComposer as paintRuntimeComposer,
+  paintFiles as paintRuntimeFiles,
+  paintHistory as paintRuntimeHistory,
+  type RuntimePaintContext,
+} from "./runtime-paint.js";
 import { oneDarkTheme } from "./theme.js";
 import {
-  layoutChangeSections,
-  fileColor,
   fileViewportSize,
-  fileIcon,
   clipColumns,
-  fitColumns,
   formatHints,
-  presentCommitMeta,
-  workingChangesBannerLines,
-  workingChangesBannerRows,
   renderToolbar,
   toolbarButtons,
   toolbarHit,
   type ToolbarAction,
   type ToolbarHit,
   renderHeader,
-  SIDEBAR_SECTIONS,
-  layoutSidebarSections,
-  sidebarHeader,
-  sidebarRows,
-  renderSidebarViewport,
-  renderSubmoduleSidebarViewport,
-  resizeSidebarBoundary,
   type SidebarSection,
-  wrappedLineCount,
 } from "./runtime-presentation.js";
+import {
+  ensureFileVisible as ensureRuntimeFileVisible,
+  files as runtimeFiles,
+  filesClick as handleRuntimeFilesClick,
+  filesScroll as scrollRuntimeFiles,
+  moveFile as moveRuntimeFile,
+  resizeChangeSplit as resizeRuntimeChangeSplit,
+  resizeComposer as resizeRuntimeComposer,
+  sectionRows as runtimeSectionRows,
+  selectedFile as selectedRuntimeFile,
+  toggleSection as toggleRuntimeSection,
+  type RuntimeFilesContext,
+} from "./runtime-files.js";
 import { loadLayoutPreferences, saveLayoutPreferences } from "./preferences.js";
 import {
   PANE_TOP,
   createRuntimeWidgets,
   type ChangeSection,
 } from "./runtime-widgets.js";
+import {
+  closeDiff as closeRuntimeDiff,
+  loadDiff as loadRuntimeDiff,
+  openCommit as openRuntimeCommit,
+  openWorkingDiff as openRuntimeWorkingDiff,
+  refresh as refreshRuntimeData,
+  showCommitMeta as showRuntimeCommitMeta,
+  type RuntimeDataContext,
+} from "./runtime-data.js";
+import {
+  historyClick as handleHistoryClick,
+  moveCommit as moveHistoryCommit,
+  queueHistoryScroll as queueRuntimeHistoryScroll,
+  type RuntimeHistoryContext,
+} from "./runtime-history.js";
+import {
+  acceptBranchFilter as acceptRuntimeBranchFilter,
+  activateFilteredBranch as activateRuntimeFilteredBranch,
+  cancelBranchFilter as cancelRuntimeBranchFilter,
+  finishBranchFilter as finishRuntimeBranchFilter,
+  resizeSidebar as resizeRuntimeSidebar,
+  sidebarClick as handleSidebarClick,
+  sidebarScroll as scrollRuntimeSidebar,
+  startBranchFilter as startRuntimeBranchFilter,
+  toggleSidebarSection as toggleRuntimeSidebarSection,
+  type RuntimeSidebarContext,
+} from "./runtime-sidebar.js";
+import {
+  checkoutBranch as checkoutRuntimeBranch,
+  commit as commitRuntime,
+  discardAll as discardAllRuntime,
+  perform as performRuntime,
+  runMenuAction as runRuntimeMenuAction,
+  runToolbarAction as runRuntimeToolbarAction,
+  stageAll as stageAllRuntime,
+  stageFirstHunk as stageFirstRuntimeHunk,
+  submitNamePrompt as submitRuntimeNamePrompt,
+  unstageAll as unstageAllRuntime,
+  type RuntimeCommandsContext,
+} from "./runtime-commands.js";
 
 export async function runTuig(repository: GitRepository): Promise<void> {
   const renderer = await createCliRenderer({
@@ -103,22 +126,10 @@ export async function runTuig(repository: GitRepository): Promise<void> {
   await app.start();
 }
 
+const DEFAULT_REMOTE_FETCH_INTERVAL_MINUTES = 5;
+
 /** Window in which a second click on the same graph row counts as a double. */
 const DOUBLE_CLICK_MS = 400;
-
-interface PopupPane {
-  items: GraphMenuItem[];
-  left: number;
-  top: number;
-  width: number;
-  hover?: number;
-}
-
-interface Popup extends PopupPane {
-  title: string;
-  submenu?: PopupPane & { parent: number };
-  select(item: GraphMenuItem): void;
-}
 
 class Runtime {
   /** OpenTUI emits this only when the mouse button ends a selection drag. */
@@ -161,6 +172,8 @@ class Runtime {
   private commitFilesRequest = 0;
   private snapshotRequest = 0;
   private refreshTimer?: ReturnType<typeof setInterval>;
+  private remoteFetchTimer?: ReturnType<typeof setInterval>;
+  private remoteFetchIntervalMinutes = DEFAULT_REMOTE_FETCH_INTERVAL_MINUTES;
   private scrollTimer?: ReturnType<typeof setTimeout>;
   private pendingScroll = 0;
   private historyShaHits = new Map<number, { start: number; end: number }>();
@@ -168,7 +181,7 @@ class Runtime {
     number,
     { start: number; end: number; ref?: BranchRef }
   >();
-  private popup?: Popup;
+  private readonly popupController: RuntimePopupController;
   private lastGraphClick?: { row: number; at: number; label: boolean };
   private expandedFiles = new Set<string>();
   private focus: "history" | "changes" = "history";
@@ -341,11 +354,11 @@ class Runtime {
       viewWorkingChanges: () => this.closeDiff(),
       editMessage: () => this.editMessage(),
       copyCommitSha: () => this.copyCommitSha(),
-      overlayDismiss: () => this.closePopup(),
-      menuHover: (x, y) => this.hoverPopup(x, y, false),
-      menuClick: (x, y) => this.clickPopup(x, y, false),
-      submenuHover: (x, y) => this.hoverPopup(x, y, true),
-      submenuClick: (x, y) => this.clickPopup(x, y, true),
+      overlayDismiss: () => this.popupController.close(),
+      menuHover: (x, y) => this.popupController.hover(x, y, false),
+      menuClick: (x, y) => this.popupController.click(x, y, false),
+      submenuHover: (x, y) => this.popupController.hover(x, y, true),
+      submenuClick: (x, y) => this.popupController.click(x, y, true),
     });
     this.sidebar = widgets.sidebar;
     this.history = widgets.history;
@@ -418,6 +431,21 @@ class Runtime {
       focusedBackgroundColor: oneDarkTheme.selected,
       textColor: oneDarkTheme.text,
     });
+    this.popupController = new RuntimePopupController({
+      terminalSize: () => ({
+        width: this.renderer.terminalWidth,
+        height: this.renderer.terminalHeight,
+      }),
+      overlayCatcher: this.overlayCatcher,
+      menuBox: this.menuBox,
+      menuText: this.menuText,
+      submenuBox: this.submenuBox,
+      submenuText: this.submenuText,
+      promptInput: this.promptInput,
+      closed: () => {
+        this.namePrompt = undefined;
+      },
+    });
     this.branchFilterInput.on(InputRenderableEvents.INPUT, () => {
       this.branchFilter = this.branchFilterInput.value;
       this.sidebarStart.local = 0;
@@ -453,6 +481,9 @@ class Runtime {
       ...this.sidebarCollapsed,
       ...preferences.sidebarCollapsed,
     };
+    this.remoteFetchIntervalMinutes =
+      preferences.remoteFetchIntervalMinutes ??
+      DEFAULT_REMOTE_FETCH_INTERVAL_MINUTES;
     this.renderer.start();
     // Terminal dimensions are reliable only after the renderer has started.
     await Bun.sleep(0);
@@ -464,6 +495,16 @@ class Runtime {
     this.refreshTimer = setInterval(() => {
       if (!this.composing) void this.refresh("Auto-refreshing…");
     }, 60_000);
+    if (this.remoteFetchIntervalMinutes > 0) {
+      this.remoteFetchTimer = setInterval(() => {
+        if (!this.composing && !this.busy)
+          void this.perform(
+            "Fetching remote changes…",
+            () => this.repository.fetch(),
+            true,
+          );
+      }, this.remoteFetchIntervalMinutes * 60_000);
+    }
   }
   private persistLayoutPreferences() {
     if (this.preferencesTimer) clearTimeout(this.preferencesTimer);
@@ -478,6 +519,7 @@ class Runtime {
       this.preferencesTimer = undefined;
     }
     await saveLayoutPreferences({
+      remoteFetchIntervalMinutes: this.remoteFetchIntervalMinutes,
       leftWidth: this.leftWidth,
       detailsWidth: this.detailsWidth,
       unstagedHeight: this.preferredUnstagedHeight,
@@ -511,9 +553,6 @@ class Runtime {
           1,
       );
     return Math.max(0, Number(this.list(section).height));
-  }
-  private filesViewport(): number {
-    return Math.max(1, this.sectionViewport(this.mode));
   }
   /** Rows available to the panes, once the header row is taken out. */
   private get contentHeight(): number {
@@ -595,27 +634,8 @@ class Runtime {
     if (!action) return;
     await this.runToolbarAction(action);
   }
-  private async runToolbarAction(action: ToolbarAction) {
-    if (action === "refresh") return void this.refresh();
-    if (action === "fetch")
-      return void this.perform(
-        "Fetching…",
-        () => this.repository.fetch(),
-        true,
-      );
-    if (action === "pull")
-      return void this.perform("Pulling…", () => this.repository.pull(), true);
-    if (action === "push")
-      return void this.perform("Pushing…", () => this.repository.push(), true);
-    if (action === "stash")
-      return void this.perform("Stashing…", () =>
-        this.repository.stash(undefined, true),
-      );
-    const stash = this.snapshot?.stashes[0];
-    if (!stash) return this.notify("No stash to pop", "error");
-    await this.perform(`Popping ${stash.ref}…`, () =>
-      this.repository.applyStash(stash.ref, true),
-    );
+  private runToolbarAction(action: ToolbarAction) {
+    return runRuntimeToolbarAction(this.commandsContext(), action);
   }
   private setFocus(focus: "history" | "changes") {
     if (this.focus === focus) return;
@@ -624,1025 +644,514 @@ class Runtime {
     this.paint();
   }
   private layout() {
-    const total = Math.max(1, this.renderer.terminalWidth);
-    // The header and toolbar own the top rows, so the panes start below them.
-    const height = this.contentHeight;
-    const available = Math.max(3, total - 2);
-    const leftMin = this.leftCollapsed ? 1 : Math.min(12, available);
-    const rightMin = this.detailsCollapsed ? 1 : Math.min(20, available);
-    const centerMin = Math.max(1, Math.min(18, available - leftMin - rightMin));
-    const left = this.leftCollapsed
-      ? 1
-      : Math.min(
-          this.leftWidth,
-          Math.max(leftMin, available - rightMin - centerMin),
-        );
-    const right = this.detailsCollapsed
-      ? 1
-      : Math.min(this.detailsWidth, Math.max(1, available - left - centerMin));
-    const center = Math.max(1, available - left - right);
-    this.sidebarPaneWidth = Math.min(left, total);
-    this.sidebar.width = this.sidebarPaneWidth;
-    this.sidebar.height = height;
-    this.branchFilterInput.left = 1;
-    this.branchFilterInput.top = PANE_TOP;
-    this.branchFilterInput.width = Math.max(8, this.sidebarPaneWidth - 2);
-    this.branchFilterInput.visible =
-      this.branchFilterActive && !this.leftCollapsed;
-    this.history.height = height;
-    this.details.height = height;
-    // Dividers stop above the bottom row so they cannot draw over the hints.
-    const dividerHeight = Math.max(1, height - 1);
-    this.leftDivider.height = dividerHeight;
-    this.rightDivider.height = dividerHeight;
-    this.leftDividerBar.height = dividerHeight;
-    this.rightDividerBar.height = dividerHeight;
-    this.sidebar.visible = !this.leftCollapsed && total > 1;
-    // A collapsed pane keeps only its divider column, so the graph starts
-    // immediately beside whichever divider is showing.
-    const leftBoundary = this.leftCollapsed ? 0 : left;
-    const rightBoundary = this.detailsCollapsed
-      ? Math.max(leftBoundary + 2, total - 1)
-      : left + center + 1;
-    this.leftDivider.left = Math.max(0, Math.min(total - 1, leftBoundary - 1));
-    this.leftDividerBar.left = Math.max(0, Math.min(total - 1, leftBoundary));
-    // Positions and sizes are computed as plain numbers, because reading them
-    // back off a renderable returns the previous frame's value.
-    const historyLeft = Math.min(total - 1, leftBoundary + 1);
-    const historyWidth = Math.max(
-      1,
-      Math.min(rightBoundary - historyLeft, total - historyLeft),
-    );
-    this.history.left = historyLeft;
-    this.history.width = historyWidth;
-    this.historyContentLeft = historyLeft + 1;
-    this.historyContentWidth = Math.max(1, historyWidth - 2);
-    this.historyText.width = this.historyContentWidth;
-    this.historyText.height = Math.max(1, height - 2);
-    this.rightDivider.left = Math.max(
-      0,
-      Math.min(total - 1, rightBoundary - 1),
-    );
-    this.rightDividerBar.left = Math.max(0, Math.min(total - 1, rightBoundary));
-    const detailsLeft = Math.min(total, rightBoundary + 1);
-    this.details.left = detailsLeft;
-    this.detailsPaneWidth = Math.max(
-      1,
-      Math.min(right, Math.max(1, total - detailsLeft)),
-    );
-    this.details.width = this.detailsPaneWidth;
-    this.details.visible = !this.detailsCollapsed && detailsLeft < total - 1;
-    // Leave room for the box borders, text inset, scrollbar, and percentage
-    // width rounding used by OpenTUI's nested renderables.
-    const textWidth = Math.max(10, this.detailsPaneWidth - 8);
-    const headerLines = wrappedLineCount(this.commitHeaderValue, textWidth);
-    const bodyLines = wrappedLineCount(this.commitBodyValue, textWidth);
-    const messageHeight = headerLines + Math.min(15, bodyLines) + 3;
-    this.commitHeader.height = headerLines;
-    this.commitHeader.top = 1;
-    this.commitBody.height = bodyLines;
-    this.commitBody.top = headerLines + 2;
-    const bannerRows =
-      this.view === "commit" && !this.editingCommitSha
-        ? workingChangesBannerRows(this.snapshot?.files.length ?? 0)
-        : 0;
-    // Inspection follows a predictable order: message first, metadata, then
-    // files. The cards' explicit rows keep narrow wrapping collision-free.
-    this.commitBodyBox.top = bannerRows;
-    this.commitBodyBox.height = messageHeight;
-    this.editMessageButton.left = Math.max(1, this.detailsPaneWidth - 18);
-    const infoHeight = Math.max(
-      6,
-      // Keep a spare row below wrapped identities so the changed-file
-      // section can never share a line with the final metadata row.
-      wrappedLineCount(this.commitInfoValue, textWidth) + 2,
-    );
-    // The metadata text sits below the COMMIT label inside the card.  Its
-    // widget has a one-row default height, which silently clipped the author,
-    // committer, and timestamp lines even though the surrounding box was
-    // resized to fit them.
-    this.commitInfo.height = Math.max(1, infoHeight - 1);
-    const sha = shortSha(this.snapshot?.commits[this.commitIndex]?.sha ?? "");
-    const labelWidth = Math.max(1, this.detailsPaneWidth - 2);
-    this.commitInfoLabel.width = labelWidth;
-    const label = "DETAILS";
-    const gap = sha
-      ? Math.max(2, labelWidth - Bun.stringWidth(label) - Bun.stringWidth(sha))
-      : 1;
-    this.commitInfoLabel.content = fitColumns(
-      `${label}${" ".repeat(gap)}${sha}`,
-      labelWidth,
-    );
-    // Leave a visible strip between the raised message card and DETAILS.
-    this.commitInfoBox.top = bannerRows + messageHeight + 1;
-    this.commitInfoBox.height = infoHeight;
-    // Do not clamp this back into the metadata card in short terminals. The
-    // file viewport may be small/off-screen, but its header must never paint
-    // over wrapped author or committer rows.
-    this.commitFilesTop = Number(this.commitInfoBox.top) + infoHeight + 1;
-    this.layoutChanges(height);
-    // A selected file diff is a temporary overlay over the history pane. Keep
-    // commit metadata in the RHS details pane, but let the diff use the graph's
-    // full width like desktop Git clients do.
-    this.commitDiff.left = historyLeft + 1;
-    this.commitDiff.top = PANE_TOP + 1;
-    this.commitDiff.width = Math.max(1, historyWidth - 2);
-    this.commitDiff.height = Math.max(1, height - 2);
-    this.commitDiffEmpty.left = historyLeft + 3;
-    this.commitDiffEmpty.top = PANE_TOP + 4;
-    this.commitDiffEmpty.width = Math.max(1, historyWidth - 6);
-    const verticalGripHeight = Math.max(
-      3,
-      Math.min(9, Math.floor(dividerHeight / 3)),
-    );
-    const verticalGripStart = Math.max(
-      0,
-      Math.floor((dividerHeight - verticalGripHeight) / 2),
-    );
-    const dividerContent = Array.from({ length: dividerHeight }, (_, row) =>
-      row >= verticalGripStart && row < verticalGripStart + verticalGripHeight
-        ? "║"
-        : "│",
-    ).join("\n");
-    this.leftDividerBar.content = dividerContent;
-    this.rightDividerBar.content = dividerContent;
-    this.paintHeader();
-    this.paintToolbar();
-    this.paintHints();
-    this.positionMessage();
-    if (this.snapshot) {
-      this.paint();
-    }
+    layoutRuntime(this.layoutContext());
   }
-  /**
-   * Place the changes pane: pane actions, the two file sections, and the
-   * commit composer, or the commit-file list when a commit is open.
-   */
   private layoutChanges(height: number) {
-    const commitView = this.view === "commit";
-    const editing = !!this.editingCommitSha;
-    const width = Math.max(1, this.detailsPaneWidth);
-    // Diffs occupy the detail pane, leaving the graph and its selection
-    // visible in the centre pane. Hide every other detail widget explicitly
-    // so a previous commit/working layout cannot bleed through the diff.
-    if (this.commitDiff.visible) {
-      for (const widget of [
-        this.discardButton,
-        this.stageAllButton,
-        this.unstageAllButton,
-        this.stagedLabel,
-        this.stagedText,
-        this.unstagedDivider,
-        this.composerDivider,
-        this.unstagedDividerBar,
-        this.composerDividerBar,
-        this.composerBox,
-      ])
-        widget.visible = false;
-      // The commit file tree stays in the RHS picker while its selected diff
-      // is drawn over the history pane. Working-tree diffs have no commit
-      // picker, so clear these widgets in that mode instead.
-      if (this.view !== "commit") {
-        this.unstagedLabel.visible = false;
-        this.unstagedText.visible = false;
-      }
-      this.amendButton.visible = false;
-      return;
-    }
-    for (const widget of [
-      this.discardButton,
-      this.stageAllButton,
-      this.unstageAllButton,
-      this.composerBox,
-      this.stagedLabel,
-      this.stagedText,
-    ])
-      widget.visible = !commitView || (widget === this.composerBox && editing);
-    this.amendButton.visible = !commitView;
-    this.workingBanner.visible =
-      commitView && !editing && (this.snapshot?.files.length ?? 0) > 0;
-    this.workingBanner.height = workingChangesBannerRows(
-      this.snapshot?.files.length ?? 0,
-    );
-    this.editMessageButton.visible = commitView && !editing;
-    for (const widget of [
-      this.unstagedDivider,
-      this.composerDivider,
-      this.unstagedDividerBar,
-      this.composerDividerBar,
-    ])
-      widget.visible = !commitView && !editing;
-    if (commitView && !editing) {
-      this.unstagedLabel.top = this.commitFilesTop;
-      this.unstagedText.top = this.commitFilesTop + 1;
-      this.unstagedText.height = this.sectionViewport("unstaged");
-      return;
-    }
-    if (editing) {
-      this.composerBox.top = 1;
-      const composerHeight = Math.max(0, height - 2);
-      this.composerBox.height = composerHeight;
-      this.composerBox.visible = composerHeight > 0 && width >= 2;
-      const boxWidth = Math.max(1, width - 2);
-      const fieldWidth = Math.max(1, boxWidth - 1);
-      this.composerBox.width = boxWidth;
-      this.composerSummary.width = fieldWidth;
-      this.composerBody.width = fieldWidth;
-      this.commitButton.width = fieldWidth;
-      this.layoutComposerChildren(composerHeight, boxWidth);
-      return;
-    }
-    this.discardButton.top = 0;
-    this.discardButton.left = 1;
-    this.stageAllButton.top = 0;
-    this.stageAllButton.left = Math.max(
-      Number(this.discardButton.width) + 2,
-      width - Number(this.stageAllButton.width) - 2,
-    );
-    const layout = layoutChangeSections({
-      // The bottom row belongs to the hints, so the pane stops one row short.
-      available: Math.max(0, height - 1),
-      unstagedRows: this.sectionRows("unstaged").length,
-      stagedRows: this.sectionRows("staged").length,
-      unstagedCollapsed: this.sectionCollapsed.unstaged,
-      stagedCollapsed: this.sectionCollapsed.staged,
-      preferredUnstagedHeight: this.preferredUnstagedHeight,
-      preferredComposerHeight: this.preferredComposerHeight,
-    });
-    this.unstagedLabel.top = layout.unstagedTop;
-    this.unstagedText.top = layout.unstagedTop + 1;
-    this.unstagedText.height = Math.max(1, layout.unstagedHeight);
-    this.unstagedText.visible = layout.unstagedHeight > 0;
-    this.stagedLabel.top = layout.stagedTop;
-    this.unstageAllButton.top = layout.stagedTop;
-    this.unstageAllButton.left = Math.max(
-      1,
-      width - Number(this.unstageAllButton.width) - 2,
-    );
-    this.unstageAllButton.visible =
-      !this.sectionCollapsed.staged && this.files("staged").length > 0;
-    this.stagedText.top = layout.stagedTop + 1;
-    this.stagedText.height = Math.max(1, layout.stagedHeight);
-    this.stagedText.visible = layout.stagedHeight > 0;
-    this.composerBox.top = layout.composerTop;
-    this.composerBox.height = layout.composerHeight;
-    this.composerBox.visible = layout.composerHeight > 0 && width >= 2;
-    // Percentage widths round unpredictably inside nested renderables, so the
-    // composer's children are sized from the pane width directly.
-    const boxWidth = Math.max(1, width - 2);
-    this.composerBox.width = boxWidth;
-    const fieldWidth = Math.max(1, boxWidth - 1);
-    this.composerSummary.width = fieldWidth;
-    this.composerBody.width = fieldWidth;
-    this.commitButton.width = fieldWidth;
-    this.layoutComposerChildren(layout.composerHeight, boxWidth);
-    const gripWidth = Math.max(3, Math.min(9, Math.floor(width / 3)));
-    const gripStart = Math.max(0, Math.floor((width - gripWidth) / 2));
-    const divider = `${"─".repeat(gripStart)}${"═".repeat(gripWidth)}${"─".repeat(Math.max(0, width - gripStart - gripWidth))}`;
-    this.unstagedDivider.top = Math.max(0, layout.unstagedDividerTop - 1);
-    this.unstagedDivider.left = Math.floor(width / 4);
-    this.unstagedDivider.width = Math.min(
-      width,
-      Math.max(5, Math.floor(width / 2)),
-    );
-    this.unstagedDivider.visible = true;
-    this.unstagedDividerBar.top = this.unstagedDivider.top;
-    this.unstagedDividerBar.width = width;
-    this.unstagedDividerBar.content = divider;
-    this.unstagedDividerBar.visible = this.unstagedDivider.visible;
-    this.composerDivider.top = Math.max(0, layout.composerDividerTop - 1);
-    this.composerDivider.left = Math.floor(width / 4);
-    this.composerDivider.width = Math.min(
-      width,
-      Math.max(5, Math.floor(width / 2)),
-    );
-    this.composerDivider.visible = true;
-    this.composerDividerBar.top = this.composerDivider.top;
-    this.composerDividerBar.width = width;
-    this.composerDividerBar.content = divider;
-    this.composerDividerBar.visible = true;
+    layoutChanges(this.layoutContext(), height);
   }
-  private layoutComposerChildren(height: number, width: number) {
-    this.composerBody.top = 2;
-    const hasFieldRoom = width >= 2;
-    this.composerSummary.visible = hasFieldRoom && height >= 2;
-    this.composerBody.visible = hasFieldRoom && height >= 3;
-    this.composerBody.height = Math.max(1, height - 6);
-    const showActions = hasFieldRoom && height >= 6;
-    this.amendButton.visible = showActions && !this.editingCommitSha;
-    this.commitButton.visible = showActions;
-    this.amendButton.top = height - 3;
-    this.commitButton.top = height - 2;
+  private layoutContext(): RuntimeLayoutContext {
+    return this as unknown as RuntimeLayoutContext;
+  }
+  private filesContext(): RuntimeFilesContext {
+    // Accessors keep file interactions attached to the live runtime state.
+    // eslint-disable-next-line @typescript-eslint/no-this-alias
+    const runtime = this;
+    return {
+      get snapshot() {
+        return runtime.snapshot;
+      },
+      get commitFiles() {
+        return runtime.commitFiles;
+      },
+      get view() {
+        return runtime.view;
+      },
+      set view(value) {
+        runtime.view = value;
+      },
+      get mode() {
+        return runtime.mode;
+      },
+      set mode(value) {
+        runtime.mode = value;
+      },
+      get fileIndex() {
+        return runtime.fileIndex;
+      },
+      set fileIndex(value) {
+        runtime.fileIndex = value;
+      },
+      get fileStart() {
+        return runtime.fileStart;
+      },
+      set fileStart(value) {
+        runtime.fileStart = value;
+      },
+      sectionCollapsed: this.sectionCollapsed,
+      sectionStart: this.sectionStart,
+      get expandedFiles() {
+        return runtime.expandedFiles;
+      },
+      set expandedFiles(value) {
+        runtime.expandedFiles = value;
+      },
+      get preferredUnstagedHeight() {
+        return runtime.preferredUnstagedHeight;
+      },
+      set preferredUnstagedHeight(value) {
+        runtime.preferredUnstagedHeight = value;
+      },
+      get preferredComposerHeight() {
+        return runtime.preferredComposerHeight;
+      },
+      set preferredComposerHeight(value) {
+        runtime.preferredComposerHeight = value;
+      },
+      get contentHeight() {
+        return runtime.contentHeight;
+      },
+      get commitFilesTop() {
+        return runtime.commitFilesTop;
+      },
+      get diffOrigin() {
+        return runtime.diffOrigin;
+      },
+      set diffOrigin(value) {
+        runtime.diffOrigin = value;
+      },
+      widgets: {
+        unstagedText: this.unstagedText,
+        stagedText: this.stagedText,
+        commitDiff: this.commitDiff,
+        commitDiffEmpty: this.commitDiffEmpty,
+      },
+      sectionViewport: (section) => this.sectionViewport(section),
+      setFocus: (focus) => this.setFocus(focus),
+      layout: () => this.layout(),
+      paint: () => this.paint(),
+      paintFiles: () => this.paintFiles(),
+      loadDiff: () => this.loadDiff(),
+      openWorkingDiff: () => this.openWorkingDiff(),
+      notify: (text) => this.notify(text),
+      fail: (error) => this.fail(error),
+      persistLayoutPreferences: () => this.persistLayoutPreferences(),
+    };
   }
   private files(section: ChangeSection = this.mode): ChangedFile[] {
-    return this.view === "commit"
-      ? this.commitFiles
-      : (this.snapshot?.files ?? []).filter((f) =>
-          section === "staged" ? f.staged : f.unstaged,
-        );
+    return runtimeFiles(this.filesContext(), section);
   }
   private sectionRows(section: ChangeSection) {
-    return flattenVisible(
-      buildFileTree(this.files(section)),
-      this.expandedFiles,
-    );
+    return runtimeSectionRows(this.filesContext(), section);
   }
   private toggleSection(section: ChangeSection) {
-    if (this.view === "commit") return;
-    this.sectionCollapsed[section] = !this.sectionCollapsed[section];
-    this.layout();
+    toggleRuntimeSection(this.filesContext(), section);
   }
   private resizeChangeSplit(y: number) {
-    if (this.view !== "history") return;
-    // Labels are positioned within the pane; the staged label starts after
-    // the unstaged heading and list, so its row directly expresses the split.
-    this.preferredUnstagedHeight = Math.max(0, y - 2);
-    this.persistLayoutPreferences();
-    this.layout();
+    resizeRuntimeChangeSplit(this.filesContext(), y);
   }
   private resizeComposer(y: number) {
-    if (this.view !== "history") return;
-    // y is pane-relative (the widget explicitly removes PANE_TOP).  Everything
-    // below the divider belongs to the composer.
-    this.preferredComposerHeight = Math.max(0, this.contentHeight - 2 - y);
-    this.persistLayoutPreferences();
-    this.layout();
+    resizeRuntimeComposer(this.filesContext(), y);
   }
   private filesScroll(section: ChangeSection, delta: number) {
-    this.setFocus("changes");
-    const rows = this.sectionRows(section);
-    this.sectionStart[section] = Math.max(
-      0,
-      Math.min(
-        Math.max(0, rows.length - this.sectionViewport(section)),
-        this.sectionStart[section] + delta,
-      ),
-    );
-    if (section === this.mode) this.fileStart = this.sectionStart[section];
-    this.paintFiles();
+    scrollRuntimeFiles(this.filesContext(), section, delta);
   }
   private filesClick(section: ChangeSection, y: number) {
-    this.setFocus("changes");
-    if (this.view !== "commit" && section !== this.mode) {
-      this.mode = section;
-      this.fileStart = this.sectionStart[section];
-      this.fileIndex = 0;
-    }
-    const list = this.list(section);
-    const row = y - Number(list.top) + this.sectionStart[section];
-    const visible = this.sectionRows(section);
-    const node = visible[row]?.node;
-    if (!node) return;
-    if (node.kind === "directory") {
-      this.expandedFiles = toggleExpansion(this.expandedFiles, node.path);
-      this.paintFiles();
-      return;
-    }
-    this.fileIndex = Math.max(
-      0,
-      this.files().findIndex((file) => file.path === node.path),
-    );
-    this.ensureFileVisible();
-    this.paintFiles();
-    if (this.view === "history") void this.openWorkingDiff();
-    else {
-      this.diffOrigin = "commit";
-      this.commitDiff.visible = true;
-      this.commitDiffEmpty.visible = false;
-      this.layout();
-      void this.loadDiff().catch((error) => this.fail(error));
-    }
+    handleRuntimeFilesClick(this.filesContext(), section, y);
   }
   private selectedFile() {
-    return this.files()[this.fileIndex];
+    return selectedRuntimeFile(this.filesContext());
   }
 
-  private async refresh(message?: string) {
-    if (this.busy) {
-      this.refreshPending = true;
-      this.pendingRefreshMessage = message ?? this.pendingRefreshMessage;
-      return;
-    }
-    this.busy = true;
-    const request = ++this.snapshotRequest;
-    // Nothing started against the old snapshot may paint over this refresh.
-    ++this.diffRequest;
-    ++this.commitFilesRequest;
-    const preserveCommitDiff =
-      this.view === "commit" && this.commitDiff.visible;
-    const selectedSha = this.snapshot?.commits[this.commitIndex]?.sha;
-    const selectedPath = this.selectedFile()?.path;
-    this.notify(message ?? "Refreshing…", "busy");
-    try {
-      const snapshot = await this.repository.snapshot(1000);
-      if (request !== this.snapshotRequest) return;
-      // A request that arrived while this one was in flight gets the only paint.
-      if (this.refreshPending) return;
-      this.snapshot = snapshot;
-      this.graphRows = layoutGraph(
-        this.snapshot.commits,
-        oneDarkTheme.graph,
-        resolveHeadSha(this.snapshot.branches, this.snapshot.commits),
-      );
-      this.branchHints = buildCommitBranchHints(
-        this.snapshot.commits,
-        this.snapshot.branches,
-      );
-      this.graphColumns = Math.max(
-        1,
-        ...this.graphRows.map((row) =>
-          Math.max(row.cells.length, row.connectors.length),
-        ),
-      );
-      const commitAt = selectedSha
-        ? this.snapshot.commits.findIndex(
-            (commit) => commit.sha === selectedSha,
-          )
-        : -1;
-      this.commitIndex =
-        commitAt >= 0
-          ? commitAt
-          : Math.min(
-              this.commitIndex,
-              Math.max(0, this.snapshot.commits.length - 1),
-            );
-      const fileAt = selectedPath
-        ? this.files().findIndex((file) => file.path === selectedPath)
-        : -1;
-      this.fileIndex =
-        fileAt >= 0
-          ? fileAt
-          : Math.min(this.fileIndex, Math.max(0, this.files().length - 1));
-      this.ensureFileVisible();
-      this.paint();
-      if (this.view === "commit") {
-        await this.openCommit();
-        if (preserveCommitDiff && this.selectedFile()) {
-          this.diffOrigin = "commit";
-          this.commitDiff.visible = true;
-          this.commitDiffEmpty.visible = false;
-          this.layout();
-          await this.loadDiff();
-        }
-      }
-      // Branch, sync, and dirty state now live in the header, so a successful
-      // refresh only needs to clear the in-flight message.
-      this.notify("");
-    } catch (error) {
-      this.fail(error);
-    } finally {
-      this.busy = false;
-      if (this.refreshPending) {
-        const trailingMessage = this.pendingRefreshMessage;
-        this.refreshPending = false;
-        this.pendingRefreshMessage = undefined;
-        void this.refresh(trailingMessage);
-      }
-    }
+  private refresh(message?: string) {
+    return refreshRuntimeData(this.dataContext(), message);
+  }
+
+  private dataContext(): RuntimeDataContext {
+    // Accessors keep async data operations attached to the live runtime state.
+    // eslint-disable-next-line @typescript-eslint/no-this-alias
+    const runtime = this;
+    return {
+      repository: this.repository,
+      widgets: {
+        history: this.history,
+        historyText: this.historyText,
+        commitDiff: this.commitDiff,
+        commitDiffEmpty: this.commitDiffEmpty,
+        workingBanner: this.workingBanner,
+        unstagedText: this.unstagedText,
+        commitInfo: this.commitInfo,
+        commitHeader: this.commitHeader,
+        commitBody: this.commitBody,
+        commitBodyBox: this.commitBodyBox,
+        commitInfoBox: this.commitInfoBox,
+      },
+      get snapshot() {
+        return runtime.snapshot;
+      },
+      set snapshot(value) {
+        runtime.snapshot = value;
+      },
+      get snapshotRequest() {
+        return runtime.snapshotRequest;
+      },
+      set snapshotRequest(value) {
+        runtime.snapshotRequest = value;
+      },
+      get diffRequest() {
+        return runtime.diffRequest;
+      },
+      set diffRequest(value) {
+        runtime.diffRequest = value;
+      },
+      get commitFilesRequest() {
+        return runtime.commitFilesRequest;
+      },
+      set commitFilesRequest(value) {
+        runtime.commitFilesRequest = value;
+      },
+      get busy() {
+        return runtime.busy;
+      },
+      set busy(value) {
+        runtime.busy = value;
+      },
+      get refreshPending() {
+        return runtime.refreshPending;
+      },
+      set refreshPending(value) {
+        runtime.refreshPending = value;
+      },
+      get pendingRefreshMessage() {
+        return runtime.pendingRefreshMessage;
+      },
+      set pendingRefreshMessage(value) {
+        runtime.pendingRefreshMessage = value;
+      },
+      get view() {
+        return runtime.view;
+      },
+      set view(value) {
+        runtime.view = value;
+      },
+      get mode() {
+        return runtime.mode;
+      },
+      set mode(value) {
+        runtime.mode = value;
+      },
+      get diffOrigin() {
+        return runtime.diffOrigin;
+      },
+      set diffOrigin(value) {
+        runtime.diffOrigin = value;
+      },
+      get historySelection() {
+        return runtime.historySelection;
+      },
+      set historySelection(value) {
+        runtime.historySelection = value;
+      },
+      get commitIndex() {
+        return runtime.commitIndex;
+      },
+      set commitIndex(value) {
+        runtime.commitIndex = value;
+      },
+      get fileIndex() {
+        return runtime.fileIndex;
+      },
+      set fileIndex(value) {
+        runtime.fileIndex = value;
+      },
+      get fileStart() {
+        return runtime.fileStart;
+      },
+      set fileStart(value) {
+        runtime.fileStart = value;
+      },
+      get commitFiles() {
+        return runtime.commitFiles;
+      },
+      set commitFiles(value) {
+        runtime.commitFiles = value;
+      },
+      get graphRows() {
+        return runtime.graphRows;
+      },
+      set graphRows(value) {
+        runtime.graphRows = value;
+      },
+      get graphColumns() {
+        return runtime.graphColumns;
+      },
+      set graphColumns(value) {
+        runtime.graphColumns = value;
+      },
+      get branchHints() {
+        return runtime.branchHints;
+      },
+      set branchHints(value) {
+        runtime.branchHints = value;
+      },
+      get detailsPaneWidth() {
+        return runtime.detailsPaneWidth;
+      },
+      set detailsPaneWidth(value) {
+        runtime.detailsPaneWidth = value;
+      },
+      get commitInfoValue() {
+        return runtime.commitInfoValue;
+      },
+      set commitInfoValue(value) {
+        runtime.commitInfoValue = value;
+      },
+      get commitHeaderValue() {
+        return runtime.commitHeaderValue;
+      },
+      set commitHeaderValue(value) {
+        runtime.commitHeaderValue = value;
+      },
+      get commitBodyValue() {
+        return runtime.commitBodyValue;
+      },
+      set commitBodyValue(value) {
+        runtime.commitBodyValue = value;
+      },
+      files: () => this.files(),
+      selectedFile: () => this.selectedFile(),
+      ensureFileVisible: () => this.ensureFileVisible(),
+      layout: () => this.layout(),
+      paint: () => this.paint(),
+      paintFiles: () => this.paintFiles(),
+      paintHints: () => this.paintHints(),
+      notify: (text, tone) => this.notify(text, tone),
+      fail: (error) => this.fail(error),
+      refresh: (text) => this.refresh(text),
+    };
+  }
+
+  private paintContext(): RuntimePaintContext {
+    return {
+      snapshot: this.snapshot,
+      contentHeight: this.contentHeight,
+      sidebarPreferred: this.sidebarPreferred,
+      sidebarCollapsed: this.sidebarCollapsed,
+      sidebarStart: this.sidebarStart,
+      sidebarSections: this.sidebarSections,
+      sidebarPaneWidth: this.sidebarPaneWidth,
+      branchFilter: this.branchFilter,
+      paintHeader: () => this.paintHeader(),
+      paintToolbar: () => this.paintToolbar(),
+      layoutChanges: (height) => this.layoutChanges(height),
+      view: this.view,
+      mode: this.mode,
+      focus: this.focus,
+      sectionCollapsed: this.sectionCollapsed,
+      sectionStart: this.sectionStart,
+      fileStart: this.fileStart,
+      setFileStart: (value) => {
+        this.fileStart = value;
+      },
+      files: (section) => this.files(section),
+      label: (section) => this.label(section),
+      list: (section) => this.list(section),
+      sectionViewport: (section) => this.sectionViewport(section),
+      selectedFile: () => this.selectedFile(),
+      expandedFiles: this.expandedFiles,
+      detailsPaneWidth: this.detailsPaneWidth,
+      graphRows: this.graphRows,
+      graphColumns: this.graphColumns,
+      branchHints: this.branchHints,
+      historySelection: this.historySelection,
+      commitIndex: this.commitIndex,
+      historyStart: this.historyStart,
+      setHistoryStart: (value) => {
+        this.historyStart = value;
+      },
+      historyViewportDetached: this.historyViewportDetached,
+      historyContentWidth: this.historyContentWidth,
+      historyShaHits: this.historyShaHits,
+      historyLabelHits: this.historyLabelHits,
+      historyText: this.historyText,
+      editingCommitSha: this.editingCommitSha,
+      composerSummary: this.composerSummary,
+      commitButton: this.commitButton,
+      amendButton: this.amendButton,
+      amend: this.amend,
+    };
   }
 
   private paint() {
-    const s = this.snapshot;
-    if (!s) return;
-    const rects = layoutSidebarSections(
-      this.contentHeight,
-      this.sidebarPreferred,
-      this.sidebarCollapsed,
-    );
-    for (const section of SIDEBAR_SECTIONS) {
-      const rect = rects[section],
-        widgets = this.sidebarSections[section];
-      const rows = sidebarRows(
-        s,
-        section,
-        this.sidebarPaneWidth,
-        this.branchFilter,
-      );
-      const requested = this.sidebarStart[section];
-      const start = Math.max(
-        0,
-        Math.min(Math.max(0, rows.length - rect.contentHeight), requested),
-      );
-      this.sidebarStart[section] = start;
-      widgets.box.top = rect.headerTop;
-      widgets.box.height = Math.max(1, 1 + rect.contentHeight);
-      widgets.box.width = this.sidebarPaneWidth;
-      widgets.box.visible = rect.headerTop < this.contentHeight;
-      widgets.header.content = sidebarHeader(
-        section,
-        section === "local"
-          ? filterBranchRefs(
-              s.branches.filter((b) => !b.remote),
-              this.branchFilter,
-            ).length
-          : section === "remote"
-            ? filterBranchRefs(
-                s.branches.filter((b) => b.remote),
-                this.branchFilter,
-              ).length
-            : section === "submodules"
-              ? s.submodules.length
-              : section === "stashes"
-                ? s.stashes.length
-                : s.worktrees.length,
-        this.sidebarCollapsed[section],
-      );
-      widgets.text.top = 1;
-      widgets.text.height = Math.max(1, rect.contentHeight);
-      widgets.text.visible =
-        !this.sidebarCollapsed[section] && rect.contentHeight > 0;
-      widgets.text.content =
-        section === "submodules" && s.submodules.length > 0
-          ? renderSubmoduleSidebarViewport(
-              s.submodules,
-              this.sidebarPaneWidth,
-              start,
-              rect.contentHeight,
-            )
-          : renderSidebarViewport(
-              rows,
-              this.sidebarPaneWidth,
-              start,
-              rect.contentHeight,
-            ).join("\n");
-      const showDivider = rect.dividerTop !== undefined;
-      widgets.divider.top = Math.max(0, (rect.dividerTop ?? 0) - 1);
-      // Keep the forgiving drag target around the visible centre grip instead
-      // of covering the full section width and intercepting nearby content.
-      widgets.divider.left = Math.floor(this.sidebarPaneWidth / 4);
-      widgets.divider.width = Math.min(
-        this.sidebarPaneWidth,
-        Math.max(5, Math.floor(this.sidebarPaneWidth / 2)),
-      );
-      widgets.divider.visible = showDivider;
-      widgets.dividerBar.top = rect.dividerTop ?? 0;
-      widgets.dividerBar.width = this.sidebarPaneWidth;
-      const dividerWidth = Math.max(1, this.sidebarPaneWidth);
-      const gripWidth = Math.max(3, Math.min(9, Math.floor(dividerWidth / 3)));
-      const gripStart = Math.max(0, Math.floor((dividerWidth - gripWidth) / 2));
-      widgets.dividerBar.content = `${"─".repeat(gripStart)}${"═".repeat(gripWidth)}${"─".repeat(Math.max(0, dividerWidth - gripStart - gripWidth))}`;
-      widgets.dividerBar.visible = showDivider;
-    }
-    this.paintHeader();
-    this.paintToolbar();
-    this.paintHistory();
-    this.paintFiles();
+    paintRuntime(this.paintContext());
   }
   private paintHistory() {
-    const s = this.snapshot;
-    if (!s) return;
-    const hasWorking = s.files.length > 0;
-    // `visible` counts selectable rows (not the heading), everywhere below.
-    const visible = Math.max(1, this.contentHeight - 3);
-    const totalDisplayRows = this.graphRows.length + (hasWorking ? 1 : 0);
-    const selectedDisplay =
-      this.historySelection === "working" && hasWorking
-        ? 0
-        : this.commitIndex + (hasWorking ? 1 : 0);
-    const maxHistoryStart = Math.max(0, totalDisplayRows - visible);
-    if (!this.historyViewportDetached) {
-      if (selectedDisplay < this.historyStart)
-        this.historyStart = selectedDisplay;
-      else if (selectedDisplay >= this.historyStart + visible)
-        this.historyStart = selectedDisplay - visible + 1;
-    }
-    this.historyStart = Math.max(
-      0,
-      Math.min(maxHistoryStart, this.historyStart),
-    );
-    const chunks = [
-      fg(this.focus === "history" ? oneDarkTheme.accent : oneDarkTheme.muted)(
-        ` BRANCH / TAG          GRAPH  ${s.commits.length} COMMITS\n`,
-      ),
-    ];
-    this.historyShaHits.clear();
-    this.historyLabelHits.clear();
-    const labelWidth = Math.min(
-      22,
-      Math.max(14, Math.floor(this.historyContentWidth * 0.28)),
-    );
-    const graphColumns = this.graphColumns;
-    const rowBackgrounds = [oneDarkTheme.bg, oneDarkTheme.panelRaised];
-    const maxStart = Math.max(0, totalDisplayRows - visible);
-    const thumbSize = Math.max(
-      1,
-      Math.floor((visible * visible) / Math.max(1, totalDisplayRows)),
-    );
-    const thumbStart = maxStart
-      ? Math.floor(
-          (this.historyStart / maxStart) * Math.max(0, visible - thumbSize),
-        )
-      : 0;
-    const scrollbarThumb = (displayOffset: number) =>
-      displayOffset >= thumbStart && displayOffset < thumbStart + thumbSize;
-    const scrollbar = (displayOffset: number) =>
-      scrollbarThumb(displayOffset) ? "█" : "│";
-    for (let offset = 0; offset < visible; offset++) {
-      const displayIndex = this.historyStart + offset;
-      if (displayIndex >= totalDisplayRows) break;
-      if (hasWorking && displayIndex === 0) {
-        const selected = this.historySelection === "working";
-        const rowBg = selected
-          ? oneDarkTheme.selected
-          : oneDarkTheme.panelRaised;
-        const workingLabel = selected
-          ? "▸ ● Working changes"
-          : "  ● Working changes";
-        const fileCount = `  ${s.files.length} files`;
-        const fileCountWidth = Math.max(
-          Bun.stringWidth(fileCount),
-          this.historyContentWidth - Bun.stringWidth(workingLabel) - 1,
-        );
-        chunks.push(
-          bg(rowBg)(fg(oneDarkTheme.warning)(workingLabel)),
-          bg(rowBg)(fg(oneDarkTheme.muted)(fileCount.padEnd(fileCountWidth))),
-          bg(rowBg)(
-            fg(
-              scrollbarThumb(offset)
-                ? oneDarkTheme.accent
-                : oneDarkTheme.border,
-            )(`${scrollbar(offset)}\n`),
-          ),
-        );
-        continue;
-      }
-      const commitRow = displayIndex - (hasWorking ? 1 : 0);
-      const row = this.graphRows[commitRow]!;
-      const selected =
-        this.historySelection === "commit" && commitRow === this.commitIndex;
-      const summary = summariseDecorations(row.commit.decorations, s.branches);
-      let primary = summary.label;
-      if (selected && !primary)
-        primary = this.branchHints.get(row.commit.sha) ?? "";
-      // Refs that do not fit are counted, so a commit never silently hides
-      // the tag or branch you were looking for.
-      const chip = summary.extra > 0 ? ` +${summary.extra}` : "";
-      const label = primary
-        ? fitColumns(primary, labelWidth - 2 - chip.length, true).trimEnd() +
-          chip
-        : "";
-      const labelText = label
-        ? fitColumns(` ${label} `, labelWidth)
-        : "".padEnd(labelWidth);
-      const graphColor = row.cells[row.lane]?.color ?? oneDarkTheme.accent;
-      const rowBg = selected
-        ? oneDarkTheme.selected
-        : rowBackgrounds[commitRow % 2]!;
-      const stashLabel = row.commit.decorations.some(
-        (decoration) => decoration === "refs/stash" || decoration === "stash",
-      );
-      const rowWidth = this.historyContentWidth;
-      const nonTextWidth = labelWidth + 2 + graphColumns * 2 + 15;
-      const textWidth = Math.max(2, rowWidth - nonTextWidth);
-      const authorWidth = Math.max(1, Math.min(11, textWidth - 8));
-      const subjectWidth = Math.max(1, textWidth - authorWidth);
-      const subject = fitColumns(row.commit.subject, subjectWidth, true);
-      const cellPadding = Math.max(0, graphColumns - row.cells.length);
-      // Keep the graph's author column scannable. Full identity, dates, and
-      // the terminal-safe avatar belong to the commit details card.
-      const author = fitColumns(row.commit.author, authorWidth, true);
-      chunks.push(
-        bg(stashLabel ? oneDarkTheme.panelRaised : rowBg)(
-          fg(
-            stashLabel
-              ? oneDarkTheme.muted
-              : label
-                ? graphColor
-                : oneDarkTheme.muted,
-          )(labelText),
-        ),
-        bg(rowBg)(fg(oneDarkTheme.muted)(selected ? "▸ " : "  ")),
-        ...row.cells.map((cell) => bg(rowBg)(fg(cell.color)(cell.symbol))),
-        bg(rowBg)(fg(oneDarkTheme.muted)("  ".repeat(cellPadding))),
-        // HEAD's subject takes the marker colour so the checked-out commit
-        // reads at a glance without stealing width from the row.
-        bg(rowBg)(
-          fg(row.head ? oneDarkTheme.warning : oneDarkTheme.text)(subject),
-        ),
-        bg(rowBg)(fg(oneDarkTheme.border)(" │ ")),
-        bg(rowBg)(fg(oneDarkTheme.author)(author)),
-        bg(rowBg)(fg(oneDarkTheme.border)(" │ ")),
-        bg(rowBg)(fg(oneDarkTheme.accent)(shortSha(row.commit.sha))),
-        bg(rowBg)(
-          fg(
-            scrollbarThumb(offset) ? oneDarkTheme.accent : oneDarkTheme.border,
-          )(`${scrollbar(offset)}\n`),
-        ),
-      );
-      const shaStart =
-        labelWidth + 2 + graphColumns * 2 + subjectWidth + 3 + authorWidth + 3;
-      this.historyShaHits.set(commitRow, {
-        start: shaStart,
-        end: shaStart + 8,
-      });
-      if (label)
-        this.historyLabelHits.set(commitRow, {
-          start: 0,
-          end: labelWidth,
-          ref: primaryDecorationRef(row.commit.decorations, s.branches),
-        });
-    }
-    this.historyText.content = new StyledText(chunks);
+    paintRuntimeHistory(this.paintContext());
   }
   private paintFiles() {
-    // File counts change with every refresh, so the sections are re-measured
-    // before they are drawn.
-    this.layoutChanges(this.contentHeight);
-    if (this.view === "commit") {
-      this.paintSection("unstaged");
-      return;
-    }
-    this.paintSection("unstaged");
-    this.paintSection("staged");
-    this.paintComposer();
+    paintRuntimeFiles(this.paintContext());
   }
-  /** Draw one changed-files list, its heading, and its empty state. */
-  private paintSection(section: ChangeSection) {
-    const commitView = this.view === "commit";
-    const files = this.files(commitView ? this.mode : section);
-    const label = this.label(section);
-    const list = this.list(section);
-    const active = !commitView && section === this.mode;
-    const collapsed = !commitView && this.sectionCollapsed[section];
-    label.content = new StyledText([
-      fg(
-        commitView || (this.focus === "changes" && active)
-          ? oneDarkTheme.accent
-          : oneDarkTheme.muted,
-      )(
-        commitView
-          ? ` COMMIT FILES  ${files.length}`
-          : ` ${collapsed ? "▶" : "▼"} ${section === "staged" ? "Staged" : "Unstaged"} files (${files.length})`,
-      ),
-    ]);
-    if (collapsed) {
-      list.content = "";
-      return;
-    }
-    const limit = this.sectionViewport(section);
-    if (commitView) list.height = limit;
-    const tree = buildFileTree(files);
-    if (this.expandedFiles.size === 0)
-      for (const node of tree.children)
-        if (node.kind === "directory") this.expandedFiles.add(node.path);
-    const allRows = flattenVisible(tree, this.expandedFiles);
-    const start = Math.max(
-      0,
-      Math.min(
-        Math.max(0, allRows.length - limit),
-        active || commitView ? this.fileStart : this.sectionStart[section],
-      ),
-    );
-    this.sectionStart[section] = start;
-    if (active || commitView) this.fileStart = start;
-    const rows = allRows.slice(start, start + limit);
-    if (rows.length === 0) {
-      list.content = commitView
-        ? new StyledText([
-            fg(oneDarkTheme.muted)("  No changed files in this commit\n"),
-            fg(oneDarkTheme.muted)("  esc  back to the graph"),
-          ])
-        : new StyledText([
-            fg(oneDarkTheme.muted)(
-              section === "staged" ? "  Nothing staged" : "  Nothing to stage",
-            ),
-          ]);
-      return;
-    }
-    const selectedPath =
-      active || commitView ? this.selectedFile()?.path : undefined;
-    const chunks = [];
-    for (const { node, depth } of rows) {
-      const selected = node.kind === "file" && node.path === selectedPath;
-      const statusIcon = fileIcon(node);
-      const statusColor = fileColor(node);
-      const materialIcon = resolveMaterialIcon(
-        node.name,
-        node.kind === "directory",
-        node.kind === "directory" && this.expandedFiles.has(node.path),
-      );
-      const nameColor =
-        node.kind === "directory" ? oneDarkTheme.folder : oneDarkTheme.text;
-      const available = Math.max(6, this.detailsPaneWidth - depth * 2 - 11);
-      const treeLabel = fitTreeLabel(node.name, available);
-      chunks.push(
-        selected
-          ? bg(oneDarkTheme.selected)("▸ ")
-          : fg(oneDarkTheme.muted)("  "),
-        fg(oneDarkTheme.border)("│ ".repeat(depth)),
-        node.kind === "directory"
-          ? fg(oneDarkTheme.folder)(
-              this.expandedFiles.has(node.path) ? "▼ " : "▶ ",
-            )
-          : fg(oneDarkTheme.muted)("  "),
-        fg(materialIcon.color ?? oneDarkTheme.folder)(`${materialIcon.glyph} `),
-        node.kind === "directory"
-          ? fg(oneDarkTheme.muted)("")
-          : fg(statusColor)(`${statusIcon} `),
-        selected
-          ? bg(oneDarkTheme.selected)(fg(nameColor)(treeLabel))
-          : fg(nameColor)(treeLabel),
-        fg(oneDarkTheme.muted)("\n"),
-      );
-    }
-    list.content = new StyledText(chunks);
-  }
-  /** Refresh the commit button's label and enabled colours. */
   private paintComposer() {
-    if (this.editingCommitSha) {
-      this.commitButton.fg = oneDarkTheme.added;
-      this.commitButton.content = "Save message";
-      return;
-    }
-    const staged = this.files("staged").length;
-    const ready = staged > 0 && this.composerSummary.value.trim().length > 0;
-    const width = Math.max(10, this.detailsPaneWidth - 4);
-    const text = ready
-      ? `Commit ${staged} staged file${staged === 1 ? "" : "s"}`
-      : staged === 0
-        ? "Stage files to commit"
-        : "Write a summary to commit";
-    const padding = Math.max(
-      0,
-      Math.floor((width - Bun.stringWidth(text)) / 2),
-    );
-    this.commitButton.fg = ready ? oneDarkTheme.added : oneDarkTheme.muted;
-    this.commitButton.content = new StyledText([
-      bg(ready ? oneDarkTheme.selected : oneDarkTheme.panelRaised)(
-        fg(ready ? oneDarkTheme.added : oneDarkTheme.muted)(
-          fitColumns(
-            `${" ".repeat(padding)}${ready ? "✓ " : ""}${text}`,
-            width,
-          ),
-        ),
-      ),
-    ]);
-    this.amendButton.content = `${this.amend ? "[x]" : "[ ]"} Amend previous commit`;
-    this.amendButton.fg = this.amend
-      ? oneDarkTheme.warning
-      : oneDarkTheme.muted;
+    paintRuntimeComposer(this.paintContext());
   }
 
-  private ensureFileVisible(
-    rows = flattenVisible(buildFileTree(this.files()), this.expandedFiles),
-  ) {
-    const path = this.selectedFile()?.path;
-    const selectedRow = path
-      ? rows.findIndex(({ node }) => node.path === path)
-      : -1;
-    const limit = this.filesViewport();
-    const maxStart = Math.max(0, rows.length - limit);
-    if (selectedRow >= 0) {
-      if (selectedRow < this.fileStart) this.fileStart = selectedRow;
-      else if (selectedRow >= this.fileStart + limit)
-        this.fileStart = selectedRow - limit + 1;
-    }
-    this.fileStart = Math.max(0, Math.min(maxStart, this.fileStart));
+  private ensureFileVisible() {
+    ensureRuntimeFileVisible(this.filesContext());
   }
 
-  private async loadDiff() {
-    const token = ++this.diffRequest;
-    const file = this.selectedFile();
-    const selected = this.snapshot?.commits[this.commitIndex];
-    const snapshot = this.snapshot;
-    const view = this.view;
-    const mode = this.mode;
-    const path = file?.path;
-    const value =
-      this.view === "commit" && selected
-        ? await this.repository.diff({
-            commit: selected.sha,
-            path: file?.path,
-            context: 6,
-          })
-        : file
-          ? await this.repository.diff({
-              path: file.path,
-              staged: this.mode === "staged",
-              context: 6,
-            })
-          : "";
-    if (
-      token !== this.diffRequest ||
-      this.snapshot !== snapshot ||
-      this.view !== view ||
-      this.mode !== mode ||
-      this.selectedFile()?.path !== path ||
-      (view === "commit" &&
-        this.snapshot?.commits[this.commitIndex]?.sha !== selected?.sha)
-    )
-      return;
-    if (this.view !== "history") {
-      this.commitDiff.diff = value;
-      this.commitDiffEmpty.visible = value.length === 0;
-    }
+  private loadDiff() {
+    return loadRuntimeDiff(this.dataContext());
   }
+
+  private historyContext(): RuntimeHistoryContext {
+    // eslint-disable-next-line @typescript-eslint/no-this-alias
+    const runtime = this;
+    return {
+      get snapshot() {
+        return runtime.snapshot;
+      },
+      graphRows: this.graphRows,
+      get commitIndex() {
+        return runtime.commitIndex;
+      },
+      set commitIndex(value) {
+        runtime.commitIndex = value;
+      },
+      get historySelection() {
+        return runtime.historySelection;
+      },
+      set historySelection(value) {
+        runtime.historySelection = value;
+      },
+      get historyStart() {
+        return runtime.historyStart;
+      },
+      set historyStart(value) {
+        runtime.historyStart = value;
+      },
+      get historyViewportDetached() {
+        return runtime.historyViewportDetached;
+      },
+      set historyViewportDetached(value) {
+        runtime.historyViewportDetached = value;
+      },
+      historyContentLeft: this.historyContentLeft,
+      contentHeight: this.contentHeight,
+      get pendingScroll() {
+        return runtime.pendingScroll;
+      },
+      set pendingScroll(value) {
+        runtime.pendingScroll = value;
+      },
+      get scrollTimer() {
+        return runtime.scrollTimer;
+      },
+      set scrollTimer(value) {
+        runtime.scrollTimer = value;
+      },
+      get lastGraphClick() {
+        return runtime.lastGraphClick;
+      },
+      set lastGraphClick(value) {
+        runtime.lastGraphClick = value;
+      },
+      historyShaHits: this.historyShaHits,
+      historyLabelHits: this.historyLabelHits,
+      renderer: this.renderer,
+      paneTop: PANE_TOP,
+      doubleClickMs: DOUBLE_CLICK_MS,
+      commitDiffVisible: this.commitDiff.visible,
+      get diffOrigin() {
+        return runtime.diffOrigin;
+      },
+      set diffOrigin(value) {
+        runtime.diffOrigin = value;
+      },
+      get mode() {
+        return runtime.mode;
+      },
+      set mode(value) {
+        runtime.mode = value;
+      },
+      paint: () => this.paint(),
+      paintHistory: () => this.paintHistory(),
+      openCommit: () => this.openCommit(),
+      openGraphMenu: (x, y, target) => this.openGraphMenu(x, y, target),
+      closeDiff: () => this.closeDiff(),
+      checkoutBranch: (branch) => this.checkoutBranch(branch),
+      setFocus: (focus) => this.setFocus(focus),
+      notify: (text) => this.notify(text),
+    };
+  }
+
   private moveCommit(delta: number) {
-    if (!this.snapshot || this.commitDiff.visible) return;
-    this.historyViewportDetached = false;
-    const hasWorking = this.snapshot.files.length > 0;
-    if (this.historySelection === "working") {
-      if (delta <= 0) return;
-      this.historySelection = "commit";
-      this.commitIndex = 0;
-      this.paintHistory();
-      return;
-    }
-    if (hasWorking && delta < 0 && this.commitIndex === 0) {
-      this.historySelection = "working";
-      this.paintHistory();
-      return;
-    }
-    this.historySelection = "commit";
-    this.commitIndex = Math.max(
-      0,
-      Math.min(this.snapshot.commits.length - 1, this.commitIndex + delta),
-    );
-    this.paintHistory();
+    moveHistoryCommit(this.historyContext(), delta);
   }
   private queueHistoryScroll(delta: number) {
-    this.pendingScroll += delta;
-    if (this.scrollTimer) return;
-    this.scrollTimer = setTimeout(() => {
-      const movement = this.pendingScroll;
-      this.pendingScroll = 0;
-      this.scrollTimer = undefined;
-      this.scrollHistoryViewport(movement);
-    }, 16);
-  }
-  private scrollHistoryViewport(delta: number) {
-    if (!this.snapshot) return;
-    const total =
-      this.graphRows.length + (this.snapshot.files.length > 0 ? 1 : 0);
-    const visible = Math.max(1, this.contentHeight - 3);
-    this.historyViewportDetached = true;
-    this.historyStart = Math.max(
-      0,
-      Math.min(Math.max(0, total - visible), this.historyStart + delta),
-    );
-    this.paintHistory();
+    queueRuntimeHistoryScroll(this.historyContext(), delta);
   }
   private historyClick(x: number, y: number, button: number) {
-    this.setFocus("history");
-    if (this.scrollTimer) {
-      clearTimeout(this.scrollTimer);
-      this.scrollTimer = undefined;
-      this.pendingScroll = 0;
-    }
-    this.historyViewportDetached = false;
-    const hasWorking = (this.snapshot?.files.length ?? 0) > 0;
-    const displayRow = y - 2;
-    const displayIndex = this.historyStart + displayRow;
-    if (hasWorking && displayIndex === 0) {
-      // Selecting the working row is an explicit destination. Do not let a
-      // commit diff's return target send us back to the commit first.
-      this.diffOrigin = undefined;
-      this.closeDiff();
-      this.mode = "unstaged";
-      this.paint();
-      return;
-    }
-    const row = displayIndex - (hasWorking ? 1 : 0);
-    if (row < 0 || row >= (this.snapshot?.commits.length ?? 0)) return;
-    this.commitIndex = row;
-    this.historySelection = "commit";
-    this.paintHistory();
-    const commit = this.snapshot!.commits[row]!;
-    const column = x - this.historyContentLeft;
-    const labelHit = this.historyLabelHits.get(row);
-    const onLabel =
-      !!labelHit && column >= labelHit.start && column < labelHit.end;
-    if (button === MouseButton.RIGHT) {
-      this.openGraphMenu(x, y + PANE_TOP, {
-        sha: commit.sha,
-        branch: onLabel ? labelHit?.ref : undefined,
-        stash: onLabel
-          ? this.snapshot?.stashes.find((stash) => stash.sha === commit.sha)
-          : undefined,
-      });
-      return;
-    }
-    const shaHit = this.historyShaHits.get(row);
-    if (shaHit && column >= shaHit.start && column < shaHit.end) {
-      const sha = shortSha(commit.sha);
-      if (this.renderer.copyToClipboardOSC52(sha)) this.notify(`Copied ${sha}`);
-      return;
-    }
-    const now = Date.now();
-    const previous = this.lastGraphClick;
-    this.lastGraphClick = { row, at: now, label: onLabel };
-    const doubled =
-      !!previous &&
-      previous.row === row &&
-      previous.label === onLabel &&
-      now - previous.at < DOUBLE_CLICK_MS;
-    if (doubled) {
-      this.lastGraphClick = undefined;
-      if (onLabel && labelHit?.ref)
-        return void this.checkoutBranch(labelHit.ref);
-      if (onLabel) return this.notify("That label is a tag, not a branch");
-    }
-    void this.openCommit();
+    handleHistoryClick(this.historyContext(), x, y, button);
+  }
+
+  private sidebarContext(): RuntimeSidebarContext {
+    // eslint-disable-next-line @typescript-eslint/no-this-alias
+    const runtime = this;
+    return {
+      get snapshot() {
+        return runtime.snapshot;
+      },
+      get contentHeight() {
+        return runtime.contentHeight;
+      },
+      get sidebarPaneWidth() {
+        return runtime.sidebarPaneWidth;
+      },
+      paneTop: PANE_TOP,
+      get view() {
+        return runtime.view;
+      },
+      get leftCollapsed() {
+        return runtime.leftCollapsed;
+      },
+      set leftCollapsed(value) {
+        runtime.leftCollapsed = value;
+      },
+      get branchFilter() {
+        return runtime.branchFilter;
+      },
+      set branchFilter(value) {
+        runtime.branchFilter = value;
+      },
+      get branchFilterActive() {
+        return runtime.branchFilterActive;
+      },
+      set branchFilterActive(value) {
+        runtime.branchFilterActive = value;
+      },
+      get suppressEnterUntil() {
+        return runtime.suppressEnterUntil;
+      },
+      set suppressEnterUntil(value) {
+        runtime.suppressEnterUntil = value;
+      },
+      get sidebarPreferred() {
+        return runtime.sidebarPreferred;
+      },
+      set sidebarPreferred(value) {
+        runtime.sidebarPreferred = value;
+      },
+      sidebarCollapsed: this.sidebarCollapsed,
+      sidebarStart: this.sidebarStart,
+      branchSelection: this.branchSelection,
+      branchFilterInput: this.branchFilterInput,
+      layout: () => this.layout(),
+      paint: () => this.paint(),
+      paintHints: () => this.paintHints(),
+      persistLayoutPreferences: () => this.persistLayoutPreferences(),
+      notify: (text) => this.notify(text),
+      checkoutBranch: (branch) => this.checkoutBranch(branch),
+      openGraphMenu: (x, y, target) => this.openGraphMenu(x, y, target),
+    };
   }
 
   /** Open the graph context menu at a terminal position. */
@@ -1659,259 +1168,17 @@ class Runtime {
     });
   }
 
-  private async runMenuAction(
-    action: GraphMenuAction,
-    target: { sha: string; branch?: BranchRef; stash?: Stash },
+  private runMenuAction(
+    action: Parameters<typeof runRuntimeMenuAction>[1],
+    target: Parameters<typeof runRuntimeMenuAction>[2],
   ) {
-    const branch = target.branch;
-    const stash = target.stash;
-    const reference = branch ? branch.name : target.sha;
-    if (action === "delete-stash") {
-      if (!stash) return;
-      return this.confirmThen(
-        {
-          title: "Delete stash",
-          lines: [`Delete ${stash.ref}?`, stash.subject],
-          confirmLabel: `Delete ${stash.ref}`,
-          destructive: true,
-        },
-        () =>
-          this.perform(`Deleting ${stash.ref}…`, () =>
-            this.repository.dropStash(stash.ref),
-          ),
-      );
-    }
-    if (action === "apply-stash") {
-      if (!stash) return;
-      return this.perform(`Applying ${stash.ref}…`, () =>
-        this.repository.applyStash(stash.ref, false),
-      );
-    }
-    if (action === "pop-stash") {
-      if (!stash) return;
-      return this.confirmThen(
-        {
-          title: "Pop stash",
-          lines: [
-            `Apply ${stash.ref} and remove it from the stash list?`,
-            stash.subject,
-          ],
-          confirmLabel: `Pop ${stash.ref}`,
-          destructive: true,
-        },
-        () =>
-          this.perform(`Popping ${stash.ref}…`, () =>
-            this.repository.popStash(stash.ref),
-          ),
-      );
-    }
-    if (action === "drop-stash") {
-      if (!stash) return;
-      return this.confirmThen(
-        {
-          title: "Drop stash",
-          lines: [`Drop ${stash.ref}?`, stash.subject],
-          confirmLabel: `Drop ${stash.ref}`,
-          destructive: true,
-        },
-        () =>
-          this.perform(`Dropping ${stash.ref}…`, () =>
-            this.repository.dropStash(stash.ref),
-          ),
-      );
-    }
-    if (action === "copy-sha") {
-      const sha = shortSha(target.sha);
-      return void (
-        this.renderer.copyToClipboardOSC52(sha) && this.notify(`Copied ${sha}`)
-      );
-    }
-    if (action === "copy-branch") {
-      if (!branch) return;
-      return void (
-        this.renderer.copyToClipboardOSC52(branch.name) &&
-        this.notify(`Copied ${branch.name}`)
-      );
-    }
-    if (action === "checkout-branch")
-      return void (branch && this.checkoutBranch(branch));
-    if (action === "checkout-commit")
-      return this.perform(`Checking out ${shortSha(target.sha)}…`, () =>
-        this.repository.checkoutCommit(target.sha),
-      );
-    if (action === "create-branch")
-      return this.openNamePrompt("Create branch", "branch name", (name) =>
-        this.perform(`Creating ${name}…`, () =>
-          this.repository.createBranch(name, target.sha, false),
-        ),
-      );
-    if (action === "create-tag")
-      return this.openNamePrompt("Create tag", "tag name", (name) =>
-        this.perform(`Creating tag ${name}…`, () =>
-          this.repository.createTag(name, target.sha),
-        ),
-      );
-    if (action === "cherry-pick")
-      return this.perform(`Cherry-picking ${shortSha(target.sha)}…`, () =>
-        this.repository.cherryPick(target.sha),
-      );
-    if (action === "rebase-onto")
-      return this.perform(`Rebasing onto ${reference}…`, () =>
-        this.repository.rebaseOnto(reference),
-      );
-    if (action === "delete-branch") {
-      if (!branch) return;
-      return this.confirmThen(
-        {
-          title: "Delete branch",
-          lines: [
-            `Delete the ${branch.remote ? "remote-tracking " : "local "}branch ${displayBranchName(branch.name)}?`,
-            "Commits only on this branch become unreachable.",
-          ],
-          confirmLabel: `Delete ${displayBranchName(branch.name)}`,
-          destructive: true,
-        },
-        () =>
-          this.perform(`Deleting ${branch.name}…`, () =>
-            this.repository.deleteBranch(branch.name, true, branch.remote),
-          ),
-      );
-    }
-    const mode: ResetMode =
-      action === "reset-soft"
-        ? "soft"
-        : action === "reset-hard"
-          ? "hard"
-          : "mixed";
-    const label = `${this.snapshot?.branch ?? "HEAD"} → ${branch ? displayBranchName(branch.name) : shortSha(target.sha)}`;
-    if (mode !== "hard")
-      return this.perform(`Resetting (${mode}) ${label}…`, () =>
-        this.repository.resetTo(reference, mode),
-      );
-    return this.confirmThen(
-      {
-        title: "Hard reset",
-        lines: [
-          `Move ${this.snapshot?.branch ?? "HEAD"} to ${branch ? displayBranchName(branch.name) : shortSha(target.sha)}`,
-          "and throw away all uncommitted changes to tracked files.",
-          "This cannot be undone from the working tree.",
-        ],
-        confirmLabel: "Reset --hard",
-        destructive: true,
-      },
-      () =>
-        this.perform(`Resetting (hard) ${label}…`, () =>
-          this.repository.resetTo(reference, "hard"),
-        ),
-    );
+    return runRuntimeMenuAction(this.commandsContext(), action, target);
   }
-
-  /**
-   * Check out a branch from the graph.
-   *
-   * A remote branch is checked out through its local counterpart. When that
-   * local branch already exists and has diverged, the move discards the local
-   * commits, so it is confirmed first.
-   */
-  private async checkoutBranch(branch: BranchRef) {
-    if (branch.current) return this.notify(`Already on ${branch.name}`);
-    if (!branch.remote)
-      return this.perform(`Switching to ${branch.name}…`, () =>
-        this.repository.switchBranch(branch.name),
-      );
-    // Remote refs are commonly named origin/topic or upstream/topic. The
-    // local checkout name is the ref after the remote name, not just after
-    // `origin/`.
-    const short = branch.name.replace(/^[^/]+\//, "");
-    const local = this.snapshot?.branches.find(
-      (ref) => !ref.remote && ref.name === short,
-    );
-    if (!local)
-      return this.perform(`Switching to ${short}…`, () =>
-        this.repository.checkoutRemoteBranch(short, branch.name, false),
-      );
-    if (local.sha === branch.sha)
-      return this.perform(`Switching to ${short}…`, () =>
-        this.repository.switchBranch(short),
-      );
-    return this.confirmThen(
-      {
-        title: "Overwrite local branch",
-        lines: [
-          `Your local ${short} differs from ${branch.name}.`,
-          "Continuing moves the local branch onto the remote tip,",
-          "abandoning any local commits it has.",
-        ],
-        confirmLabel: `Overwrite local ${short}`,
-        destructive: true,
-      },
-      () =>
-        this.perform(`Resetting ${short} to ${branch.name}…`, () =>
-          this.repository.checkoutRemoteBranch(short, branch.name, true),
-        ),
-    );
+  private checkoutBranch(branch: BranchRef) {
+    return checkoutRuntimeBranch(this.commandsContext(), branch);
   }
-
-  /** Ask before running an action that loses work. */
-  private confirmThen(request: ConfirmRequest, run: () => Promise<void>) {
-    const items: GraphMenuItem[] = [
-      ...request.lines.map((line) => ({ label: line, disabled: true })),
-      { label: "", separator: true },
-      { label: request.confirmLabel, destructive: request.destructive },
-      { label: "Cancel" },
-    ];
-    const width = menuWidth(items);
-    this.openPopup(
-      request.title,
-      items,
-      Math.max(0, Math.floor((this.renderer.terminalWidth - width) / 2)),
-      Math.max(
-        0,
-        Math.floor((this.renderer.terminalHeight - items.length) / 2),
-      ),
-      (item) => {
-        if (item.label === request.confirmLabel) void run();
-      },
-    );
-  }
-
-  /** Open a tiny in-terminal prompt for names required by ref-creation actions. */
-  private openNamePrompt(
-    title: string,
-    placeholder: string,
-    run: (value: string) => Promise<void>,
-  ) {
-    this.namePrompt = { title, placeholder, run };
-    this.promptInput.value = "";
-    const items: GraphMenuItem[] = [
-      { label: " ", disabled: true },
-      { label: "Enter confirm · Esc cancel", disabled: true },
-    ];
-    const width = Math.max(menuWidth(items), 28);
-    this.openPopup(
-      title,
-      items,
-      Math.max(0, Math.floor((this.renderer.terminalWidth - width) / 2)),
-      Math.max(0, Math.floor((this.renderer.terminalHeight - 4) / 2)),
-      () => undefined,
-    );
-    this.promptInput.placeholder = placeholder;
-    this.promptInput.visible = true;
-    this.paintPopup();
-    setTimeout(() => this.promptInput.focus(), 0);
-  }
-
-  private async submitNamePrompt() {
-    const prompt = this.namePrompt;
-    if (!prompt) return;
-    const value = this.promptInput.value.trim();
-    if (!value) return this.notify("A name is required", "error");
-    this.suppressEnterUntil = Date.now() + 100;
-    setTimeout(() => {
-      if (Date.now() >= this.suppressEnterUntil) this.suppressEnterUntil = 0;
-    }, 100);
-    this.closePopup();
-    await prompt.run(value);
+  private submitNamePrompt() {
+    return submitRuntimeNamePrompt(this.commandsContext());
   }
 
   private openPopup(
@@ -1920,256 +1187,25 @@ class Runtime {
     x: number,
     y: number,
     select: (item: GraphMenuItem) => void,
+    promptActive = false,
   ) {
-    const width = menuWidth(items);
-    const { left, top } = placeMenu(
-      x,
-      y,
-      width,
-      items.length,
-      this.renderer.terminalWidth,
-      this.renderer.terminalHeight,
-    );
-    this.popup = { title, items, left, top, width, select };
-    this.paintPopup();
+    this.popupController.open(title, items, x, y, select, promptActive);
   }
 
   private closePopup() {
-    this.popup = undefined;
-    this.namePrompt = undefined;
-    this.promptInput.blur();
-    this.promptInput.visible = false;
-    this.paintPopup();
+    this.popupController.close();
   }
 
-  private paintPopup() {
-    const popup = this.popup;
-    const visible = !!popup;
-    for (const widget of [this.overlayCatcher, this.menuBox, this.menuText])
-      widget.visible = visible;
-    this.promptInput.visible = visible && !!this.namePrompt;
-    const submenuVisible = !!popup?.submenu;
-    this.submenuBox.visible = submenuVisible;
-    this.submenuText.visible = submenuVisible;
-    if (!popup) return;
-    this.menuBox.left = popup.left;
-    this.menuBox.top = popup.top;
-    this.menuBox.width = popup.width;
-    this.menuBox.height = popup.items.length + 2;
-    this.menuBox.title = ` ${clipColumns(popup.title, popup.width - 4)} `;
-    this.menuText.left = popup.left + 1;
-    this.menuText.top = popup.top + 1;
-    this.menuText.width = popup.width - 2;
-    this.menuText.height = popup.items.length;
-    this.menuText.content = this.popupContent(popup);
-    if (this.namePrompt) {
-      this.promptInput.left = popup.left + 2;
-      this.promptInput.top = popup.top + 1;
-      this.promptInput.width = Math.max(8, popup.width - 4);
-    }
-    const submenu = popup.submenu;
-    if (!submenu) return;
-    this.submenuBox.left = submenu.left;
-    this.submenuBox.top = submenu.top;
-    this.submenuBox.width = submenu.width;
-    this.submenuBox.height = submenu.items.length + 2;
-    this.submenuBox.title = "";
-    this.submenuText.left = submenu.left + 1;
-    this.submenuText.top = submenu.top + 1;
-    this.submenuText.width = submenu.width - 2;
-    this.submenuText.height = submenu.items.length;
-    this.submenuText.content = this.popupContent(submenu);
+  private openCommit() {
+    return openRuntimeCommit(this.dataContext());
   }
-
-  private popupContent(pane: PopupPane): StyledText {
-    const width = pane.width - 2;
-    return new StyledText(
-      pane.items.map((item, index) => {
-        const line = renderMenuLine(item, width);
-        const suffix = index === pane.items.length - 1 ? "" : "\n";
-        if (item.separator) return fg(oneDarkTheme.border)(`${line}${suffix}`);
-        const rowBg =
-          index === pane.hover && !item.disabled
-            ? oneDarkTheme.selected
-            : oneDarkTheme.panelRaised;
-        const color = item.disabled
-          ? oneDarkTheme.muted
-          : item.destructive
-            ? oneDarkTheme.deleted
-            : oneDarkTheme.text;
-        return bg(rowBg)(fg(color)(`${line}${suffix}`));
-      }),
-    );
-  }
-
-  private hoverPopup(x: number, y: number, inSubmenu: boolean) {
-    const popup = this.popup;
-    if (!popup) return;
-    const pane = inSubmenu ? popup.submenu : popup;
-    if (!pane) return;
-    const row = menuRowAt(pane, x, y);
-    if (pane.hover === row) return;
-    pane.hover = row;
-    // Moving onto another top-level row closes a submenu that is no longer
-    // under the pointer, which is what a menu is expected to do.
-    if (!inSubmenu && row !== undefined && popup.submenu?.parent !== row)
-      popup.submenu = undefined;
-    if (!inSubmenu && row !== undefined) this.openSubmenuFor(row);
-    this.paintPopup();
-  }
-
-  private openSubmenuFor(row: number) {
-    const popup = this.popup;
-    const item = popup?.items[row];
-    if (!popup || !item?.submenu || popup.submenu?.parent === row) return;
-    const width = menuWidth(item.submenu);
-    const { left, top } = placeMenu(
-      popup.left + popup.width,
-      popup.top + 1 + row,
-      width,
-      item.submenu.length,
-      this.renderer.terminalWidth,
-      this.renderer.terminalHeight,
-    );
-    popup.submenu = { parent: row, items: item.submenu, left, top, width };
-  }
-
-  private clickPopup(x: number, y: number, inSubmenu: boolean) {
-    const popup = this.popup;
-    if (!popup) return;
-    const pane = inSubmenu ? popup.submenu : popup;
-    if (!pane) return;
-    const row = menuRowAt(pane, x, y);
-    if (row === undefined) return;
-    const item = pane.items[row];
-    if (!item || item.disabled) return;
-    if (item.submenu) {
-      this.openSubmenuFor(row);
-      this.paintPopup();
-      return;
-    }
-    const select = popup.select;
-    this.closePopup();
-    select(item);
-  }
-
-  private async openCommit() {
-    const commit = this.snapshot?.commits[this.commitIndex];
-    if (!commit) return;
-    const token = ++this.commitFilesRequest;
-    ++this.diffRequest;
-    const snapshot = this.snapshot;
-    const selectedPath = this.selectedFile()?.path;
-    this.view = "commit";
-    this.diffOrigin = undefined;
-    this.historySelection = "commit";
-    this.fileIndex = 0;
-    this.fileStart = 0;
-    this.history.title = undefined;
-    this.historyText.visible = true;
-    this.commitDiff.visible = false;
-    this.commitDiffEmpty.visible = false;
-    this.showCommitMeta(commit);
-    this.workingBanner.content = workingChangesBannerLines(
-      this.snapshot?.files.length ?? 0,
-      Math.max(1, this.detailsPaneWidth - 2),
-    ).join("\n");
-    this.workingBanner.height = this.workingBanner.visible ? 2 : 1;
-    this.layout();
-    this.notify("Commit selected · click a changed file for its diff");
-    this.commitFiles = [];
-    this.unstagedText.content = new StyledText([
-      fg(oneDarkTheme.muted)("  ░░░░░░░░░░░░░░░\n  ░░░░░░░░░░\n  ░░░░░░░░░░░░"),
-    ]);
-    this.commitDiffEmpty.content = "Select a changed file to open its diff.";
-    try {
-      const files = await this.repository.commitFiles(commit.sha);
-      if (
-        token !== this.commitFilesRequest ||
-        this.snapshot !== snapshot ||
-        this.view !== "commit" ||
-        this.snapshot?.commits[this.commitIndex]?.sha !== commit.sha
-      )
-        return;
-      this.commitFiles = files;
-      const fileAt = selectedPath
-        ? files.findIndex((file) => file.path === selectedPath)
-        : -1;
-      this.fileIndex = fileAt >= 0 ? fileAt : 0;
-      this.ensureFileVisible();
-      this.paintFiles();
-    } catch (e) {
-      if (token !== this.commitFilesRequest || this.snapshot !== snapshot)
-        return;
-      const message = e instanceof Error ? e.message : String(e);
-      this.unstagedText.content = `  Failed to load changed files\n  ${message}`;
-      this.notify(message, "error");
-    }
-  }
-  private async openWorkingDiff() {
-    const file = this.selectedFile();
-    if (!file) return;
-    this.view = "working";
-    this.diffOrigin = "working";
-    this.history.title = undefined;
-    this.commitDiff.visible = true;
-    this.commitDiffEmpty.visible = false;
-    this.setCommitMetaVisible(false);
-    this.paintHints();
-    this.layout();
-    try {
-      await this.loadDiff();
-    } catch (error) {
-      this.fail(error);
-    }
+  private openWorkingDiff() {
+    return openRuntimeWorkingDiff(this.dataContext());
   }
   private closeDiff() {
-    const returnToCommit = this.diffOrigin === "commit";
-    this.diffOrigin = undefined;
-    if (returnToCommit) {
-      this.view = "commit";
-      this.historySelection = "commit";
-      this.history.title = undefined;
-      this.historyText.visible = true;
-      this.commitDiff.visible = false;
-      this.commitDiffEmpty.visible = false;
-      const commit = this.snapshot?.commits[this.commitIndex];
-      if (commit) this.showCommitMeta(commit);
-      this.paintHints();
-      this.layout();
-      this.paintFiles();
-      return;
-    }
-    this.view = "history";
-    this.historySelection = "working";
-    this.commitFiles = [];
-    this.fileIndex = 0;
-    this.history.title = undefined;
-    this.historyText.visible = true;
-    this.commitDiff.visible = false;
-    this.commitDiffEmpty.visible = false;
-    this.setCommitMetaVisible(false);
-    this.paintHints();
-    // A view change moves the file list and the diff, so geometry has to be
-    // recomputed rather than only repainted.
-    this.layout();
+    closeRuntimeDiff(this.dataContext());
   }
-  private showCommitMeta(commit: Commit) {
-    const meta = presentCommitMeta(commit);
-    this.commitInfo.content = meta.info;
-    // Geometry must use the formatted dates/avatar and optional committer
-    // rows that the StyledText widget actually paints.
-    this.commitInfoValue = meta.info.chunks.map((chunk) => chunk.text).join("");
-    this.commitHeaderValue = meta.header;
-    this.commitHeader.content = meta.header;
-    this.commitBodyValue = meta.body;
-    this.commitBody.content = meta.body;
-    const bodyWidth = Math.max(10, this.detailsPaneWidth - 8);
-    this.commitBody.height = wrappedLineCount(meta.body, bodyWidth);
-    this.commitBodyBox.scrollTo(0);
-    this.setCommitMetaVisible(true);
-    this.layout();
-  }
+
   private copyCommitSha() {
     const sha = this.snapshot?.commits[this.commitIndex]?.sha;
     if (!sha) return;
@@ -2238,151 +1274,36 @@ class Runtime {
     this.editingCommitSha = undefined;
     this.restoreEditReturnState();
     const commit = this.snapshot?.commits[this.commitIndex];
-    if (commit) this.showCommitMeta(commit);
+    if (commit) showRuntimeCommitMeta(this.dataContext(), commit);
     this.paintComposer();
     this.paintHints();
   }
   private sidebarClick(x: number, y: number, button: number) {
-    if (button === MouseButton.RIGHT || button === MouseButton.LEFT) {
-      if (!this.snapshot) return;
-      const rects = layoutSidebarSections(
-        this.contentHeight,
-        this.sidebarPreferred,
-        this.sidebarCollapsed,
-      );
-      const section = (SIDEBAR_SECTIONS as readonly SidebarSection[]).find(
-        (candidate) => {
-          const rect = rects[candidate];
-          return (
-            (candidate === "local" ||
-              candidate === "remote" ||
-              candidate === "stashes") &&
-            !this.sidebarCollapsed[candidate] &&
-            y >= rect.contentTop &&
-            y < rect.contentTop + rect.contentHeight
-          );
-        },
-      );
-      if (!section) return;
-      const row = this.sidebarStart[section] + y - rects[section].contentTop;
-      if (section === "stashes") {
-        const stash = this.snapshot.stashes[row];
-        if (stash)
-          this.openGraphMenu(x, y + PANE_TOP, { sha: stash.sha, stash });
-        return;
-      }
-      const branches = filterBranchRefs(
-        this.snapshot.branches.filter((branch) =>
-          section === "local" ? !branch.remote : branch.remote,
-        ),
-        this.branchFilter,
-      );
-      const branch = branches[row];
-      if (branch) {
-        if (button === MouseButton.LEFT)
-          return void this.checkoutBranch(branch);
-        this.openGraphMenu(x, y + PANE_TOP, { sha: branch.sha, branch });
-      }
-    }
+    handleSidebarClick(this.sidebarContext(), x, y, button);
   }
   private startBranchFilter() {
-    if (this.view !== "history")
-      return this.notify("Branch filter is available from the graph");
-    if (this.leftCollapsed) this.leftCollapsed = false;
-    this.branchFilterActive = true;
-    this.branchFilterInput.value = this.branchFilter;
-    this.branchFilterInput.visible = !this.leftCollapsed;
-    this.layout();
-    this.paintHints();
-    this.paint();
-    setTimeout(() => this.branchFilterInput.focus(), 0);
+    startRuntimeBranchFilter(this.sidebarContext());
   }
   private finishBranchFilter() {
-    if (!this.branchFilterActive) return;
-    this.branchFilterActive = false;
-    this.branchFilterInput.blur();
-    this.branchFilterInput.visible = false;
-    this.layout();
-    this.paintHints();
-    this.paint();
+    finishRuntimeBranchFilter(this.sidebarContext());
   }
   private acceptBranchFilter() {
-    this.finishBranchFilter();
-    this.suppressEnterUntil = Date.now() + 100;
-    setTimeout(() => {
-      if (Date.now() >= this.suppressEnterUntil) this.suppressEnterUntil = 0;
-    }, 100);
+    acceptRuntimeBranchFilter(this.sidebarContext());
   }
   private activateFilteredBranch() {
-    if (!this.snapshot) return this.acceptBranchFilter();
-    const filtered = branchRefsForSection(
-      this.snapshot.branches,
-      "local",
-      this.branchFilter,
-    );
-    const index = clampBranchSelection(
-      this.branchSelection.local,
-      filtered.length,
-    );
-    const branch = index >= 0 ? filtered[index] : undefined;
-    this.finishBranchFilter();
-    if (branch) void this.checkoutBranch(branch);
+    activateRuntimeFilteredBranch(this.sidebarContext());
   }
   private cancelBranchFilter() {
-    this.branchFilter = "";
-    this.branchFilterInput.value = "";
-    this.sidebarStart.local = 0;
-    this.sidebarStart.remote = 0;
-    this.finishBranchFilter();
+    cancelRuntimeBranchFilter(this.sidebarContext());
   }
   private toggleSidebarSection(section: SidebarSection) {
-    this.sidebarCollapsed[section] = !this.sidebarCollapsed[section];
-    this.persistLayoutPreferences();
-    this.paint();
+    toggleRuntimeSidebarSection(this.sidebarContext(), section);
   }
   private sidebarScroll(y: number, delta: number) {
-    if (!this.snapshot) return;
-    const rects = layoutSidebarSections(
-      this.contentHeight,
-      this.sidebarPreferred,
-      this.sidebarCollapsed,
-    );
-    const section = SIDEBAR_SECTIONS.find(
-      (s) =>
-        y >= rects[s].contentTop &&
-        y < rects[s].contentTop + rects[s].contentHeight,
-    );
-    if (!section || this.sidebarCollapsed[section]) return;
-    const rows = sidebarRows(
-      this.snapshot,
-      section,
-      this.sidebarPaneWidth,
-      this.branchFilter,
-    );
-    this.sidebarStart[section] = Math.max(
-      0,
-      Math.min(
-        Math.max(0, rows.length - rects[section].contentHeight),
-        this.sidebarStart[section] + delta,
-      ),
-    );
-    this.paint();
+    scrollRuntimeSidebar(this.sidebarContext(), y, delta);
   }
   private resizeSidebar(section: SidebarSection, y: number) {
-    const layout = layoutSidebarSections(
-      this.contentHeight,
-      this.sidebarPreferred,
-      this.sidebarCollapsed,
-    );
-    this.sidebarPreferred = resizeSidebarBoundary(
-      layout,
-      this.sidebarPreferred,
-      this.sidebarCollapsed,
-      section,
-      y,
-    );
-    this.persistLayoutPreferences();
-    this.paint();
+    resizeRuntimeSidebar(this.sidebarContext(), section, y);
   }
 
   private async key(key: KeyEvent) {
@@ -2411,7 +1332,7 @@ class Runtime {
     if (this.composing && key.name === "tab") return;
     if (this.composing && key.name !== "escape") return;
     if (key.name === "escape") {
-      if (this.popup) return this.closePopup();
+      if (this.popupController.isOpen) return this.closePopup();
       if (this.branchFilterActive) return this.cancelBranchFilter();
       // A failed reword can leave the editor blurred; edit mode itself still
       // owns Escape so its saved working draft is never stranded.
@@ -2425,6 +1346,7 @@ class Runtime {
     }
     if (key.name === "q" || (key.ctrl && key.name === "c")) {
       if (this.refreshTimer) clearInterval(this.refreshTimer);
+      if (this.remoteFetchTimer) clearInterval(this.remoteFetchTimer);
       if (this.scrollTimer) clearTimeout(this.scrollTimer);
       if (this.messageTimer) clearTimeout(this.messageTimer);
       await this.flushLayoutPreferences().catch(() => undefined);
@@ -2541,15 +1463,7 @@ class Runtime {
     }
   }
   private moveFile(delta: number) {
-    this.setFocus("changes");
-    this.fileIndex = Math.max(
-      0,
-      Math.min(Math.max(0, this.files().length - 1), this.fileIndex + delta),
-    );
-    this.ensureFileVisible();
-    this.paintFiles();
-    if (this.view !== "history")
-      void this.loadDiff().catch((e) => this.fail(e));
+    moveRuntimeFile(this.filesContext(), delta);
   }
   private async openSelectedFile() {
     if (!this.selectedFile()) return this.notify("No file selected");
@@ -2560,97 +1474,100 @@ class Runtime {
     this.layout();
     await this.loadDiff().catch((e) => this.fail(e));
   }
-  private async perform(
-    label: string,
-    action: () => Promise<void>,
-    remote = false,
-  ) {
-    this.notify(label, "busy");
-    try {
-      await action();
-      if (remote) this.syncedAt = Date.now();
-      await this.refresh();
-    } catch (e) {
-      this.fail(e);
-    }
+  private commandsContext(): RuntimeCommandsContext {
+    // eslint-disable-next-line @typescript-eslint/no-this-alias
+    const runtime = this;
+    return {
+      repository: this.repository,
+      popupController: this.popupController,
+      promptInput: this.promptInput,
+      composerSummary: this.composerSummary,
+      composerBody: this.composerBody,
+      get snapshot() {
+        return runtime.snapshot;
+      },
+      get syncedAt() {
+        return runtime.syncedAt;
+      },
+      set syncedAt(value) {
+        runtime.syncedAt = value;
+      },
+      get suppressEnterUntil() {
+        return runtime.suppressEnterUntil;
+      },
+      set suppressEnterUntil(value) {
+        runtime.suppressEnterUntil = value;
+      },
+      get discardArmed() {
+        return runtime.discardArmed;
+      },
+      set discardArmed(value) {
+        runtime.discardArmed = value;
+      },
+      get namePrompt() {
+        return runtime.namePrompt;
+      },
+      set namePrompt(value) {
+        runtime.namePrompt = value;
+      },
+      get editingCommitSha() {
+        return runtime.editingCommitSha;
+      },
+      set editingCommitSha(value) {
+        runtime.editingCommitSha = value;
+      },
+      get amend() {
+        return runtime.amend;
+      },
+      set amend(value) {
+        runtime.amend = value;
+      },
+      get amendDraft() {
+        return runtime.amendDraft;
+      },
+      set amendDraft(value) {
+        runtime.amendDraft = value;
+      },
+      get editReturnState() {
+        return runtime.editReturnState;
+      },
+      set editReturnState(value) {
+        runtime.editReturnState = value;
+      },
+      get terminalWidth() {
+        return runtime.renderer.terminalWidth;
+      },
+      get terminalHeight() {
+        return runtime.renderer.terminalHeight;
+      },
+      get mode() {
+        return runtime.mode;
+      },
+      files: (section) => this.files(section),
+      selectedFile: () => this.selectedFile(),
+      copy: (text) => this.renderer.copyToClipboardOSC52(text),
+      refresh: (message) => this.refresh(message),
+      paintComposer: () => this.paintComposer(),
+      notify: (text, tone) => this.notify(text, tone),
+      fail: (error) => this.fail(error),
+    };
   }
-  private async commit() {
-    const summary = this.composerSummary.value.trim();
-    if (!summary) return this.notify("Commit summary cannot be empty", "error");
-    if (!this.editingCommitSha && this.files("staged").length === 0)
-      return this.notify("Nothing staged to commit", "error");
-    const body = this.composerBody.plainText.trim();
-    const message = body ? `${summary}\n\n${body}` : summary;
-    this.composerSummary.blur();
-    this.composerBody.blur();
-    const reword = this.editingCommitSha;
-    try {
-      this.notify(reword ? "Saving message…" : "Committing…", "busy");
-      if (reword) await this.repository.rewordCommit(reword, message);
-      else if (this.amend) await this.repository.amendCommit(message);
-      else await this.repository.commit(message);
-      this.editingCommitSha = undefined;
-      if (reword) this.restoreEditReturnState();
-      else {
-        this.amend = false;
-        this.amendDraft = undefined;
-        this.composerSummary.value = "";
-        this.composerBody.setText("");
-      }
-      await this.refresh();
-      this.paintComposer();
-    } catch (error) {
-      this.fail(error);
-      if (reword) setTimeout(() => this.composerSummary.focus(), 0);
-    }
+  private perform(label: string, action: () => Promise<void>, remote = false) {
+    return performRuntime(this.commandsContext(), label, action, remote);
   }
-  private async stageAll() {
-    const paths = this.files("unstaged").map((file) => file.path);
-    if (paths.length === 0) return this.notify("Nothing to stage");
-    await this.perform("Staging all…", () => this.repository.stage(paths));
+  private commit() {
+    return commitRuntime(this.commandsContext());
   }
-  private async unstageAll() {
-    const paths = this.files("staged").map((file) => file.path);
-    if (paths.length === 0) return this.notify("Nothing to unstage");
-    await this.perform("Unstaging all…", () => this.repository.unstage(paths));
+  private stageAll() {
+    return stageAllRuntime(this.commandsContext());
   }
-  /**
-   * Discard every unstaged change, including untracked files.
-   *
-   * The first press only arms the action, because nothing here is recoverable
-   * from Git afterwards.
-   */
-  private async discardAll() {
-    if (this.files("unstaged").length === 0)
-      return this.notify("Nothing to discard");
-    if (!this.discardArmed) {
-      this.discardArmed = true;
-      setTimeout(() => {
-        this.discardArmed = false;
-      }, 5000);
-      return this.notify(
-        "Discard all unstaged changes? Press again to confirm",
-        "error",
-      );
-    }
-    this.discardArmed = false;
-    await this.perform("Discarding…", () => this.repository.discardAll());
+  private unstageAll() {
+    return unstageAllRuntime(this.commandsContext());
   }
-  private async stageFirstHunk() {
-    const file = this.selectedFile();
-    if (!file) return;
-    try {
-      const patch = await this.repository.diff({
-        path: file.path,
-        staged: this.mode === "staged",
-        context: 3,
-      });
-      const hunk = splitPatchHunks(patch)[0];
-      if (!hunk) return this.notify("No applicable hunk", "error");
-      await this.repository.applyPatch(hunk.patch, this.mode === "staged");
-      await this.refresh("Applied hunk");
-    } catch (e) {
-      this.fail(e);
-    }
+  private discardAll() {
+    return discardAllRuntime(this.commandsContext());
+  }
+  private stageFirstHunk() {
+    return stageFirstRuntimeHunk(this.commandsContext());
   }
 }

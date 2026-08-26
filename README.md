@@ -115,6 +115,8 @@ Double-clicking a branch label in the graph switches to that branch. Double-clic
 
 Right-clicking a graph row opens a menu. On a branch label it offers checkout, rebase, reset (with a soft/mixed/hard submenu), copy branch name, and delete. On any row it offers a detached checkout of the commit, rebase onto it, reset to it, and copy commit SHA. Hard resets, branch deletion, and overwriting a local branch ask for confirmation first; `Esc` or a click outside closes the menu. Tuig refreshes automatically every 60 seconds; press `r` to refresh when you are not typing.
 
+Tuig fetches remote refs every five minutes by default. Set `remoteFetchIntervalMinutes` in `~/.config/tuig/layout.json` to change the interval. Use `0` to disable automatic fetching. The setting takes effect the next time Tuig starts.
+
 History rows show one ref label. When a commit carries more refs than fit, the extra count appears as `+N`, and tags are included rather than hidden. Branch labels use a laptop for local refs and a globe for remote refs. In the repository pane, `◉` marks the checked-out branch, `◆` marks a branch available locally and remotely, `○` marks a local branch, and `◌` marks a remote-only branch.
 
 ## Git and submodules

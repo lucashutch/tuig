@@ -3,6 +3,8 @@ import { dirname, join } from "node:path";
 import { homedir } from "node:os";
 
 export type LayoutPreferences = {
+  /** Minutes between automatic `git fetch --prune` runs. Zero disables it. */
+  remoteFetchIntervalMinutes?: number;
   leftWidth?: number;
   detailsWidth?: number;
   unstagedHeight?: number;
@@ -69,6 +71,7 @@ export function parseLayoutPreferences(value: unknown): LayoutPreferences {
       ? sectionBooleans
       : undefined;
   return {
+    remoteFetchIntervalMinutes: positive("remoteFetchIntervalMinutes"),
     leftWidth: positive("leftWidth"),
     detailsWidth: positive("detailsWidth"),
     unstagedHeight: positive("unstagedHeight"),
