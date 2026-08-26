@@ -79,6 +79,13 @@ export class GitRepositoryService implements GitRepository {
   private async git(args: string[]) {
     return runGit(args, this.root);
   }
+  async remoteUrl() {
+    return (
+      (
+        await this.git(["remote", "get-url", "origin"]).catch(() => undefined)
+      )?.stdout.trim() || undefined
+    );
+  }
   async snapshot(limit = 1000): Promise<RepositorySnapshot> {
     const [st, refs, log, stash, wt, sm, submoduleConfig, head] =
       await Promise.all([

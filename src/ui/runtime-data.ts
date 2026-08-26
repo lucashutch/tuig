@@ -1,11 +1,20 @@
-import { StyledText, fg } from "@opentui/core";
+import { NativeImage, StyledText, fg } from "@opentui/core";
 import type {
   ChangedFile,
   Commit,
   GitRepository,
   RepositorySnapshot,
 } from "../git/types.js";
-import { buildCommitBranchHints, resolveHeadSha } from "./history.js";
+import {
+  authorAvatar,
+  buildCommitBranchHints,
+  resolveHeadSha,
+} from "./history.js";
+import {
+  getGitHubCommitAvatar,
+  getGravatarUrl,
+  loadCachedAvatar,
+} from "./avatars.js";
 import { layoutGraph, type GraphRow } from "./graph.js";
 import {
   presentCommitMeta,
@@ -33,6 +42,8 @@ export interface RuntimeDataContext {
     | "commitBody"
     | "commitBodyBox"
     | "commitInfoBox"
+    | "authorPhoto"
+    | "authorBadge"
   >;
   snapshot?: RepositorySnapshot;
   snapshotRequest: number;
@@ -56,6 +67,9 @@ export interface RuntimeDataContext {
   commitInfoValue: string;
   commitHeaderValue: string;
   commitBodyValue: string;
+  avatarRequest: number;
+  avatarAbort?: AbortController;
+  avatarSupported: boolean;
   files(): ChangedFile[];
   selectedFile(): ChangedFile | undefined;
   ensureFileVisible(): void;
@@ -278,6 +292,22 @@ export function closeDiff(ctx: RuntimeDataContext) {
 }
 
 export function showCommitMeta(ctx: RuntimeDataContext, commit: Commit) {
+  ctx.avatarAbort?.abort();
+  const avatarAbort = new AbortController();
+  ctx.avatarAbort = avatarAbort;
+  const avatarRequest = ++ctx.avatarRequest;
+  ctx.widgets.authorPhoto.visible = false;
+  ctx.widgets.authorPhoto.source = undefined;
+  ctx.widgets.authorBadge.visible = true;
+  ctx.widgets.authorBadge.content = authorAvatar(
+    commit.author,
+    commit.authorEmail,
+  );
+  if (ctx.avatarSupported) {
+    const url = getGravatarUrl(commit.authorEmail);
+    if (url)
+      void loadAuthorPhoto(ctx, commit, url, avatarRequest, avatarAbort.signal);
+  }
   const meta = presentCommitMeta(commit);
   ctx.widgets.commitInfo.content = meta.info;
   ctx.commitInfoValue = meta.info.chunks.map((chunk) => chunk.text).join("");
@@ -294,7 +324,45 @@ export function showCommitMeta(ctx: RuntimeDataContext, commit: Commit) {
   ctx.layout();
 }
 
+async function loadAuthorPhoto(
+  ctx: RuntimeDataContext,
+  commit: Commit,
+  url: string,
+  request: number,
+  signal: AbortSignal,
+) {
+  try {
+    const remote = await ctx.repository.remoteUrl?.();
+    const githubAvatar = await getGitHubCommitAvatar(
+      remote,
+      commit.sha,
+      commit.authorEmail,
+      signal,
+    );
+    let image: NativeImage | undefined = githubAvatar
+      ? await loadCachedAvatar(githubAvatar, signal).catch(() => undefined)
+      : undefined;
+    image ??= await loadCachedAvatar(url, signal);
+    if (request !== ctx.avatarRequest) {
+      image.dispose();
+      return;
+    }
+    ctx.widgets.authorPhoto.source = image;
+    // ImageRenderable retains its own reference to the native image.
+    image.dispose();
+    ctx.widgets.authorPhoto.visible = true;
+    ctx.widgets.authorBadge.visible = false;
+  } catch {
+    // The initials badge is the deliberate fallback for missing or offline avatars.
+  }
+}
+
 function setCommitMetaVisible(ctx: RuntimeDataContext, visible: boolean) {
+  if (!visible) {
+    ctx.avatarAbort?.abort();
+    ctx.avatarRequest++;
+    ctx.widgets.authorPhoto.source = undefined;
+  }
   ctx.widgets.commitInfoBox.visible = visible;
   ctx.widgets.commitBodyBox.visible = visible;
 }

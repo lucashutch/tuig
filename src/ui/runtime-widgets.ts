@@ -4,6 +4,7 @@ import {
   DiffRenderable,
   InputRenderable,
   InputRenderableEvents,
+  ImageRenderable,
   ScrollBoxRenderable,
   StyledText,
   TextareaRenderable,
@@ -71,6 +72,8 @@ export type RuntimeWidgets = {
   commitInfoLabel: TextRenderable;
   commitBodyBox: ScrollBoxRenderable;
   commitInfo: TextRenderable;
+  authorPhoto: ImageRenderable;
+  authorBadge: TextRenderable;
   editMessageButton: TextRenderable;
   commitHeader: TextRenderable;
   commitBody: TextRenderable;
@@ -535,6 +538,28 @@ export function createRuntimeWidgets(
       content,
     });
   const commitInfo = text("commit-info");
+  const authorPhoto = new ImageRenderable(renderer, {
+    ...absolute,
+    id: "author-photo",
+    left: 1,
+    top: 1,
+    width: 8,
+    height: 4,
+    fit: "cover",
+    protocol: "auto",
+    visible: false,
+  });
+  const authorBadge = new TextRenderable(renderer, {
+    ...absolute,
+    id: "author-badge",
+    left: 1,
+    top: 2,
+    width: 8,
+    height: 1,
+    wrapMode: "none",
+    fg: oneDarkTheme.author,
+    content: "",
+  });
   const editMessageButton = new TextRenderable(renderer, {
     ...absolute,
     id: "edit-message",
@@ -577,6 +602,8 @@ export function createRuntimeWidgets(
   );
   commitInfoLabel.onMouseDown = actions.copyCommitSha;
   commitInfoBox.add(commitInfoLabel);
+  commitInfoBox.add(authorPhoto);
+  commitInfoBox.add(authorBadge);
   commitBodyBox.add(
     sectionLabel("commit-message-label", "COMMIT MESSAGE", oneDarkTheme.text),
   );
@@ -900,6 +927,8 @@ export function createRuntimeWidgets(
     commitInfoLabel,
     commitBodyBox,
     commitInfo,
+    authorPhoto,
+    authorBadge,
     editMessageButton,
     commitHeader,
     commitBody,
