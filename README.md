@@ -47,10 +47,35 @@ tuig ~/code/my-project
 
 The path is optional. Running `tuig` without one opens the current directory. Tuig is currently installed from source; it is not yet published to a package registry.
 
+To install a tagged release globally with Bun:
+
+```sh
+bun install -g git+https://github.com/lucashutch/tuig.git#v0.1.0
+```
+
+Run `tuig` from any directory after installation.
+
 For development without linking:
 
 ```sh
 bun run start -- /path/to/repository
+```
+
+## Releases
+
+Release versions are managed from Git tags with Bun. From an up-to-date `main` checkout, run:
+
+```sh
+bun pm version patch
+git push origin main --follow-tags
+```
+
+Use `minor` or `major` instead of `patch` when appropriate. This updates `package.json`, creates the matching `vX.Y.Z` tag, and the GitHub Actions release workflow runs the full checks before creating the GitHub release.
+
+To synchronize `package.json` with an existing latest tag without creating another tag:
+
+```sh
+bun pm version from-git --no-git-tag-version
 ```
 
 ## Using Tuig
