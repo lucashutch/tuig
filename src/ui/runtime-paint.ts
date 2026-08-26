@@ -22,7 +22,6 @@ import { resolveMaterialIcon } from "./icon-theme.js";
 import {
   SIDEBAR_SECTIONS,
   fileColor,
-  fileIcon,
   fitColumns,
   layoutSidebarSections,
   renderSidebarViewport,
@@ -378,7 +377,6 @@ export function paintSection(ctx: RuntimePaintContext, section: ChangeSection) {
     chunks = [];
   for (const { node, depth } of rows) {
     const selected = node.kind === "file" && node.path === selectedPath,
-      status = fileIcon(node),
       color = fileColor(node),
       icon = resolveMaterialIcon(
         node.name,
@@ -389,7 +387,7 @@ export function paintSection(ctx: RuntimePaintContext, section: ChangeSection) {
         node.kind === "directory" ? oneDarkTheme.folder : oneDarkTheme.text,
       treeLabel = fitTreeLabel(
         node.name,
-        Math.max(6, ctx.detailsPaneWidth - depth * 2 - 11),
+        Math.max(6, ctx.detailsPaneWidth - depth * 2 - 9),
       );
     chunks.push(
       selected ? bg(oneDarkTheme.selected)("▸ ") : fg(oneDarkTheme.muted)("  "),
@@ -399,10 +397,7 @@ export function paintSection(ctx: RuntimePaintContext, section: ChangeSection) {
             ctx.expandedFiles.has(node.path) ? "▼ " : "▶ ",
           )
         : fg(oneDarkTheme.muted)("  "),
-      fg(icon.color ?? oneDarkTheme.folder)(`${icon.glyph} `),
-      node.kind === "directory"
-        ? fg(oneDarkTheme.muted)("")
-        : fg(color)(`${status} `),
+      fg(color ?? icon.color ?? oneDarkTheme.folder)(`${icon.glyph} `),
       selected
         ? bg(oneDarkTheme.selected)(fg(nameColor)(treeLabel))
         : fg(nameColor)(treeLabel),
