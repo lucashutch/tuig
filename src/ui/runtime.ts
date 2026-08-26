@@ -20,6 +20,7 @@ import type {
   GitRepository,
   RepositorySnapshot,
   ResetMode,
+  Stash,
 } from "../git/types.js";
 import { splitPatchHunks } from "../git/hunks.js";
 import {
@@ -261,7 +262,8 @@ class Runtime {
     private repository: GitRepository,
   ) {
     const widgets = createRuntimeWidgets(renderer, {
-      sidebarClick: (y, button) => this.sidebarClick(y - PANE_TOP, button),
+      sidebarClick: (x, y, button) =>
+        this.sidebarClick(x, y - PANE_TOP, button),
       sidebarToggle: (section) => this.toggleSidebarSection(section),
       sidebarScroll: (y, delta) => this.sidebarScroll(y - PANE_TOP, delta),
       sidebarResize: (section, y) => this.resizeSidebar(section, y),
@@ -1121,6 +1123,9 @@ class Runtime {
       const rowBg = selected
         ? oneDarkTheme.selected
         : rowBackgrounds[commitRow % 2]!;
+      const stashLabel = row.commit.decorations.some(
+        (decoration) => decoration === "refs/stash" || decoration === "stash",
+      );
       const rowWidth = this.historyContentWidth;
       const nonTextWidth = labelWidth + 2 + graphColumns * 2 + 15;
       const textWidth = Math.max(2, rowWidth - nonTextWidth);
@@ -1130,7 +1135,15 @@ class Runtime {
       const cellPadding = Math.max(0, graphColumns - row.cells.length);
       const author = fitColumns(row.commit.author, authorWidth, true);
       chunks.push(
-        bg(rowBg)(fg(label ? graphColor : oneDarkTheme.muted)(labelText)),
+        bg(stashLabel ? oneDarkTheme.panelRaised : rowBg)(
+          fg(
+            stashLabel
+              ? oneDarkTheme.muted
+              : label
+                ? graphColor
+                : oneDarkTheme.muted,
+          )(labelText),
+        ),
         bg(rowBg)(fg(oneDarkTheme.muted)(selected ? "▸ " : "  ")),
         ...row.cells.map((cell) => bg(rowBg)(fg(cell.color)(cell.symbol))),
         bg(rowBg)(fg(oneDarkTheme.muted)("  ".repeat(cellPadding))),
@@ -1434,6 +1447,9 @@ class Runtime {
       this.openGraphMenu(x, y + PANE_TOP, {
         sha: commit.sha,
         branch: onLabel ? labelHit?.ref : undefined,
+        stash: onLabel
+          ? this.snapshot?.stashes.find((stash) => stash.sha === commit.sha)
+          : undefined,
       });
       return;
     }
@@ -1464,7 +1480,7 @@ class Runtime {
   private openGraphMenu(
     x: number,
     y: number,
-    target: { sha: string; branch?: BranchRef },
+    target: { sha: string; branch?: BranchRef; stash?: Stash },
   ) {
     if (!this.snapshot) return;
     const built = buildGraphMenu(target, this.snapshot);
@@ -1475,10 +1491,26 @@ class Runtime {
 
   private async runMenuAction(
     action: GraphMenuAction,
-    target: { sha: string; branch?: BranchRef },
+    target: { sha: string; branch?: BranchRef; stash?: Stash },
   ) {
     const branch = target.branch;
+    const stash = target.stash;
     const reference = branch ? branch.name : target.sha;
+    if (action === "delete-stash") {
+      if (!stash) return;
+      return this.confirmThen(
+        {
+          title: "Delete stash",
+          lines: [`Delete ${stash.ref}?`, stash.subject],
+          confirmLabel: `Delete ${stash.ref}`,
+          destructive: true,
+        },
+        () =>
+          this.perform(`Deleting ${stash.ref}…`, () =>
+            this.repository.dropStash(stash.ref),
+          ),
+      );
+    }
     if (action === "copy-sha") {
       const sha = shortSha(target.sha);
       return void (
@@ -1508,7 +1540,7 @@ class Runtime {
         {
           title: "Delete branch",
           lines: [
-            `Delete the local branch ${displayBranchName(branch.name)}?`,
+            `Delete the ${branch.remote ? "remote-tracking " : "local "}branch ${displayBranchName(branch.name)}?`,
             "Commits only on this branch become unreachable.",
           ],
           confirmLabel: `Delete ${displayBranchName(branch.name)}`,
@@ -1516,7 +1548,7 @@ class Runtime {
         },
         () =>
           this.perform(`Deleting ${branch.name}…`, () =>
-            this.repository.deleteBranch(branch.name, true),
+            this.repository.deleteBranch(branch.name, true, branch.remote),
           ),
       );
     }
@@ -1909,11 +1941,41 @@ class Runtime {
     this.paintComposer();
     this.paintHints();
   }
-  private sidebarClick(y: number, button: number) {
+  private sidebarClick(x: number, y: number, button: number) {
     if (button === MouseButton.RIGHT) {
-      const branch = this.snapshot?.branch;
-      if (branch && this.renderer.copyToClipboardOSC52(branch))
-        this.notify(`Copied ${branch}`);
+      if (!this.snapshot) return;
+      const rects = layoutSidebarSections(
+        this.contentHeight,
+        this.sidebarPreferred,
+        this.sidebarCollapsed,
+      );
+      const section = (SIDEBAR_SECTIONS as readonly SidebarSection[]).find(
+        (candidate) => {
+          const rect = rects[candidate];
+          return (
+            (candidate === "local" ||
+              candidate === "remote" ||
+              candidate === "stashes") &&
+            !this.sidebarCollapsed[candidate] &&
+            y >= rect.contentTop &&
+            y < rect.contentTop + rect.contentHeight
+          );
+        },
+      );
+      if (!section) return;
+      const row = this.sidebarStart[section] + y - rects[section].contentTop;
+      if (section === "stashes") {
+        const stash = this.snapshot.stashes[row];
+        if (stash)
+          this.openGraphMenu(x, y + PANE_TOP, { sha: stash.sha, stash });
+        return;
+      }
+      const branches = this.snapshot.branches.filter((branch) =>
+        section === "local" ? !branch.remote : branch.remote,
+      );
+      const branch = branches[row];
+      if (branch)
+        this.openGraphMenu(x, y + PANE_TOP, { sha: branch.sha, branch });
     }
   }
   private toggleSidebarSection(section: SidebarSection) {

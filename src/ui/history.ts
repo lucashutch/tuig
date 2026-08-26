@@ -87,6 +87,7 @@ export function formatBranchDecoration(
   label: string,
   refs: readonly BranchRef[],
 ): string {
+  if (label === "refs/stash" || label === "stash") return "stash";
   const head = label.startsWith("HEAD -> ") || label === "HEAD";
   const name = label.replace(/^HEAD -> /, "");
   const ref = refs.find(
@@ -211,7 +212,8 @@ export function primaryDecorationRef(
   const first = ordered[0];
   if (!first) return undefined;
   const name = first.replace(/^HEAD -> /, "");
-  if (name === "HEAD") return undefined;
+  if (name === "HEAD" || name === "refs/stash" || name === "stash")
+    return undefined;
   return refs.find(
     (ref) =>
       ref.name === name ||

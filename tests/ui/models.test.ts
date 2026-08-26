@@ -301,6 +301,7 @@ describe("UI models", () => {
     expect(formatBranchDecoration("origin/main", refs)).toBe("󰌢 󰖟 main");
     expect(formatBranchDecoration("HEAD -> main", refs)).toBe("◉ 󰖟 main");
     expect(formatBranchDecoration("HEAD -> topic", refs)).toBe("◉ topic");
+    expect(formatBranchDecoration("refs/stash", refs)).toBe("stash");
   });
   test("marks the checked-out commit in the graph", () => {
     const base = {
