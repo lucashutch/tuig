@@ -32,10 +32,15 @@ export interface Commit {
   author: string;
   authorEmail: string;
   authoredAt: string;
+  committer: string;
+  committerEmail: string;
+  committedAt: string;
   subject: string;
   body?: string;
   decorations: string[];
 }
+
+export type ResetMode = "soft" | "mixed" | "hard";
 
 export interface Stash {
   ref: string;
@@ -55,6 +60,8 @@ export interface Worktree {
 }
 
 export interface Submodule {
+  /** The submodule's name from .gitmodules, when configured. */
+  name?: string;
   path: string;
   sha: string;
   state: "clean" | "uninitialized" | "different" | "conflicted";
@@ -96,8 +103,19 @@ export interface GitRepository {
   stage(paths: string[]): Promise<void>;
   unstage(paths: string[]): Promise<void>;
   applyPatch(patch: string, reverse?: boolean): Promise<void>;
+  discardAll(): Promise<void>;
   commit(message: string): Promise<void>;
+  amendCommit(message: string): Promise<void>;
+  rewordCommit(sha: string, message: string): Promise<void>;
   switchBranch(name: string): Promise<void>;
+  checkoutCommit(sha: string): Promise<void>;
+  checkoutRemoteBranch(
+    local: string,
+    remote: string,
+    reset?: boolean,
+  ): Promise<void>;
+  resetTo(sha: string, mode?: ResetMode): Promise<void>;
+  rebaseOnto(ref: string): Promise<void>;
   createBranch(
     name: string,
     startPoint?: string,
