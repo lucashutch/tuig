@@ -1,6 +1,13 @@
 import { describe, expect, test } from "bun:test";
+import { createHash } from "node:crypto";
+import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { getGravatarUrl } from "../../src/ui/avatars.js";
-import { getGitHubCommitUrl } from "../../src/ui/avatars.js";
+import {
+  getGitHubCommitAvatar,
+  getGitHubCommitUrl,
+} from "../../src/ui/avatars.js";
 
 describe("Gravatar URLs", () => {
   test("returns undefined for blank or invalid email addresses", () => {
@@ -34,4 +41,32 @@ test("GitHub commit URLs use a GitHub origin and commit SHA", () => {
   expect(
     getGitHubCommitUrl("https://notgithub.com/acme/project.git", "abc123"),
   ).toBeUndefined();
+});
+
+test("GitHub avatar URLs survive a process restart through the disk cache", async () => {
+  const cacheHome = await mkdtemp(join(tmpdir(), "tuig-avatar-cache-"));
+  const previousCacheHome = process.env.XDG_CACHE_HOME;
+  const apiUrl = getGitHubCommitUrl(
+    "git@github.com:cached/avatar.git",
+    "disk-cache-test",
+  )!;
+  const avatarUrl = "https://avatars.githubusercontent.com/u/123?v=4";
+  const key = createHash("sha256").update(apiUrl).digest("hex");
+  process.env.XDG_CACHE_HOME = cacheHome;
+
+  try {
+    const directory = join(cacheHome, "tuig", "avatars");
+    await mkdir(directory, { recursive: true });
+    await writeFile(join(directory, `${key}.url`), `${avatarUrl}\n`);
+    expect(
+      await getGitHubCommitAvatar(
+        "git@github.com:cached/avatar.git",
+        "disk-cache-test",
+      ),
+    ).toBe(avatarUrl);
+  } finally {
+    if (previousCacheHome === undefined) delete process.env.XDG_CACHE_HOME;
+    else process.env.XDG_CACHE_HOME = previousCacheHome;
+    await rm(cacheHome, { recursive: true, force: true });
+  }
 });
