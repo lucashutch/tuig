@@ -78,6 +78,17 @@ For UI changes, check at least:
 
 Material icons require a patched Nerd Font. Make sure missing glyphs are not mistaken for layout bugs.
 
+## Releases
+
+Releases are created from `main` using Bun’s Git-tag-aware version command:
+
+```sh
+bun pm version patch
+git push origin main --follow-tags
+```
+
+The tag must match the `package.json` version and use the `vX.Y.Z` format. The release workflow validates the tag, runs the full check suite, and creates the GitHub release.
+
 ## Pull requests
 
 Include:
