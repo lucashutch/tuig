@@ -134,7 +134,7 @@ This keeps submodule URLs and recorded commits aligned with the selected branch.
 
 Tuig is useful, but not finished. Current limitations include:
 
-- Stash and worktree data are visible, but their context-menu actions still need UI wiring.
+- Stash creation, apply/pop/drop, branch creation, cherry-pick, and tag creation are available from the UI; worktree actions still need UI wiring.
 - Hunk mode currently applies the first hunk rather than presenting a full hunk picker.
 - Long-running Git commands do not yet expose cancellation.
 - Linux is the only supported platform for the first release.

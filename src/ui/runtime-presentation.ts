@@ -7,9 +7,12 @@ import type {
 } from "../git/types.js";
 import type { FileTreeNode } from "./file-tree.js";
 import {
+  authorAvatar,
   branchPresence,
   branchPresenceIcon,
   displayBranchName,
+  filterBranchRefs,
+  formatRelativeTime,
   HEAD_ICON,
   LAPTOP_BRANCH_ICON,
   REMOTE_BRANCH_ICON,
@@ -225,14 +228,18 @@ export function sidebarRows(
   snapshot: RepositorySnapshot,
   section: SidebarSection,
   width: number,
+  branchFilter = "",
 ): string[] {
   if (section === "local" || section === "remote")
-    return snapshot.branches
-      .filter((b) => (section === "local" ? !b.remote : b.remote))
-      .map(
-        (b) =>
-          `${branchPresenceIcon(branchPresence(b, snapshot.branches), b.current)} ${section === "local" ? LAPTOP_BRANCH_ICON : REMOTE_BRANCH_ICON} ${displayBranchName(b.name)}`,
-      );
+    return filterBranchRefs(
+      snapshot.branches.filter((b) =>
+        section === "local" ? !b.remote : b.remote,
+      ),
+      branchFilter,
+    ).map(
+      (b) =>
+        `${branchPresenceIcon(branchPresence(b, snapshot.branches), b.current)} ${section === "local" ? LAPTOP_BRANCH_ICON : REMOTE_BRANCH_ICON} ${displayBranchName(b.name)}`,
+    );
   if (section === "submodules")
     return snapshot.submodules.flatMap((s) => [
       ` ${s.state === "clean" ? "✓" : s.state === "uninitialized" ? "✖" : "!"} ${submoduleDisplayName(s)}`,
@@ -303,6 +310,7 @@ export type SidebarPresentationInput = {
   remoteBranchStart: number;
   localBranchesCollapsed: boolean;
   remoteBranchesCollapsed: boolean;
+  branchFilter?: string;
 };
 
 export type SidebarPresentation = {
@@ -346,9 +354,16 @@ export function renderSidebar({
   remoteBranchStart: requestedRemoteStart,
   localBranchesCollapsed,
   remoteBranchesCollapsed,
+  branchFilter = "",
 }: SidebarPresentationInput): SidebarPresentation {
-  const localBranches = snapshot.branches.filter((branch) => !branch.remote);
-  const remoteBranches = snapshot.branches.filter((branch) => branch.remote);
+  const localBranches = filterBranchRefs(
+    snapshot.branches.filter((branch) => !branch.remote),
+    branchFilter,
+  );
+  const remoteBranches = filterBranchRefs(
+    snapshot.branches.filter((branch) => branch.remote),
+    branchFilter,
+  );
   const branchLimit = SIDEBAR_BRANCH_LIMIT;
   const localBranchStart = Math.max(
     0,
@@ -655,14 +670,15 @@ export function presentCommitMeta(commit: Commit): {
     }).format(new Date(value));
   const author = `${commit.author}${commit.authorEmail ? ` <${commit.authorEmail}>` : ""}`;
   const committer = `${commit.committer}${commit.committerEmail ? ` <${commit.committerEmail}>` : ""}`;
+  const avatar = authorAvatar(commit.author, commit.authorEmail);
   return {
     info: new StyledText([
       fg(oneDarkTheme.accent)(`${shortSha(commit.sha)}\n`),
       fg(oneDarkTheme.muted)(
-        `Author: ${author}\nAuthored: ${formatDate(commit.authoredAt)}\n`,
+        `Author: ${author} ${avatar}\nAuthored: ${formatRelativeTime(commit.authoredAt)} · ${formatDate(commit.authoredAt)}\n`,
       ),
       fg(oneDarkTheme.muted)(
-        `Committer: ${committer}\nCommitted: ${formatDate(commit.committedAt)}`,
+        `Committer: ${committer}\nCommitted: ${formatRelativeTime(commit.committedAt)} · ${formatDate(commit.committedAt)}`,
       ),
     ]),
     header: commit.subject,
@@ -896,5 +912,5 @@ export function formatHints({ focus, view, composing }: HintContext): string {
     return `${focus === "changes" ? "CHANGES" : "DIFF"}  esc back to graph  ←/→ file  s stage  u unstage  ${shared}`;
   if (focus === "changes")
     return `CHANGES  ←/→ file  s stage  u unstage  h hunk  t section  c commit  ${shared}`;
-  return `HISTORY  j/k move  ↵ open commit  dbl-click branch checkout  right-click actions  ${shared}`;
+  return `HISTORY  j/k move  ↵ open commit  / filter branches  esc cancel/clear  dbl-click branch checkout  right-click actions  ${shared}`;
 }

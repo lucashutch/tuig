@@ -8,7 +8,14 @@ export type GraphMenuAction =
   | "reset-mixed"
   | "reset-hard"
   | "rebase-onto"
+  | "create-branch"
+  | "create-tag"
+  | "cherry-pick"
   | "delete-branch"
+  | "apply-stash"
+  | "pop-stash"
+  | "drop-stash"
+  /** Kept as an alias for callers built against the pre-Phase 2 menu. */
   | "delete-stash"
   | "copy-sha"
   | "copy-branch";
@@ -56,9 +63,15 @@ export function buildGraphMenu(
     return {
       title: `stash · ${shortSha(target.sha)}`,
       items: [
+        { label: `Apply ${target.stash.ref}`, action: "apply-stash" },
         {
-          label: `Delete ${target.stash.ref}`,
-          action: "delete-stash",
+          label: `Pop ${target.stash.ref}`,
+          action: "pop-stash",
+          destructive: true,
+        },
+        {
+          label: `Drop ${target.stash.ref}`,
+          action: "drop-stash",
           destructive: true,
         },
       ],
@@ -81,6 +94,7 @@ export function buildGraphMenu(
       },
       resetSubmenu(current, displayBranchName(name)),
       { label: "Copy branch name", action: "copy-branch" },
+      { label: "Create branch here", action: "create-branch" },
       {
         label: `Delete ${displayBranchName(name)}`,
         action: "delete-branch",
@@ -94,6 +108,9 @@ export function buildGraphMenu(
     { label: "Checkout this commit (detached)", action: "checkout-commit" },
     { label: `Rebase ${current} onto this commit`, action: "rebase-onto" },
     resetSubmenu(current, "this commit"),
+    { label: "Create branch here", action: "create-branch" },
+    { label: "Cherry-pick this commit", action: "cherry-pick" },
+    { label: "Create tag here", action: "create-tag" },
     { label: "Copy commit SHA", action: "copy-sha" },
   );
   return {

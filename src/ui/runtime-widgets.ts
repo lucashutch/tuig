@@ -22,7 +22,7 @@ import {
 
 export type ChangeSection = "unstaged" | "staged";
 
-/** Row the diff starts on inside the history pane. */
+/** Row the diff starts on inside the details pane. */
 export const COMMIT_DIFF_TOP = 2;
 
 /** First row the panes may use: the header row plus the two toolbar rows. */
@@ -821,8 +821,6 @@ export function createRuntimeWidgets(
   const submenuText = submenu.text;
   sidebar.add(sidebarText);
   history.add(historyText);
-  history.add(commitDiff);
-  history.add(commitDiffEmpty);
   details.add(commitInfoBox);
   details.add(workingBanner);
   details.add(commitBodyBox);
@@ -838,6 +836,10 @@ export function createRuntimeWidgets(
   details.add(unstagedDivider);
   details.add(composerDivider);
   details.add(composerBox);
+  // Diffs live in the details pane so opening one never replaces the history
+  // graph. The runtime hides the other detail widgets while this is visible.
+  details.add(commitDiff);
+  details.add(commitDiffEmpty);
   renderer.root.add(header);
   renderer.root.add(toolbar);
   renderer.root.add(hints);

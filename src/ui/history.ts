@@ -31,6 +31,79 @@ export function shortSha(sha: string, length = 8): string {
   return sha.slice(0, length);
 }
 
+/**
+ * A small, terminal-safe author avatar.  Initials are preferable to remote
+ * avatar services here: history remains useful offline and renders the same
+ * way in every terminal.
+ */
+export function authorInitials(author: string, email = ""): string {
+  const source = author.trim() || email.split("@")[0]?.trim() || "?";
+  const words = source.split(/[^\p{L}\p{N}]+/u).filter(Boolean);
+  const initials =
+    words.length > 1
+      ? `${words[0]![0] ?? ""}${words.at(-1)?.[0] ?? ""}`
+      : (words[0]?.slice(0, 2) ?? "?");
+  // Keep badges stable and safe even when a display name contains emoji or
+  // combining marks unsupported by the terminal font.
+  const safe = initials.normalize("NFKD").replace(/[^\p{L}\p{N}]/gu, "");
+  return (safe || "?").slice(0, 2).toUpperCase();
+}
+
+export function authorAvatar(author: string, email = ""): string {
+  return `[${authorInitials(author, email)}]`;
+}
+
+/** Format a commit timestamp without depending on the machine's locale. */
+export function formatRelativeTime(value: string, now = Date.now()): string {
+  const timestamp = Date.parse(value);
+  if (!Number.isFinite(timestamp)) return "unknown time";
+  const seconds = Math.round((now - timestamp) / 1000);
+  const future = seconds < 0;
+  const amount = Math.abs(seconds);
+  if (amount < 10) return future ? "in a moment" : "just now";
+  const units: Array<[number, string]> = [
+    [60, "s"],
+    [60, "m"],
+    [24, "h"],
+    [7, "d"],
+    [4, "w"],
+    [12, "mo"],
+    [Number.POSITIVE_INFINITY, "y"],
+  ];
+  let rest = amount;
+  let unit = "s";
+  for (const [size, name] of units) {
+    unit = name;
+    if (rest < size) break;
+    rest = Math.floor(rest / size);
+  }
+  return future ? `in ${rest}${unit}` : `${rest}${unit} ago`;
+}
+
+/** Compact author treatment used by graph rows and commit metadata cards. */
+export function formatCommitAuthor(
+  author: string,
+  email: string,
+  authoredAt: string,
+  now = Date.now(),
+): string {
+  return `${authorAvatar(author, email)} ${formatRelativeTime(authoredAt, now)}`;
+}
+
+/** Filter local or remote refs by a case-insensitive substring query. */
+export function filterBranchRefs(
+  refs: readonly BranchRef[],
+  query: string,
+): BranchRef[] {
+  const needle = query.trim().toLocaleLowerCase();
+  if (!needle) return [...refs];
+  return refs.filter((ref) =>
+    [ref.name, ref.fullName, displayBranchName(ref.name)].some((value) =>
+      value.toLocaleLowerCase().includes(needle),
+    ),
+  );
+}
+
 export function displayBranchName(name: string): string {
   return name
     .replace(/^refs\/heads\//, "")

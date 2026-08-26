@@ -116,6 +116,9 @@ export interface GitRepository {
   ): Promise<void>;
   resetTo(sha: string, mode?: ResetMode): Promise<void>;
   rebaseOnto(ref: string): Promise<void>;
+  cherryPick(sha: string): Promise<void>;
+  /** Creates a lightweight tag at target (or HEAD when omitted). */
+  createTag(name: string, target?: string): Promise<void>;
   createBranch(
     name: string,
     startPoint?: string,
@@ -127,6 +130,7 @@ export interface GitRepository {
   push(remote?: string, setUpstream?: boolean): Promise<void>;
   stash(message?: string, includeUntracked?: boolean): Promise<void>;
   applyStash(ref: string, pop?: boolean): Promise<void>;
+  popStash(ref: string): Promise<void>;
   dropStash(ref: string): Promise<void>;
   addWorktree(
     path: string,

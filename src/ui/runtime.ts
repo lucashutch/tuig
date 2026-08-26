@@ -4,6 +4,7 @@ import {
   ScrollBoxRenderable,
   DiffRenderable,
   InputRenderable,
+  InputRenderableEvents,
   MouseButton,
   StyledText,
   TextRenderable,
@@ -34,6 +35,8 @@ import { resolveMaterialIcon } from "./icon-theme.js";
 import {
   buildCommitBranchHints,
   displayBranchName,
+  filterBranchRefs,
+  formatCommitAuthor,
   primaryDecorationRef,
   resolveHeadSha,
   shortSha,
@@ -210,6 +213,8 @@ class Runtime {
   private readonly menuText: TextRenderable;
   private readonly submenuBox: BoxRenderable;
   private readonly submenuText: TextRenderable;
+  private readonly branchFilterInput: InputRenderable;
+  private readonly promptInput: InputRenderable;
   private leftWidth = 28;
   private detailsWidth = 44;
   private leftCollapsed = false;
@@ -235,6 +240,15 @@ class Runtime {
     worktrees: 0,
   };
   private detailsCollapsed = false;
+  private branchFilter = "";
+  private branchFilterActive = false;
+  private namePrompt?: {
+    title: string;
+    placeholder: string;
+    run: (value: string) => Promise<void>;
+  };
+  private diffOrigin?: "working" | "commit";
+  private suppressEnterUntil = 0;
   private commitFilesTop = 19;
   // Widths read back off renderables can lag by a frame, so panes keep the
   // numeric widths from the latest layout pass for width-dependent painting.
@@ -358,6 +372,47 @@ class Runtime {
     this.menuText = widgets.menuText;
     this.submenuBox = widgets.submenuBox;
     this.submenuText = widgets.submenuText;
+    this.branchFilterInput = new InputRenderable(renderer, {
+      position: "absolute",
+      id: "branch-filter",
+      top: PANE_TOP,
+      left: 1,
+      width: 24,
+      visible: false,
+      zIndex: 80,
+      placeholder: "Filter branches…",
+      backgroundColor: oneDarkTheme.selected,
+      focusedBackgroundColor: oneDarkTheme.selected,
+      textColor: oneDarkTheme.text,
+    });
+    this.promptInput = new InputRenderable(renderer, {
+      position: "absolute",
+      id: "name-prompt",
+      top: 1,
+      left: 1,
+      width: 24,
+      visible: false,
+      zIndex: 80,
+      placeholder: "Name",
+      backgroundColor: oneDarkTheme.selected,
+      focusedBackgroundColor: oneDarkTheme.selected,
+      textColor: oneDarkTheme.text,
+    });
+    this.branchFilterInput.on(InputRenderableEvents.INPUT, () => {
+      this.branchFilter = this.branchFilterInput.value;
+      this.sidebarStart.local = 0;
+      this.sidebarStart.remote = 0;
+      this.paint();
+    });
+    this.branchFilterInput.on(InputRenderableEvents.ENTER, () =>
+      this.acceptBranchFilter(),
+    );
+    this.promptInput.on(
+      InputRenderableEvents.ENTER,
+      () => void this.submitNamePrompt(),
+    );
+    this.renderer.root.add(this.branchFilterInput);
+    this.renderer.root.add(this.promptInput);
   }
 
   async start() {
@@ -410,7 +465,12 @@ class Runtime {
   /** True while either commit-message editor holds the keyboard. */
   private get composing(): boolean {
     const focused = this.renderer.currentFocusedEditor;
-    return focused === this.composerSummary || focused === this.composerBody;
+    return (
+      focused === this.composerSummary ||
+      focused === this.composerBody ||
+      focused === this.branchFilterInput ||
+      focused === this.promptInput
+    );
   }
   private label(section: ChangeSection): TextRenderable {
     return section === "unstaged" ? this.unstagedLabel : this.stagedLabel;
@@ -560,6 +620,11 @@ class Runtime {
     this.sidebarPaneWidth = Math.min(left, total);
     this.sidebar.width = this.sidebarPaneWidth;
     this.sidebar.height = height;
+    this.branchFilterInput.left = 1;
+    this.branchFilterInput.top = PANE_TOP;
+    this.branchFilterInput.width = Math.max(8, this.sidebarPaneWidth - 2);
+    this.branchFilterInput.visible =
+      this.branchFilterActive && !this.leftCollapsed;
     this.history.height = height;
     this.details.height = height;
     // Dividers stop above the bottom row so they cannot draw over the hints.
@@ -617,8 +682,8 @@ class Runtime {
       this.view === "commit" && !this.editingCommitSha
         ? workingChangesBannerRows(this.snapshot?.files.length ?? 0)
         : 0;
-    // Inspection follows a predictable reading order: message first, metadata,
-    // then files.  The cards' explicit rows keep narrow wrapping collision-free.
+    // Inspection follows a predictable order: message first, metadata, then
+    // files. The cards' explicit rows keep narrow wrapping collision-free.
     this.commitBodyBox.top = bannerRows;
     this.commitBodyBox.height = messageHeight;
     this.editMessageButton.left = Math.max(1, this.detailsPaneWidth - 18);
@@ -633,8 +698,10 @@ class Runtime {
       bannerRows + messageHeight + infoHeight,
     );
     this.layoutChanges(height);
-    // The diff takes whatever height the commit metadata leaves, rather than a
-    // fixed share of the terminal.
+    // The diff uses the details pane's full height, rather than replacing the
+    // history pane or taking a fixed share of the terminal.
+    this.commitDiff.left = 1;
+    this.commitDiff.width = Math.max(1, this.detailsPaneWidth - 2);
     this.commitDiff.height = Math.max(1, height - COMMIT_DIFF_TOP - 1);
     const verticalGripHeight = Math.max(
       3,
@@ -667,6 +734,32 @@ class Runtime {
     const commitView = this.view === "commit";
     const editing = !!this.editingCommitSha;
     const width = Math.max(1, this.detailsPaneWidth);
+    // Diffs occupy the detail pane, leaving the graph and its selection
+    // visible in the centre pane. Hide every other detail widget explicitly
+    // so a previous commit/working layout cannot bleed through the diff.
+    if (this.commitDiff.visible) {
+      for (const widget of [
+        this.commitInfoBox,
+        this.commitBodyBox,
+        this.workingBanner,
+        this.editMessageButton,
+        this.discardButton,
+        this.stageAllButton,
+        this.unstageAllButton,
+        this.unstagedLabel,
+        this.unstagedText,
+        this.stagedLabel,
+        this.stagedText,
+        this.unstagedDivider,
+        this.composerDivider,
+        this.unstagedDividerBar,
+        this.composerDividerBar,
+        this.composerBox,
+      ])
+        widget.visible = false;
+      this.amendButton.visible = false;
+      return;
+    }
     for (const widget of [
       this.discardButton,
       this.stageAllButton,
@@ -864,9 +957,10 @@ class Runtime {
     this.paintFiles();
     if (this.view === "history") void this.openWorkingDiff();
     else {
-      this.historyText.visible = false;
+      this.diffOrigin = "commit";
       this.commitDiff.visible = true;
       this.commitDiffEmpty.visible = false;
+      this.layout();
       void this.loadDiff().catch((error) => this.fail(error));
     }
   }
@@ -958,7 +1052,12 @@ class Runtime {
     for (const section of SIDEBAR_SECTIONS) {
       const rect = rects[section],
         widgets = this.sidebarSections[section];
-      const rows = sidebarRows(s, section, this.sidebarPaneWidth);
+      const rows = sidebarRows(
+        s,
+        section,
+        this.sidebarPaneWidth,
+        this.branchFilter,
+      );
       const requested = this.sidebarStart[section];
       const start = Math.max(
         0,
@@ -972,9 +1071,15 @@ class Runtime {
       widgets.header.content = sidebarHeader(
         section,
         section === "local"
-          ? s.branches.filter((b) => !b.remote).length
+          ? filterBranchRefs(
+              s.branches.filter((b) => !b.remote),
+              this.branchFilter,
+            ).length
           : section === "remote"
-            ? s.branches.filter((b) => b.remote).length
+            ? filterBranchRefs(
+                s.branches.filter((b) => b.remote),
+                this.branchFilter,
+              ).length
             : section === "submodules"
               ? s.submodules.length
               : section === "stashes"
@@ -1072,6 +1177,7 @@ class Runtime {
       displayOffset >= thumbStart && displayOffset < thumbStart + thumbSize;
     const scrollbar = (displayOffset: number) =>
       scrollbarThumb(displayOffset) ? "█" : "│";
+    const now = Date.now();
     for (let offset = 0; offset < visible; offset++) {
       const displayIndex = this.historyStart + offset;
       if (displayIndex >= totalDisplayRows) break;
@@ -1133,7 +1239,16 @@ class Runtime {
       const subjectWidth = Math.max(1, textWidth - authorWidth);
       const subject = fitColumns(row.commit.subject, subjectWidth, true);
       const cellPadding = Math.max(0, graphColumns - row.cells.length);
-      const author = fitColumns(row.commit.author, authorWidth, true);
+      const author = fitColumns(
+        formatCommitAuthor(
+          row.commit.author,
+          row.commit.authorEmail,
+          row.commit.authoredAt,
+          now,
+        ),
+        authorWidth,
+        true,
+      );
       chunks.push(
         bg(stashLabel ? oneDarkTheme.panelRaised : rowBg)(
           fg(
@@ -1404,7 +1519,7 @@ class Runtime {
     }, 16);
   }
   private scrollHistoryViewport(delta: number) {
-    if (!this.snapshot || this.commitDiff.visible) return;
+    if (!this.snapshot) return;
     const total =
       this.graphRows.length + (this.snapshot.files.length > 0 ? 1 : 0);
     const visible = Math.max(1, this.contentHeight - 3);
@@ -1416,7 +1531,6 @@ class Runtime {
     this.paintHistory();
   }
   private historyClick(x: number, y: number, button: number) {
-    if (this.commitDiff.visible) return;
     this.setFocus("history");
     if (this.scrollTimer) {
       clearTimeout(this.scrollTimer);
@@ -1428,6 +1542,9 @@ class Runtime {
     const displayRow = y - 2;
     const displayIndex = this.historyStart + displayRow;
     if (hasWorking && displayIndex === 0) {
+      // Selecting the working row is an explicit destination. Do not let a
+      // commit diff's return target send us back to the commit first.
+      this.diffOrigin = undefined;
       this.closeDiff();
       this.mode = "unstaged";
       this.paint();
@@ -1483,6 +1600,7 @@ class Runtime {
     target: { sha: string; branch?: BranchRef; stash?: Stash },
   ) {
     if (!this.snapshot) return;
+    if (this.branchFilterActive) this.finishBranchFilter();
     const built = buildGraphMenu(target, this.snapshot);
     this.openPopup(built.title, built.items, x, y, (item) => {
       if (item.action) void this.runMenuAction(item.action, target);
@@ -1511,6 +1629,45 @@ class Runtime {
           ),
       );
     }
+    if (action === "apply-stash") {
+      if (!stash) return;
+      return this.perform(`Applying ${stash.ref}…`, () =>
+        this.repository.applyStash(stash.ref, false),
+      );
+    }
+    if (action === "pop-stash") {
+      if (!stash) return;
+      return this.confirmThen(
+        {
+          title: "Pop stash",
+          lines: [
+            `Apply ${stash.ref} and remove it from the stash list?`,
+            stash.subject,
+          ],
+          confirmLabel: `Pop ${stash.ref}`,
+          destructive: true,
+        },
+        () =>
+          this.perform(`Popping ${stash.ref}…`, () =>
+            this.repository.popStash(stash.ref),
+          ),
+      );
+    }
+    if (action === "drop-stash") {
+      if (!stash) return;
+      return this.confirmThen(
+        {
+          title: "Drop stash",
+          lines: [`Drop ${stash.ref}?`, stash.subject],
+          confirmLabel: `Drop ${stash.ref}`,
+          destructive: true,
+        },
+        () =>
+          this.perform(`Dropping ${stash.ref}…`, () =>
+            this.repository.dropStash(stash.ref),
+          ),
+      );
+    }
     if (action === "copy-sha") {
       const sha = shortSha(target.sha);
       return void (
@@ -1529,6 +1686,22 @@ class Runtime {
     if (action === "checkout-commit")
       return this.perform(`Checking out ${shortSha(target.sha)}…`, () =>
         this.repository.checkoutCommit(target.sha),
+      );
+    if (action === "create-branch")
+      return this.openNamePrompt("Create branch", "branch name", (name) =>
+        this.perform(`Creating ${name}…`, () =>
+          this.repository.createBranch(name, target.sha, false),
+        ),
+      );
+    if (action === "create-tag")
+      return this.openNamePrompt("Create tag", "tag name", (name) =>
+        this.perform(`Creating tag ${name}…`, () =>
+          this.repository.createTag(name, target.sha),
+        ),
+      );
+    if (action === "cherry-pick")
+      return this.perform(`Cherry-picking ${shortSha(target.sha)}…`, () =>
+        this.repository.cherryPick(target.sha),
       );
     if (action === "rebase-onto")
       return this.perform(`Rebasing onto ${reference}…`, () =>
@@ -1647,6 +1820,45 @@ class Runtime {
     );
   }
 
+  /** Open a tiny in-terminal prompt for names required by ref-creation actions. */
+  private openNamePrompt(
+    title: string,
+    placeholder: string,
+    run: (value: string) => Promise<void>,
+  ) {
+    this.namePrompt = { title, placeholder, run };
+    this.promptInput.value = "";
+    const items: GraphMenuItem[] = [
+      { label: " ", disabled: true },
+      { label: "Enter confirm · Esc cancel", disabled: true },
+    ];
+    const width = Math.max(menuWidth(items), 28);
+    this.openPopup(
+      title,
+      items,
+      Math.max(0, Math.floor((this.renderer.terminalWidth - width) / 2)),
+      Math.max(0, Math.floor((this.renderer.terminalHeight - 4) / 2)),
+      () => undefined,
+    );
+    this.promptInput.placeholder = placeholder;
+    this.promptInput.visible = true;
+    this.paintPopup();
+    setTimeout(() => this.promptInput.focus(), 0);
+  }
+
+  private async submitNamePrompt() {
+    const prompt = this.namePrompt;
+    if (!prompt) return;
+    const value = this.promptInput.value.trim();
+    if (!value) return this.notify("A name is required", "error");
+    this.suppressEnterUntil = Date.now() + 100;
+    setTimeout(() => {
+      if (Date.now() >= this.suppressEnterUntil) this.suppressEnterUntil = 0;
+    }, 100);
+    this.closePopup();
+    await prompt.run(value);
+  }
+
   private openPopup(
     title: string,
     items: GraphMenuItem[],
@@ -1669,6 +1881,9 @@ class Runtime {
 
   private closePopup() {
     this.popup = undefined;
+    this.namePrompt = undefined;
+    this.promptInput.blur();
+    this.promptInput.visible = false;
     this.paintPopup();
   }
 
@@ -1677,6 +1892,7 @@ class Runtime {
     const visible = !!popup;
     for (const widget of [this.overlayCatcher, this.menuBox, this.menuText])
       widget.visible = visible;
+    this.promptInput.visible = visible && !!this.namePrompt;
     const submenuVisible = !!popup?.submenu;
     this.submenuBox.visible = submenuVisible;
     this.submenuText.visible = submenuVisible;
@@ -1691,6 +1907,11 @@ class Runtime {
     this.menuText.width = popup.width - 2;
     this.menuText.height = popup.items.length;
     this.menuText.content = this.popupContent(popup);
+    if (this.namePrompt) {
+      this.promptInput.left = popup.left + 2;
+      this.promptInput.top = popup.top + 1;
+      this.promptInput.width = Math.max(8, popup.width - 4);
+    }
     const submenu = popup.submenu;
     if (!submenu) return;
     this.submenuBox.left = submenu.left;
@@ -1785,6 +2006,7 @@ class Runtime {
     const snapshot = this.snapshot;
     const selectedPath = this.selectedFile()?.path;
     this.view = "commit";
+    this.diffOrigin = undefined;
     this.historySelection = "commit";
     this.fileIndex = 0;
     this.fileStart = 0;
@@ -1833,8 +2055,8 @@ class Runtime {
     const file = this.selectedFile();
     if (!file) return;
     this.view = "working";
-    this.history.title = ` ${this.mode.toUpperCase()} · ${file.path} `;
-    this.historyText.visible = false;
+    this.diffOrigin = "working";
+    this.history.title = undefined;
     this.commitDiff.visible = true;
     this.commitDiffEmpty.visible = false;
     this.setCommitMetaVisible(false);
@@ -1847,6 +2069,22 @@ class Runtime {
     }
   }
   private closeDiff() {
+    const returnToCommit = this.diffOrigin === "commit";
+    this.diffOrigin = undefined;
+    if (returnToCommit) {
+      this.view = "commit";
+      this.historySelection = "commit";
+      this.history.title = undefined;
+      this.historyText.visible = true;
+      this.commitDiff.visible = false;
+      this.commitDiffEmpty.visible = false;
+      const commit = this.snapshot?.commits[this.commitIndex];
+      if (commit) this.showCommitMeta(commit);
+      this.paintHints();
+      this.layout();
+      this.paintFiles();
+      return;
+    }
     this.view = "history";
     this.historySelection = "working";
     this.commitFiles = [];
@@ -1970,13 +2208,51 @@ class Runtime {
           this.openGraphMenu(x, y + PANE_TOP, { sha: stash.sha, stash });
         return;
       }
-      const branches = this.snapshot.branches.filter((branch) =>
-        section === "local" ? !branch.remote : branch.remote,
+      const branches = filterBranchRefs(
+        this.snapshot.branches.filter((branch) =>
+          section === "local" ? !branch.remote : branch.remote,
+        ),
+        this.branchFilter,
       );
       const branch = branches[row];
       if (branch)
         this.openGraphMenu(x, y + PANE_TOP, { sha: branch.sha, branch });
     }
+  }
+  private startBranchFilter() {
+    if (this.view !== "history")
+      return this.notify("Branch filter is available from the graph");
+    if (this.leftCollapsed) this.leftCollapsed = false;
+    this.branchFilterActive = true;
+    this.branchFilterInput.value = this.branchFilter;
+    this.branchFilterInput.visible = !this.leftCollapsed;
+    this.layout();
+    this.paintHints();
+    this.paint();
+    setTimeout(() => this.branchFilterInput.focus(), 0);
+  }
+  private finishBranchFilter() {
+    if (!this.branchFilterActive) return;
+    this.branchFilterActive = false;
+    this.branchFilterInput.blur();
+    this.branchFilterInput.visible = false;
+    this.layout();
+    this.paintHints();
+    this.paint();
+  }
+  private acceptBranchFilter() {
+    this.finishBranchFilter();
+    this.suppressEnterUntil = Date.now() + 100;
+    setTimeout(() => {
+      if (Date.now() >= this.suppressEnterUntil) this.suppressEnterUntil = 0;
+    }, 100);
+  }
+  private cancelBranchFilter() {
+    this.branchFilter = "";
+    this.branchFilterInput.value = "";
+    this.sidebarStart.local = 0;
+    this.sidebarStart.remote = 0;
+    this.finishBranchFilter();
   }
   private toggleSidebarSection(section: SidebarSection) {
     this.sidebarCollapsed[section] = !this.sidebarCollapsed[section];
@@ -1996,7 +2272,12 @@ class Runtime {
         y < rects[s].contentTop + rects[s].contentHeight,
     );
     if (!section || this.sidebarCollapsed[section]) return;
-    const rows = sidebarRows(this.snapshot, section, this.sidebarPaneWidth);
+    const rows = sidebarRows(
+      this.snapshot,
+      section,
+      this.sidebarPaneWidth,
+      this.branchFilter,
+    );
     this.sidebarStart[section] = Math.max(
       0,
       Math.min(
@@ -2024,22 +2305,33 @@ class Runtime {
   }
 
   private async key(key: KeyEvent) {
-    if (this.composing && key.name !== "escape" && key.name !== "tab") {
+    if (key.name === "enter" && Date.now() < this.suppressEnterUntil) {
+      this.suppressEnterUntil = 0;
+      return;
+    }
+    const focusedEditor = this.renderer.currentFocusedEditor;
+    const composingCommit =
+      focusedEditor === this.composerSummary ||
+      focusedEditor === this.composerBody;
+    if (composingCommit && key.name !== "escape" && key.name !== "tab") {
       // The editors own every other key while composing, but the button label
       // tracks the summary, so repaint after the keystroke lands.
       setTimeout(() => this.paintComposer(), 0);
       return;
     }
-    if (this.composing && key.name === "tab") {
+    if (composingCommit && key.name === "tab") {
       const next =
-        this.renderer.currentFocusedEditor === this.composerSummary
+        focusedEditor === this.composerSummary
           ? this.composerBody
           : this.composerSummary;
       next.focus();
       return;
     }
+    if (this.composing && key.name === "tab") return;
+    if (this.composing && key.name !== "escape") return;
     if (key.name === "escape") {
       if (this.popup) return this.closePopup();
+      if (this.branchFilterActive) return this.cancelBranchFilter();
       // A failed reword can leave the editor blurred; edit mode itself still
       // owns Escape so its saved working draft is never stranded.
       if (this.editingCommitSha) return this.cancelEditMessage();
@@ -2059,6 +2351,12 @@ class Runtime {
     }
     if (key.name === "tab") {
       this.setFocus(this.focus === "history" ? "changes" : "history");
+      return;
+    }
+    if (key.name === "/" && this.focus === "history")
+      return this.startBranchFilter();
+    if (key.name === "c" && this.focus === "history" && this.branchFilter) {
+      this.cancelBranchFilter();
       return;
     }
     if (key.name === "up" || key.name === "k")
@@ -2136,9 +2434,10 @@ class Runtime {
   private async openSelectedFile() {
     if (!this.selectedFile()) return this.notify("No file selected");
     if (this.view === "history") return void this.openWorkingDiff();
-    this.historyText.visible = false;
+    this.diffOrigin = this.view === "commit" ? "commit" : "working";
     this.commitDiff.visible = true;
     this.commitDiffEmpty.visible = false;
+    this.layout();
     await this.loadDiff().catch((e) => this.fail(e));
   }
   private async perform(

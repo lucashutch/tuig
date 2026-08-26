@@ -429,3 +429,49 @@ test("checks out commits and branches, resets, and rebases", async () => {
   await repo.rebaseOnto("main");
   expect(await headSubject()).toBe("second");
 });
+
+test("creates branches and lightweight tags, cherry-picks, and manages stashes", async () => {
+  const root = await mkdtemp(join(tmpdir(), "tuig-actions-test-"));
+  cleanup.push(root);
+  await runGit(["init", "-b", "main"], root);
+  await runGit(["config", "user.name", "Test User"], root);
+  await runGit(["config", "user.email", "test@example.com"], root);
+  const repo = await GitRepositoryService.open(root);
+
+  await Bun.write(join(root, "file"), "base\n");
+  await repo.stage(["file"]);
+  await repo.commit("base");
+  await repo.createBranch("topic", undefined, true);
+  await Bun.write(join(root, "topic"), "topic\n");
+  await repo.stage(["topic"]);
+  await repo.commit("topic change");
+  const topicCommit = (await runGit(["rev-parse", "HEAD"], root)).stdout.trim();
+  await repo.switchBranch("main");
+  await repo.cherryPick(topicCommit);
+  expect((await repo.snapshot()).branch).toBe("main");
+  expect(await Bun.file(join(root, "topic")).text()).toBe("topic\n");
+
+  await repo.createTag("v1");
+  expect(
+    (await runGit(["cat-file", "-t", "refs/tags/v1"], root)).stdout.trim(),
+  ).toBe("commit");
+  expect((await runGit(["rev-parse", "v1"], root)).stdout.trim()).toBe(
+    (await runGit(["rev-parse", "HEAD"], root)).stdout.trim(),
+  );
+
+  await Bun.write(join(root, "file"), "stashed\n");
+  await repo.stash("keep this");
+  const stashRef = (await repo.snapshot()).stashes[0]!.ref;
+  await repo.applyStash(stashRef);
+  expect(await Bun.file(join(root, "file")).text()).toBe("stashed\n");
+  await repo.discardAll();
+  await repo.popStash(stashRef);
+  expect(await Bun.file(join(root, "file")).text()).toBe("stashed\n");
+  expect((await repo.snapshot()).stashes).toHaveLength(0);
+
+  await Bun.write(join(root, "file"), "drop me\n");
+  await repo.stash("drop this");
+  const dropRef = (await repo.snapshot()).stashes[0]!.ref;
+  await repo.dropStash(dropRef);
+  expect((await repo.snapshot()).stashes).toHaveLength(0);
+});
