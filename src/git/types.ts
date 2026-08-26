@@ -97,6 +97,7 @@ export interface CommandResult {
 
 export interface GitRepository {
   readonly root: string;
+  remoteUrl?(): Promise<string | undefined>;
   snapshot(limit?: number): Promise<RepositorySnapshot>;
   diff(request: DiffRequest): Promise<string>;
   commitFiles(sha: string): Promise<ChangedFile[]>;
