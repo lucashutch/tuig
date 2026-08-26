@@ -33,6 +33,8 @@ type LayoutWidgets = Pick<
   | "commitInfoBox"
   | "authorPhoto"
   | "authorBadge"
+  | "commitCoAuthors"
+  | "commitCoAuthorProvider"
   | "commitInfoLabel"
   | "commitDiff"
   | "commitDiffEmpty"
@@ -71,6 +73,8 @@ export interface RuntimeLayoutContext extends LayoutWidgets {
   commitHeaderValue: string;
   commitBodyValue: string;
   commitInfoValue: string;
+  commitCoAuthorsValue: string;
+  commitCoAuthorsProviderVisible: boolean;
   commitFilesTop: number;
   sidebarPaneWidth: number;
   detailsPaneWidth: number;
@@ -171,7 +175,7 @@ export function layoutRuntime(context: RuntimeLayoutContext) {
   context.commitHeader.height = headerLines;
   context.commitHeader.top = 1;
   context.commitBody.height = bodyLines;
-  context.commitBody.top = headerLines + 2;
+  context.commitBody.top = headerLines;
   const bannerRows =
     context.view === "commit" && !context.editingCommitSha
       ? workingChangesBannerRows(context.snapshot?.files.length ?? 0)
@@ -181,11 +185,18 @@ export function layoutRuntime(context: RuntimeLayoutContext) {
   context.commitBodyBox.top = bannerRows;
   context.commitBodyBox.height = messageHeight;
   context.editMessageButton.left = Math.max(1, context.detailsPaneWidth - 18);
+  const infoWidth = Math.max(10, context.detailsPaneWidth - 13);
+  const infoLines = wrappedLineCount(context.commitInfoValue, infoWidth);
+  const coAuthorsTop = Math.max(6, infoLines + 2);
+  const coAuthorsLines = context.commitCoAuthorsValue
+    ? wrappedLineCount(context.commitCoAuthorsValue, textWidth)
+    : 0;
   const infoHeight = Math.max(
     6,
     // Keep a spare row below wrapped identities so the changed-file
     // section can never share a line with the final metadata row.
-    wrappedLineCount(context.commitInfoValue, Math.max(10, textWidth - 10)) + 2,
+    infoLines + 2,
+    context.commitCoAuthorsValue ? coAuthorsTop + coAuthorsLines + 1 : 0,
   );
   // The metadata text sits below the COMMIT label inside the card.  Its
   // widget has a one-row default height, which silently clipped the author,
@@ -193,6 +204,7 @@ export function layoutRuntime(context: RuntimeLayoutContext) {
   // resized to fit them.
   context.commitInfo.height = Math.max(1, infoHeight - 1);
   context.commitInfo.left = 11;
+  context.commitInfo.top = 0;
   context.commitInfo.width = Math.max(10, context.detailsPaneWidth - 13);
   context.authorPhoto.left = 1;
   context.authorPhoto.top = 1;
@@ -201,6 +213,16 @@ export function layoutRuntime(context: RuntimeLayoutContext) {
   context.authorBadge.left = 1;
   context.authorBadge.top = 2;
   context.authorBadge.width = 8;
+  context.commitCoAuthorProvider.left = 1;
+  context.commitCoAuthorProvider.top = coAuthorsTop;
+  context.commitCoAuthorProvider.width = 4;
+  context.commitCoAuthorProvider.height = 2;
+  context.commitCoAuthors.left = context.commitCoAuthorsProviderVisible ? 7 : 1;
+  context.commitCoAuthors.top = coAuthorsTop;
+  context.commitCoAuthors.width = Math.max(
+    10,
+    context.detailsPaneWidth - context.commitCoAuthors.left - 2,
+  );
   const sha = shortSha(
     context.snapshot?.commits[context.commitIndex]?.sha ?? "",
   );

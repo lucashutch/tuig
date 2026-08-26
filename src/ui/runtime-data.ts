@@ -13,11 +13,14 @@ import {
 import {
   getGitHubCommitAvatar,
   getGravatarUrl,
+  getProviderAvatarUrl,
   loadCachedAvatar,
 } from "./avatars.js";
 import { layoutGraph, type GraphRow } from "./graph.js";
 import {
   presentCommitMeta,
+  parseCoAuthors,
+  presentCommitCoAuthors,
   workingChangesBannerLines,
   wrappedLineCount,
 } from "./runtime-presentation.js";
@@ -44,6 +47,8 @@ export interface RuntimeDataContext {
     | "commitInfoBox"
     | "authorPhoto"
     | "authorBadge"
+    | "commitCoAuthors"
+    | "commitCoAuthorProvider"
   >;
   snapshot?: RepositorySnapshot;
   snapshotRequest: number;
@@ -67,6 +72,8 @@ export interface RuntimeDataContext {
   commitInfoValue: string;
   commitHeaderValue: string;
   commitBodyValue: string;
+  commitCoAuthorsValue: string;
+  commitCoAuthorsProviderVisible: boolean;
   avatarRequest: number;
   avatarAbort?: AbortController;
   avatarSupported: boolean;
@@ -303,6 +310,25 @@ export function showCommitMeta(ctx: RuntimeDataContext, commit: Commit) {
     commit.author,
     commit.authorEmail,
   );
+  const parsedCoAuthors = parseCoAuthors(commit.body);
+  const providerEmails = new Set(
+    parsedCoAuthors
+      .filter((author) => getProviderAvatarUrl(author.name, author.email))
+      .map((author) => author.email.toLowerCase()),
+  );
+  const coAuthors = presentCommitCoAuthors(parsedCoAuthors, providerEmails);
+  ctx.widgets.commitCoAuthors.content = coAuthors;
+  ctx.commitCoAuthorsValue = coAuthors.chunks
+    .map((chunk) => chunk.text)
+    .join("");
+  const provider = parsedCoAuthors
+    .map((author) => getProviderAvatarUrl(author.name, author.email))
+    .find(Boolean);
+  ctx.commitCoAuthorsProviderVisible = Boolean(provider);
+  ctx.widgets.commitCoAuthorProvider.visible = false;
+  ctx.widgets.commitCoAuthorProvider.source = undefined;
+  if (provider)
+    void loadProviderAvatar(ctx, provider, avatarAbort.signal, avatarRequest);
   if (ctx.avatarSupported) {
     const url = getGravatarUrl(commit.authorEmail);
     if (url)
@@ -322,6 +348,27 @@ export function showCommitMeta(ctx: RuntimeDataContext, commit: Commit) {
   ctx.widgets.commitBodyBox.scrollTo(0);
   setCommitMetaVisible(ctx, true);
   ctx.layout();
+}
+
+async function loadProviderAvatar(
+  ctx: RuntimeDataContext,
+  source: string,
+  signal: AbortSignal,
+  request: number,
+) {
+  try {
+    const image = await loadCachedAvatar(source, signal);
+    if (request !== ctx.avatarRequest) {
+      image.dispose();
+      return;
+    }
+    ctx.widgets.commitCoAuthorProvider.source = image;
+    image.dispose();
+    ctx.widgets.commitCoAuthorProvider.visible = true;
+  } catch {
+    ctx.commitCoAuthorsProviderVisible = false;
+    ctx.layout();
+  }
 }
 
 async function loadAuthorPhoto(
@@ -362,6 +409,8 @@ function setCommitMetaVisible(ctx: RuntimeDataContext, visible: boolean) {
     ctx.avatarAbort?.abort();
     ctx.avatarRequest++;
     ctx.widgets.authorPhoto.source = undefined;
+    ctx.widgets.commitCoAuthorProvider.source = undefined;
+    ctx.commitCoAuthorsProviderVisible = false;
   }
   ctx.widgets.commitInfoBox.visible = visible;
   ctx.widgets.commitBodyBox.visible = visible;
