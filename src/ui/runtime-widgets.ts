@@ -68,6 +68,7 @@ export type RuntimeWidgets = {
   amendButton: TextRenderable;
   workingBanner: TextRenderable;
   commitInfoBox: BoxRenderable;
+  commitInfoLabel: TextRenderable;
   commitBodyBox: ScrollBoxRenderable;
   commitInfo: TextRenderable;
   editMessageButton: TextRenderable;
@@ -110,6 +111,7 @@ export type RuntimeWidgetActions = {
   toggleAmend(): void;
   viewWorkingChanges(): void;
   editMessage(): void;
+  copyCommitSha(): void;
   overlayDismiss(): void;
   menuHover(x: number, y: number): void;
   menuClick(x: number, y: number): void;
@@ -504,7 +506,7 @@ export function createRuntimeWidgets(
     height: 4,
     visible: false,
     border: false,
-    backgroundColor: oneDarkTheme.panelRaised,
+    backgroundColor: oneDarkTheme.panel,
     shouldFill: true,
   });
   const commitBodyBox = new ScrollBoxRenderable(renderer, {
@@ -568,9 +570,13 @@ export function createRuntimeWidgets(
       fg: color,
       content,
     });
-  commitInfoBox.add(
-    sectionLabel("commit-info-label", "COMMIT", oneDarkTheme.accent),
+  const commitInfoLabel = sectionLabel(
+    "commit-info-label",
+    "DETAILS",
+    oneDarkTheme.accent,
   );
+  commitInfoLabel.onMouseDown = actions.copyCommitSha;
+  commitInfoBox.add(commitInfoLabel);
   commitBodyBox.add(
     sectionLabel("commit-message-label", "COMMIT MESSAGE", oneDarkTheme.text),
   );
@@ -836,10 +842,9 @@ export function createRuntimeWidgets(
   details.add(unstagedDivider);
   details.add(composerDivider);
   details.add(composerBox);
-  // Diffs live in the details pane so opening one never replaces the history
-  // graph. The runtime hides the other detail widgets while this is visible.
-  details.add(commitDiff);
-  details.add(commitDiffEmpty);
+  // A selected file diff is an overlay on the history pane, while commit
+  // metadata remains in the details pane. The runtime positions these above
+  // the graph only while a diff is open.
   renderer.root.add(header);
   renderer.root.add(toolbar);
   renderer.root.add(hints);
@@ -847,6 +852,8 @@ export function createRuntimeWidgets(
   renderer.root.add(sidebar);
   renderer.root.add(history);
   renderer.root.add(details);
+  renderer.root.add(commitDiff);
+  renderer.root.add(commitDiffEmpty);
   renderer.root.add(leftDividerBar);
   renderer.root.add(rightDividerBar);
   renderer.root.add(leftDivider);
@@ -890,6 +897,7 @@ export function createRuntimeWidgets(
     amendButton,
     workingBanner,
     commitInfoBox,
+    commitInfoLabel,
     commitBodyBox,
     commitInfo,
     editMessageButton,

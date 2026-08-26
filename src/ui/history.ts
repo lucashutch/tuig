@@ -98,10 +98,78 @@ export function filterBranchRefs(
   const needle = query.trim().toLocaleLowerCase();
   if (!needle) return [...refs];
   return refs.filter((ref) =>
-    [ref.name, ref.fullName, displayBranchName(ref.name)].some((value) =>
-      value.toLocaleLowerCase().includes(needle),
-    ),
+    [
+      ref.name,
+      ref.fullName,
+      displayBranchName(ref.name),
+      displayBranchName(ref.fullName),
+    ].some((value) => value.toLocaleLowerCase().includes(needle)),
   );
+}
+
+export type BranchSection = "local" | "remote";
+
+/**
+ * Return the rows shown by one of the branch sections in the sidebar.
+ *
+ * Keep the local and remote rows separate even when they point at the same
+ * object.  They are different refs (and therefore different actions) in the
+ * UI; filtering must not accidentally collapse a local branch and its
+ * remote-tracking counterpart into one selectable row.
+ */
+export function branchRefsForSection(
+  refs: readonly BranchRef[],
+  section: BranchSection,
+  query = "",
+): BranchRef[] {
+  return filterBranchRefs(
+    refs.filter((ref) => (section === "remote" ? ref.remote : !ref.remote)),
+    query,
+  );
+}
+
+/**
+ * Clamp a branch row index to the available rows.
+ *
+ * `-1` represents no selectable row, which is useful while a search has no
+ * matches and mirrors Array#findIndex.  Selection does not wrap at either
+ * end: pressing up on the first row or down on the last row is a no-op.
+ */
+export function clampBranchSelection(
+  selection: number,
+  rowCount: number,
+): number {
+  const count = Number.isFinite(rowCount)
+    ? Math.max(0, Math.trunc(rowCount))
+    : 0;
+  if (count === 0) return -1;
+  const index = Number.isFinite(selection) ? Math.trunc(selection) : 0;
+  return Math.max(0, Math.min(count - 1, index));
+}
+
+/** Move a branch selection through filtered rows without wrapping. */
+export function moveBranchSelection(
+  refs: readonly BranchRef[],
+  selection: number,
+  delta: number,
+  query = "",
+): number {
+  const filtered = filterBranchRefs(refs, query);
+  const movement = Number.isFinite(delta) ? Math.trunc(delta) : 0;
+  const current = Number.isFinite(selection) ? Math.trunc(selection) : 0;
+  return clampBranchSelection(current + movement, filtered.length);
+}
+
+/** Resolve a possibly stale row index against the current filtered rows. */
+export function selectedBranchRef(
+  refs: readonly BranchRef[],
+  selection: number,
+  query = "",
+): BranchRef | undefined {
+  if (!Number.isFinite(selection) || selection < 0) return undefined;
+  const filtered = filterBranchRefs(refs, query);
+  const index = clampBranchSelection(selection, filtered.length);
+  return index < 0 ? undefined : filtered[index];
 }
 
 export function displayBranchName(name: string): string {
@@ -117,18 +185,52 @@ export function branchPresence(
   refs: readonly BranchRef[],
 ): BranchPresence {
   const rawName = typeof nameOrRef === "string" ? nameOrRef : nameOrRef.name;
-  const name =
-    typeof nameOrRef !== "string" && nameOrRef.remote
-      ? rawName.replace(/^[^/]+\//, "")
-      : rawName;
+  const normalisedName = rawName
+    .replace(/^refs\/heads\//, "")
+    .replace(/^refs\/remotes\//, "");
+  // A string can be either a short local name or a decorated remote name
+  // (for example `origin/main`).  BranchRef already tells us which case it
+  // is, so only strip a remote prefix for remote refs and string labels.
+  const names = new Set([normalisedName]);
+  const separator = normalisedName.indexOf("/");
+  const remotePrefix =
+    separator > 0 ? normalisedName.slice(0, separator) : undefined;
+  const isKnownRemoteName =
+    rawName.startsWith("refs/remotes/") ||
+    (remotePrefix !== undefined &&
+      refs.some(
+        (ref) =>
+          ref.remote &&
+          ref.name
+            .replace(/^refs\/heads\//, "")
+            .replace(/^refs\/remotes\//, "")
+            .startsWith(`${remotePrefix}/`),
+      ));
+  if (
+    (typeof nameOrRef !== "string" && nameOrRef.remote) ||
+    (typeof nameOrRef === "string" && isKnownRemoteName)
+  ) {
+    if (separator > 0) names.add(normalisedName.slice(separator + 1));
+  }
   const local = refs.some(
     (ref) =>
       !ref.remote &&
-      (ref.name === name || ref.fullName === `refs/heads/${name}`),
+      [...names].some(
+        (name) =>
+          ref.name === name ||
+          ref.fullName === name ||
+          ref.fullName === `refs/heads/${name}`,
+      ),
   );
-  const remote = refs.some(
-    (ref) => ref.remote && (ref.name === name || ref.name.endsWith(`/${name}`)),
-  );
+  const remote = refs.some((ref) => {
+    if (!ref.remote) return false;
+    const remoteName = ref.name
+      .replace(/^refs\/heads\//, "")
+      .replace(/^refs\/remotes\//, "");
+    return [...names].some(
+      (name) => remoteName === name || remoteName.endsWith(`/${name}`),
+    );
+  });
   return local && remote
     ? "both"
     : local
