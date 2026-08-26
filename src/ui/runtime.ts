@@ -1,5 +1,6 @@
 import {
   BoxRenderable,
+  CliRenderEvents,
   TextareaRenderable,
   ScrollBoxRenderable,
   DiffRenderable,
@@ -13,6 +14,7 @@ import {
   fg,
   type CliRenderer,
   type KeyEvent,
+  type Selection,
 } from "@opentui/core";
 import type {
   BranchRef,
@@ -34,9 +36,11 @@ import { layoutGraph, type GraphRow } from "./graph.js";
 import { resolveMaterialIcon } from "./icon-theme.js";
 import {
   buildCommitBranchHints,
+  branchRefsForSection,
+  clampBranchSelection,
   displayBranchName,
   filterBranchRefs,
-  formatCommitAuthor,
+  moveBranchSelection,
   primaryDecorationRef,
   resolveHeadSha,
   shortSha,
@@ -82,7 +86,6 @@ import {
 } from "./runtime-presentation.js";
 import { loadLayoutPreferences, saveLayoutPreferences } from "./preferences.js";
 import {
-  COMMIT_DIFF_TOP,
   PANE_TOP,
   createRuntimeWidgets,
   type ChangeSection,
@@ -118,6 +121,16 @@ interface Popup extends PopupPane {
 }
 
 class Runtime {
+  /** OpenTUI emits this only when the mouse button ends a selection drag. */
+  private readonly copyCompletedSelection = (selection: Selection) => {
+    const text = selection.getSelectedText();
+    if (!text || !text.trim()) return;
+    if (this.renderer.copyToClipboardOSC52(text))
+      this.notify("Copied selection");
+  };
+  private readonly removeSelectionListener = () => {
+    this.renderer.off(CliRenderEvents.SELECTION, this.copyCompletedSelection);
+  };
   private snapshot?: RepositorySnapshot;
   private commitIndex = 0;
   private historySelection: "working" | "commit" = "working";
@@ -199,6 +212,7 @@ class Runtime {
   private readonly amendButton: TextRenderable;
   private readonly workingBanner: TextRenderable;
   private readonly commitInfoBox: BoxRenderable;
+  private readonly commitInfoLabel: TextRenderable;
   private readonly commitBodyBox: ScrollBoxRenderable;
   private readonly commitInfo: TextRenderable;
   private readonly editMessageButton: TextRenderable;
@@ -242,6 +256,10 @@ class Runtime {
   private detailsCollapsed = false;
   private branchFilter = "";
   private branchFilterActive = false;
+  private branchSelection: Record<"local" | "remote", number> = {
+    local: -1,
+    remote: -1,
+  };
   private namePrompt?: {
     title: string;
     placeholder: string;
@@ -322,6 +340,7 @@ class Runtime {
       toggleAmend: () => this.toggleAmend(),
       viewWorkingChanges: () => this.closeDiff(),
       editMessage: () => this.editMessage(),
+      copyCommitSha: () => this.copyCommitSha(),
       overlayDismiss: () => this.closePopup(),
       menuHover: (x, y) => this.hoverPopup(x, y, false),
       menuClick: (x, y) => this.clickPopup(x, y, false),
@@ -358,6 +377,7 @@ class Runtime {
     this.amendButton = widgets.amendButton;
     this.workingBanner = widgets.workingBanner;
     this.commitInfoBox = widgets.commitInfoBox;
+    this.commitInfoLabel = widgets.commitInfoLabel;
     this.commitBodyBox = widgets.commitBodyBox;
     this.commitInfo = widgets.commitInfo;
     this.editMessageButton = widgets.editMessageButton;
@@ -402,10 +422,12 @@ class Runtime {
       this.branchFilter = this.branchFilterInput.value;
       this.sidebarStart.local = 0;
       this.sidebarStart.remote = 0;
+      this.branchSelection.local = 0;
+      this.branchSelection.remote = 0;
       this.paint();
     });
     this.branchFilterInput.on(InputRenderableEvents.ENTER, () =>
-      this.acceptBranchFilter(),
+      this.activateFilteredBranch(),
     );
     this.promptInput.on(
       InputRenderableEvents.ENTER,
@@ -413,6 +435,8 @@ class Runtime {
     );
     this.renderer.root.add(this.branchFilterInput);
     this.renderer.root.add(this.promptInput);
+    this.renderer.on(CliRenderEvents.SELECTION, this.copyCompletedSelection);
+    this.renderer.once(CliRenderEvents.DESTROY, this.removeSelectionListener);
   }
 
   async start() {
@@ -688,21 +712,45 @@ class Runtime {
     this.commitBodyBox.height = messageHeight;
     this.editMessageButton.left = Math.max(1, this.detailsPaneWidth - 18);
     const infoHeight = Math.max(
-      5,
-      wrappedLineCount(this.commitInfoValue, textWidth) + 1,
+      6,
+      // Keep a spare row below wrapped identities so the changed-file
+      // section can never share a line with the final metadata row.
+      wrappedLineCount(this.commitInfoValue, textWidth) + 2,
     );
-    this.commitInfoBox.top = bannerRows + messageHeight;
+    // The metadata text sits below the COMMIT label inside the card.  Its
+    // widget has a one-row default height, which silently clipped the author,
+    // committer, and timestamp lines even though the surrounding box was
+    // resized to fit them.
+    this.commitInfo.height = Math.max(1, infoHeight - 1);
+    const sha = shortSha(this.snapshot?.commits[this.commitIndex]?.sha ?? "");
+    const labelWidth = Math.max(1, this.detailsPaneWidth - 2);
+    this.commitInfoLabel.width = labelWidth;
+    const label = "DETAILS";
+    const gap = sha
+      ? Math.max(2, labelWidth - Bun.stringWidth(label) - Bun.stringWidth(sha))
+      : 1;
+    this.commitInfoLabel.content = fitColumns(
+      `${label}${" ".repeat(gap)}${sha}`,
+      labelWidth,
+    );
+    // Leave a visible strip between the raised message card and DETAILS.
+    this.commitInfoBox.top = bannerRows + messageHeight + 1;
     this.commitInfoBox.height = infoHeight;
-    this.commitFilesTop = Math.min(
-      Math.max(1, height - 1),
-      bannerRows + messageHeight + infoHeight,
-    );
+    // Do not clamp this back into the metadata card in short terminals. The
+    // file viewport may be small/off-screen, but its header must never paint
+    // over wrapped author or committer rows.
+    this.commitFilesTop = Number(this.commitInfoBox.top) + infoHeight + 1;
     this.layoutChanges(height);
-    // The diff uses the details pane's full height, rather than replacing the
-    // history pane or taking a fixed share of the terminal.
-    this.commitDiff.left = 1;
-    this.commitDiff.width = Math.max(1, this.detailsPaneWidth - 2);
-    this.commitDiff.height = Math.max(1, height - COMMIT_DIFF_TOP - 1);
+    // A selected file diff is a temporary overlay over the history pane. Keep
+    // commit metadata in the RHS details pane, but let the diff use the graph's
+    // full width like desktop Git clients do.
+    this.commitDiff.left = historyLeft + 1;
+    this.commitDiff.top = PANE_TOP + 1;
+    this.commitDiff.width = Math.max(1, historyWidth - 2);
+    this.commitDiff.height = Math.max(1, height - 2);
+    this.commitDiffEmpty.left = historyLeft + 3;
+    this.commitDiffEmpty.top = PANE_TOP + 4;
+    this.commitDiffEmpty.width = Math.max(1, historyWidth - 6);
     const verticalGripHeight = Math.max(
       3,
       Math.min(9, Math.floor(dividerHeight / 3)),
@@ -739,15 +787,9 @@ class Runtime {
     // so a previous commit/working layout cannot bleed through the diff.
     if (this.commitDiff.visible) {
       for (const widget of [
-        this.commitInfoBox,
-        this.commitBodyBox,
-        this.workingBanner,
-        this.editMessageButton,
         this.discardButton,
         this.stageAllButton,
         this.unstageAllButton,
-        this.unstagedLabel,
-        this.unstagedText,
         this.stagedLabel,
         this.stagedText,
         this.unstagedDivider,
@@ -757,6 +799,13 @@ class Runtime {
         this.composerBox,
       ])
         widget.visible = false;
+      // The commit file tree stays in the RHS picker while its selected diff
+      // is drawn over the history pane. Working-tree diffs have no commit
+      // picker, so clear these widgets in that mode instead.
+      if (this.view !== "commit") {
+        this.unstagedLabel.visible = false;
+        this.unstagedText.visible = false;
+      }
       this.amendButton.visible = false;
       return;
     }
@@ -979,6 +1028,8 @@ class Runtime {
     // Nothing started against the old snapshot may paint over this refresh.
     ++this.diffRequest;
     ++this.commitFilesRequest;
+    const preserveCommitDiff =
+      this.view === "commit" && this.commitDiff.visible;
     const selectedSha = this.snapshot?.commits[this.commitIndex]?.sha;
     const selectedPath = this.selectedFile()?.path;
     this.notify(message ?? "Refreshing…", "busy");
@@ -1024,7 +1075,16 @@ class Runtime {
           : Math.min(this.fileIndex, Math.max(0, this.files().length - 1));
       this.ensureFileVisible();
       this.paint();
-      if (this.view === "commit") void this.openCommit();
+      if (this.view === "commit") {
+        await this.openCommit();
+        if (preserveCommitDiff && this.selectedFile()) {
+          this.diffOrigin = "commit";
+          this.commitDiff.visible = true;
+          this.commitDiffEmpty.visible = false;
+          this.layout();
+          await this.loadDiff();
+        }
+      }
       // Branch, sync, and dirty state now live in the header, so a successful
       // refresh only needs to clear the in-flight message.
       this.notify("");
@@ -1177,7 +1237,6 @@ class Runtime {
       displayOffset >= thumbStart && displayOffset < thumbStart + thumbSize;
     const scrollbar = (displayOffset: number) =>
       scrollbarThumb(displayOffset) ? "█" : "│";
-    const now = Date.now();
     for (let offset = 0; offset < visible; offset++) {
       const displayIndex = this.historyStart + offset;
       if (displayIndex >= totalDisplayRows) break;
@@ -1239,16 +1298,9 @@ class Runtime {
       const subjectWidth = Math.max(1, textWidth - authorWidth);
       const subject = fitColumns(row.commit.subject, subjectWidth, true);
       const cellPadding = Math.max(0, graphColumns - row.cells.length);
-      const author = fitColumns(
-        formatCommitAuthor(
-          row.commit.author,
-          row.commit.authorEmail,
-          row.commit.authoredAt,
-          now,
-        ),
-        authorWidth,
-        true,
-      );
+      // Keep the graph's author column scannable. Full identity, dates, and
+      // the terminal-safe avatar belong to the commit details card.
+      const author = fitColumns(row.commit.author, authorWidth, true);
       chunks.push(
         bg(stashLabel ? oneDarkTheme.panelRaised : rowBg)(
           fg(
@@ -1314,7 +1366,7 @@ class Runtime {
     const collapsed = !commitView && this.sectionCollapsed[section];
     label.content = new StyledText([
       fg(
-        this.focus === "changes" && (active || commitView)
+        commitView || (this.focus === "changes" && active)
           ? oneDarkTheme.accent
           : oneDarkTheme.muted,
       )(
@@ -1767,7 +1819,10 @@ class Runtime {
       return this.perform(`Switching to ${branch.name}…`, () =>
         this.repository.switchBranch(branch.name),
       );
-    const short = displayBranchName(branch.name);
+    // Remote refs are commonly named origin/topic or upstream/topic. The
+    // local checkout name is the ref after the remote name, not just after
+    // `origin/`.
+    const short = branch.name.replace(/^[^/]+\//, "");
     const local = this.snapshot?.branches.find(
       (ref) => !ref.remote && ref.name === short,
     );
@@ -2102,7 +2157,9 @@ class Runtime {
   private showCommitMeta(commit: Commit) {
     const meta = presentCommitMeta(commit);
     this.commitInfo.content = meta.info;
-    this.commitInfoValue = `${shortSha(commit.sha)}\nAuthor: ${commit.author}${commit.authorEmail ? ` <${commit.authorEmail}>` : ""}\nAuthored: ${commit.authoredAt}\nCommitter: ${commit.committer}${commit.committerEmail ? ` <${commit.committerEmail}>` : ""}\nCommitted: ${commit.committedAt}`;
+    // Geometry must use the formatted dates/avatar and optional committer
+    // rows that the StyledText widget actually paints.
+    this.commitInfoValue = meta.info.chunks.map((chunk) => chunk.text).join("");
     this.commitHeaderValue = meta.header;
     this.commitHeader.content = meta.header;
     this.commitBodyValue = meta.body;
@@ -2112,6 +2169,12 @@ class Runtime {
     this.commitBodyBox.scrollTo(0);
     this.setCommitMetaVisible(true);
     this.layout();
+  }
+  private copyCommitSha() {
+    const sha = this.snapshot?.commits[this.commitIndex]?.sha;
+    if (!sha) return;
+    if (this.renderer.copyToClipboardOSC52(sha))
+      this.notify(`Copied ${shortSha(sha)}`);
   }
   private setCommitMetaVisible(visible: boolean) {
     this.commitInfoBox.visible = visible;
@@ -2180,7 +2243,7 @@ class Runtime {
     this.paintHints();
   }
   private sidebarClick(x: number, y: number, button: number) {
-    if (button === MouseButton.RIGHT) {
+    if (button === MouseButton.RIGHT || button === MouseButton.LEFT) {
       if (!this.snapshot) return;
       const rects = layoutSidebarSections(
         this.contentHeight,
@@ -2215,8 +2278,11 @@ class Runtime {
         this.branchFilter,
       );
       const branch = branches[row];
-      if (branch)
+      if (branch) {
+        if (button === MouseButton.LEFT)
+          return void this.checkoutBranch(branch);
         this.openGraphMenu(x, y + PANE_TOP, { sha: branch.sha, branch });
+      }
     }
   }
   private startBranchFilter() {
@@ -2246,6 +2312,21 @@ class Runtime {
     setTimeout(() => {
       if (Date.now() >= this.suppressEnterUntil) this.suppressEnterUntil = 0;
     }, 100);
+  }
+  private activateFilteredBranch() {
+    if (!this.snapshot) return this.acceptBranchFilter();
+    const filtered = branchRefsForSection(
+      this.snapshot.branches,
+      "local",
+      this.branchFilter,
+    );
+    const index = clampBranchSelection(
+      this.branchSelection.local,
+      filtered.length,
+    );
+    const branch = index >= 0 ? filtered[index] : undefined;
+    this.finishBranchFilter();
+    if (branch) void this.checkoutBranch(branch);
   }
   private cancelBranchFilter() {
     this.branchFilter = "";
@@ -2355,6 +2436,45 @@ class Runtime {
     }
     if (key.name === "/" && this.focus === "history")
       return this.startBranchFilter();
+    if (this.branchFilterActive && this.snapshot) {
+      // While filtering, j/k (or arrows) navigate the matching local rows.
+      // Shift selects the remote section, keeping both branch lists keyboard
+      // accessible without introducing a second focus widget.
+      const section = key.shift ? "remote" : "local";
+      const refs = branchRefsForSection(this.snapshot.branches, section);
+      const filtered = branchRefsForSection(
+        this.snapshot.branches,
+        section,
+        this.branchFilter,
+      );
+      if (
+        key.name === "up" ||
+        key.name === "k" ||
+        key.name === "down" ||
+        key.name === "j"
+      ) {
+        const delta = key.name === "up" || key.name === "k" ? -1 : 1;
+        this.branchSelection[section] = moveBranchSelection(
+          refs,
+          this.branchSelection[section],
+          delta,
+          this.branchFilter,
+        );
+        this.paint();
+        return;
+      }
+      if (key.name === "enter" || key.name === "return") {
+        const index = clampBranchSelection(
+          this.branchSelection[section],
+          filtered.length,
+        );
+        const branch = index >= 0 ? filtered[index] : undefined;
+        if (branch) {
+          this.finishBranchFilter();
+          return void this.checkoutBranch(branch);
+        }
+      }
+    }
     if (key.name === "c" && this.focus === "history" && this.branchFilter) {
       this.cancelBranchFilter();
       return;

@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import type { StyledText } from "@opentui/core";
-import type { RepositorySnapshot } from "../../src/git/types.js";
+import type { Commit, RepositorySnapshot } from "../../src/git/types.js";
 import {
   worktreeRows,
   fitColumns,
@@ -16,6 +16,8 @@ import {
   toolbarHit,
   wrappedLineCount,
   presentCommitMeta,
+  presentCommitDetail,
+  layoutCommitDetail,
   workingChangesBanner,
   workingChangesBannerLines,
   workingChangesBannerRows,
@@ -335,10 +337,139 @@ test("commit metadata includes both local author and committer timestamps", () =
       decorations: [],
     }).info,
   );
-  expect(text).toContain("Author: Author <author@test>");
+  expect(text).toContain("Author: Author");
+  expect(text).toContain("Email: author@test");
   expect(text).toContain("Authored:");
   expect(text).toContain("Committer: Committer <commit@test>");
   expect(text).toContain("Committed:");
+});
+
+test("commit metadata omits a duplicate committer", () => {
+  const text = plain(
+    presentCommitMeta({
+      sha: "abcdef123",
+      parents: [],
+      author: "Author",
+      authorEmail: "author@test",
+      authoredAt: "2024-01-02T03:04:05Z",
+      committer: "Author",
+      committerEmail: "author@test",
+      committedAt: "2024-01-03T03:04:05Z",
+      subject: "subject",
+      body: "body",
+      decorations: [],
+    }).info,
+  );
+  expect(text).not.toContain("Committer:");
+  expect(text).not.toContain("Committed:");
+});
+
+test("commit detail keeps graph, message, files, and diff on one surface", () => {
+  const commit: Commit = {
+    sha: "abcdef123456",
+    parents: ["parent"],
+    author: "Author",
+    authorEmail: "author@test",
+    authoredAt: "2024-01-02T03:04:05Z",
+    committer: "Committer",
+    committerEmail: "commit@test",
+    committedAt: "2024-01-03T03:04:05Z",
+    subject: "subject",
+    body: "body",
+    decorations: [],
+  };
+  const detail = presentCommitDetail({
+    commit,
+    changedFiles: [
+      { path: "src/a.ts", state: "modified", staged: false, unstaged: false },
+      { path: "src/b.ts", state: "added", staged: false, unstaged: false },
+    ],
+    workingFileCount: 1,
+    detailsWidth: 48,
+    terminalHeight: 32,
+    diffOpen: true,
+  });
+
+  expect(detail.surface).toBe("commit-detail");
+  expect(detail.history).toEqual({ visible: true, selectedSha: commit.sha });
+  expect(detail.metadata).toMatchObject({
+    sha: commit.sha,
+    shortSha: "abcdef12",
+    author: "Author",
+    committer: "Committer",
+  });
+  expect(detail.message).toEqual({ subject: "subject", body: "body" });
+  expect(detail.changedFiles.count).toBe(2);
+  expect(detail.changedFiles.summary).toBe("2 changed files");
+  expect(detail.changedFiles.byState).toMatchObject({ modified: 1, added: 1 });
+  expect(detail.layout.bannerRows).toBe(2);
+  expect(detail.layout.metadataTop).toBeGreaterThanOrEqual(
+    detail.layout.messageTop + detail.layout.messageHeight + 1,
+  );
+  expect(detail.layout.changedFilesTop).toBeGreaterThanOrEqual(
+    detail.layout.metadataTop + detail.layout.metadataHeight + 1,
+  );
+  expect(detail.layout.diffTop).toBe(2);
+  expect(detail.diff).toMatchObject({
+    visible: true,
+    mode: "open",
+    top: detail.layout.diffTop,
+    height: detail.layout.diffHeight,
+  });
+  expect(detail.diff.workingChangesBanner).toMatchObject({
+    visible: true,
+    fileCount: 1,
+    rows: 2,
+    text: "1 file change in working directory  ·  View Changes",
+  });
+});
+
+test("empty commit detail has a stable placeholder and no working banner", () => {
+  const commit = {
+    sha: "1234567",
+    parents: [],
+    author: "Author",
+    authorEmail: "",
+    authoredAt: "2024-01-02T03:04:05Z",
+    committer: "Author",
+    committerEmail: "",
+    committedAt: "2024-01-02T03:04:05Z",
+    subject: "empty",
+    decorations: [],
+  } satisfies Commit;
+  const detail = presentCommitDetail({
+    commit,
+    detailsWidth: 32,
+    terminalHeight: 6,
+  });
+
+  expect(detail.changedFiles).toMatchObject({
+    count: 0,
+    summary: "No changed files",
+  });
+  expect(detail.diff.visible).toBe(false);
+  expect(detail.diff.emptyMessage).toBe(
+    "This commit has no textual diff to display.",
+  );
+  expect(detail.diff.workingChangesBanner).toEqual({
+    visible: false,
+    fileCount: 0,
+    rows: 0,
+    text: undefined,
+    lines: [],
+  });
+  expect(detail.layout.changedFilesHeight).toBeGreaterThanOrEqual(1);
+  expect(detail.layout.changedFilesTop).toBeGreaterThan(
+    detail.layout.metadataTop + detail.layout.metadataHeight,
+  );
+  expect(
+    layoutCommitDetail({
+      commit,
+      detailsWidth: 32,
+      terminalHeight: 6,
+      workingFileCount: 0,
+    }),
+  ).toEqual(detail.layout);
 });
 
 test("working-change banner only appears when there are files", () => {
