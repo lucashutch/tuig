@@ -896,7 +896,10 @@ export function createRuntimeWidgets(
         id: `graph-avatar-${slot}`,
         left: 0,
         top: 0,
-        width: 2,
+        // Four columns by two rows: terminal cells are about twice as tall
+        // as wide, so this is roughly square in pixels and a circular mask
+        // stays circular.
+        width: 4,
         height: 2,
         fit: "cover",
         protocol: "auto",
