@@ -23,6 +23,7 @@ function history(length: number): Commit[] {
 }
 
 type Painted = RuntimePaintContext & {
+  graphVisibleColumns: number;
   requests: number;
   text: string;
   historyText: { visible: boolean };
@@ -55,6 +56,14 @@ function paintContext(
     focus: "history",
     graphRows: layoutGraph(commits, oneDarkTheme.graph),
     graphColumns: 1,
+    graphScroll: 0,
+    setGraphScroll(value: number) {
+      context.graphScroll = value;
+    },
+    setGraphVisibleColumns(value: number) {
+      context.graphVisibleColumns = value;
+    },
+    graphVisibleColumns: 1,
     branchHints: new Map<string, string>(),
     historySelection: "commit",
     commitIndex: 0,
@@ -155,5 +164,53 @@ describe("history prefetch", () => {
     paintHistory(whole);
     expect(whole.text).toContain("250 COMMITS");
     expect(whole.text).not.toContain("250+");
+  });
+});
+
+/** Give every row `columns` lanes, as a repository with many branches would. */
+function widen(context: Painted, columns: number) {
+  context.graphColumns = columns;
+  for (const row of context.graphRows) {
+    row.cells = Array.from({ length: columns }, (_, index) => ({
+      symbol: index === row.lane ? "● " : "│ ",
+      color: "#ffffff",
+    }));
+    row.laneColors = row.cells.map((cell) => cell.color);
+  }
+}
+
+describe("wide graphs", () => {
+  test("caps the graph and marks the lanes it hides", () => {
+    const context = paintContext(history(5), {
+      complete: true,
+      historyStart: 0,
+      viewport: 10,
+    });
+    widen(context, 40);
+    paintHistory(context);
+    expect(context.graphVisibleColumns).toBe(16);
+    expect(context.text).toContain(" ▸");
+    const line = context.text.split("\n")[1]!;
+    expect(Bun.stringWidth(line)).toBeLessThanOrEqual(
+      context.historyContentWidth,
+    );
+    expect(line).toContain("commit 0");
+  });
+
+  test("panning reveals the lanes on the right", () => {
+    const context = paintContext(history(5), {
+      complete: true,
+      historyStart: 0,
+      viewport: 10,
+    });
+    widen(context, 40);
+    context.graphScroll = 100;
+    paintHistory(context);
+    // Clamped to the last window, which hides lanes only on the left.
+    expect(context.graphScroll).toBe(24);
+    // The graph window sits after the 22-column label and the selection mark.
+    const graph = context.text.split("\n")[1]!.slice(24, 24 + 16 * 2);
+    expect(graph).toContain("◂ ");
+    expect(graph).not.toContain("▸");
   });
 });

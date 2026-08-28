@@ -203,5 +203,5 @@ export function formatHints({ focus, view, composing }: HintContext): string {
     return `${focus === "changes" ? "CHANGES" : "DIFF"}  esc back to graph  ←/→ file  s stage  u unstage  ${shared}`;
   if (focus === "changes")
     return `CHANGES  ←/→ file  s stage  u unstage  h hunk  t section  c commit  ${shared}`;
-  return `HISTORY  j/k move  ↵ open commit  / filter branches  esc cancel/clear  dbl-click branch checkout  right-click actions  ${shared}`;
+  return `HISTORY  j/k move  ←/→ pan graph  ↵ open commit  / filter branches  esc cancel/clear  dbl-click branch checkout  right-click actions  ${shared}`;
 }
