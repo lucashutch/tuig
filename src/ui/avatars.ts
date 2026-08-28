@@ -378,6 +378,28 @@ export function getGitHubCommitUrl(
   return `https://api.github.com/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repository)}/commits/${encodeURIComponent(sha)}`;
 }
 
+/** Host of a remote, so two forges cannot share an author cache entry. */
+function remoteHost(remote: string): string {
+  const value = remote.trim();
+  const scp = value.match(/^[^@/:]+@([^/:]+):/);
+  if (scp?.[1]) return scp[1].toLowerCase();
+  try {
+    return new URL(value).hostname.toLowerCase();
+  } catch {
+    return value.toLowerCase();
+  }
+}
+
+/**
+ * Cache key for an author's avatar on one forge.
+ *
+ * Keyed on the author rather than the commit so a newly seen commit by a known
+ * author costs no request: GitHub allows 60 unauthenticated lookups an hour.
+ */
+function authorCacheSource(remote: string, email: string): string {
+  return `author:${remoteHost(remote)}:${email}`;
+}
+
 /** Resolve the avatar URL GitHub associates with a commit. */
 export async function getGitHubCommitAvatar(
   remote: string | undefined,
@@ -395,6 +417,20 @@ export async function getGitHubCommitAvatar(
     if (authorKey) authorAvatarCache.set(authorKey, cached);
     return cached;
   }
+  const authorSource = authorKey
+    ? authorCacheSource(remote ?? "", authorKey)
+    : undefined;
+  if (authorSource) {
+    const diskAuthor = await readCachedAvatarSource(authorSource);
+    if (diskAuthor?.kind === "miss") return undefined;
+    if (diskAuthor?.kind === "hit") {
+      // Seed the in-memory cache so later rows by this author resolve without
+      // touching the disk again.
+      authorAvatarCache.set(authorKey, diskAuthor.url);
+      githubAvatarCache.set(url, diskAuthor.url);
+      return diskAuthor.url;
+    }
+  }
   const diskCached = await readCachedAvatarSource(url);
   // A remembered miss matters more than a hit: GitHub allows 60 unauthenticated
   // requests an hour, and a repo of commits without linked accounts would burn
@@ -403,6 +439,10 @@ export async function getGitHubCommitAvatar(
   if (diskCached?.kind === "hit") {
     githubAvatarCache.set(url, diskCached.url);
     if (authorKey) authorAvatarCache.set(authorKey, diskCached.url);
+    if (authorSource)
+      await writeCachedAvatarSource(authorSource, diskCached.url).catch(
+        () => undefined,
+      );
     return diskCached.url;
   }
   const result = await withGitHubSlot(
@@ -413,10 +453,14 @@ export async function getGitHubCommitAvatar(
     githubAvatarCache.set(url, result.url);
     if (authorKey) authorAvatarCache.set(authorKey, result.url);
   }
-  if (result.url || result.confirmedAbsent)
-    await writeCachedAvatarSource(url, result.url ?? MISS_MARKER).catch(
-      () => undefined,
-    );
+  // A transport failure is not evidence that the author has no avatar, so it
+  // leaves both cache entries untouched and the next row retries.
+  if (result.url || result.confirmedAbsent) {
+    const value = result.url ?? MISS_MARKER;
+    await writeCachedAvatarSource(url, value).catch(() => undefined);
+    if (authorSource)
+      await writeCachedAvatarSource(authorSource, value).catch(() => undefined);
+  }
   return result.url;
 }
 
@@ -468,6 +512,15 @@ async function withGitHubSlot<T>(
   }
 }
 
+/**
+ * Outcome of one avatar lookup.
+ *
+ * `confirmedAbsent` means GitHub answered and the commit has no linked
+ * account, which is worth remembering. Every other failure — offline, rate
+ * limited, a commit that is not pushed yet — must not be cached: caching it
+ * would suppress a real avatar for a whole day, and for every commit by that
+ * author rather than only the one that was asked for.
+ */
 type GitHubAvatarLookup = { url?: string; confirmedAbsent: boolean };
 
 async function resolveGitHubCommitAvatar(

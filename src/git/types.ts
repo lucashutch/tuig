@@ -82,6 +82,14 @@ export interface RepositorySnapshot {
   commits: Commit[];
 }
 
+/** The subset of a snapshot that an index or working-tree change can alter. */
+export interface WorkingStatus {
+  upstream?: string;
+  ahead: number;
+  behind: number;
+  files: ChangedFile[];
+}
+
 export interface DiffRequest {
   path?: string;
   staged?: boolean;
@@ -99,6 +107,11 @@ export interface GitRepository {
   readonly root: string;
   remoteUrl?(): Promise<string | undefined>;
   snapshot(limit?: number): Promise<RepositorySnapshot>;
+  /**
+   * Optional fast path for refreshes that cannot have changed history.
+   * Callers fall back to a full snapshot when an implementation omits it.
+   */
+  workingStatus?(): Promise<WorkingStatus>;
   diff(request: DiffRequest): Promise<string>;
   commitFiles(sha: string): Promise<ChangedFile[]>;
   stage(paths: string[]): Promise<void>;

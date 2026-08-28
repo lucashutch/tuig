@@ -2,7 +2,9 @@ import { describe, expect, test } from "bun:test";
 import type { BranchRef } from "../../src/git/types.js";
 import {
   branchPresence,
+  branchPresenceFromIndex,
   branchRefsForSection,
+  buildBranchPresenceIndex,
   clampBranchSelection,
   filterBranchRefs,
   moveBranchSelection,
@@ -96,5 +98,39 @@ describe("branch presence", () => {
     expect(branchPresence("origin/main", refs)).toBe("both");
     expect(branchPresence("refs/remotes/origin/main", refs)).toBe("both");
     expect(branchPresence("upstream/sidebar", refs)).toBe("remote");
+  });
+});
+
+describe("branch presence index", () => {
+  const indexed = (name: string | (typeof refs)[number]) =>
+    branchPresenceFromIndex(name, buildBranchPresenceIndex(refs));
+
+  test("resolves every input shape the same way as the scanning path", () => {
+    const inputs: Array<string | (typeof refs)[number]> = [
+      ...refs,
+      "main",
+      "origin/main",
+      "refs/heads/main",
+      "refs/remotes/origin/main",
+      "upstream/sidebar",
+      "refs/remotes/upstream/sidebar",
+      "feature/nested/name",
+      "refs/heads/feature/nested/name",
+      "unknown-remote/main",
+      "missing",
+      "",
+    ];
+    for (const input of inputs)
+      expect([input, indexed(input)]).toEqual([
+        input,
+        branchPresence(input, refs),
+      ]);
+  });
+
+  test("keeps a slashed local name distinct from a remote prefix", () => {
+    expect(branchPresence("feature/nested/name", refs)).toBe(
+      indexed("feature/nested/name"),
+    );
+    expect(branchPresence("unknown-remote/main", refs)).toBe("none");
   });
 });

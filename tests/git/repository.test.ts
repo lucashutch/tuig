@@ -496,3 +496,53 @@ test("rejects empty or invalid tag names before creating a ref", async () => {
   }
   expect((await runGit(["tag", "--list"], root)).stdout).toBe("");
 });
+
+test("workingStatus reports the same working state as a full snapshot", async () => {
+  const root = await mkdtemp(join(tmpdir(), "tuig-test-"));
+  cleanup.push(root);
+  await runGit(["init", "-b", "main"], root);
+  await runGit(["config", "user.name", "Test User"], root);
+  await runGit(["config", "user.email", "test@example.com"], root);
+  await Bun.write(join(root, "a.txt"), "one\n");
+  await Bun.write(join(root, "b.txt"), "two\n");
+  const repo = await GitRepositoryService.open(root);
+  await repo.stage(["a.txt"]);
+  await repo.commit("initial");
+  await Bun.write(join(root, "a.txt"), "changed\n");
+  await repo.stage(["a.txt"]);
+  await Bun.write(join(root, "a.txt"), "changed again\n");
+  const snapshot = await repo.snapshot();
+  const status = await repo.workingStatus();
+  expect(status.files).toEqual(snapshot.files);
+  expect(status.ahead).toBe(snapshot.ahead);
+  expect(status.behind).toBe(snapshot.behind);
+  expect(status.upstream).toBe(snapshot.upstream);
+});
+
+test("history is ordered newest first across every ref", async () => {
+  const root = await mkdtemp(join(tmpdir(), "tuig-test-"));
+  cleanup.push(root);
+  await runGit(["init", "-b", "main"], root);
+  await runGit(["config", "user.name", "Test User"], root);
+  await runGit(["config", "user.email", "test@example.com"], root);
+  const repo = await GitRepositoryService.open(root);
+  const commit = async (name: string, at: string) => {
+    await Bun.write(join(root, `${name}.txt`), `${name}\n`);
+    await repo.stage([`${name}.txt`]);
+    await runGit(["commit", "-m", name], root, {
+      GIT_AUTHOR_DATE: at,
+      GIT_COMMITTER_DATE: at,
+    });
+  };
+  await commit("first", "2020-01-01T00:00:00+00:00");
+  await commit("second", "2020-01-02T00:00:00+00:00");
+  await runGit(["switch", "-c", "side", "HEAD~1"], root);
+  await commit("side", "2020-01-03T00:00:00+00:00");
+  // The walk drops --date-order for speed, so assert the ordering it relies on.
+  const commits = (await repo.snapshot()).commits;
+  expect(commits.map((entry) => entry.subject)).toEqual([
+    "side",
+    "second",
+    "first",
+  ]);
+});
