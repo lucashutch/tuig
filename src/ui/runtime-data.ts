@@ -518,6 +518,15 @@ export function updateGraphAvatars(
     // Kitty and similar graphics protocols.
     if (widget.left !== request.left) widget.left = request.left;
     if (widget.top !== request.top) widget.top = request.top;
+    if (!ctx.avatarSupported) {
+      if (ctx.graphAvatarKeys[slot] !== undefined) {
+        ctx.graphAvatarKeys[slot] = undefined;
+        releaseSlot(ctx, slot);
+      }
+      widget.visible = false;
+      widget.source = undefined;
+      continue;
+    }
     // The ring color is part of the identity: a commit that moved lanes gets
     // its avatar reprocessed with the new lane color.
     if (ctx.graphAvatarKeys[slot] === key) continue;
@@ -532,7 +541,6 @@ export function updateGraphAvatars(
       showGraphAvatar(widget, cached);
       continue;
     }
-    if (!ctx.avatarSupported) continue;
     const fallback = fallbackAvatar(
       request.commit.authorEmail || request.commit.author || request.commit.sha,
       {

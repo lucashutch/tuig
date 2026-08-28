@@ -917,6 +917,7 @@ export function createRuntimeWidgets(
         // grows, so paint order alone cannot be relied on.
         zIndex: 1,
         visible: false,
+        onMouseDown: (e) => actions.historyClick(e.x, e.y, e.button),
       });
       graphAvatars.push(avatar);
       history.add(avatar);
