@@ -20,6 +20,33 @@ const decodedAvatarCache = new Map<string, NativeImage>();
 const pendingAvatarLoads = new Map<string, Promise<NativeImage>>();
 /** Sources that failed to load, with the time of the failure. */
 const failedAvatarSources = new Map<string, number>();
+/**
+ * Aborts every avatar request when the interface is shutting down.
+ *
+ * Callers are aborted individually as rows scroll away, but the underlying
+ * request is deliberately shared and keeps running so another row can claim
+ * it. At exit there is no such row: without this the process stays alive
+ * until each request hits its five-second timeout.
+ */
+let shutdownRequests = new AbortController();
+/** Live `gh` children, so shutdown does not wait out their timeout either. */
+const activeGitHubChildren = new Set<{ kill: () => void }>();
+
+/** Abort every in-flight avatar request. Used when the interface exits. */
+export function cancelAvatarWork() {
+  shutdownRequests.abort();
+  for (const child of activeGitHubChildren) {
+    try {
+      child.kill();
+    } catch (error) {
+      debugLog("avatar", "killing gh failed", error);
+    }
+  }
+  activeGitHubChildren.clear();
+  // A fresh controller keeps the module usable, which matters for tests and
+  // for any future in-process restart.
+  shutdownRequests = new AbortController();
+}
 
 /** Drop least-recently-used entries until the map fits, disposing the images. */
 function evictImages(cache: Map<string, NativeImage>, limit: number) {
@@ -33,13 +60,17 @@ function evictImages(cache: Map<string, NativeImage>, limit: number) {
   }
 }
 
-/** Combine a caller's abort signal with a request deadline. */
+/** Combine a caller's abort signal with a request deadline and shutdown. */
 function requestSignal(
   signal?: AbortSignal,
   ms = REQUEST_TIMEOUT,
 ): AbortSignal {
   const timeout = AbortSignal.timeout(ms);
-  return signal ? AbortSignal.any([signal, timeout]) : timeout;
+  return AbortSignal.any(
+    signal
+      ? [signal, timeout, shutdownRequests.signal]
+      : [timeout, shutdownRequests.signal],
+  );
 }
 
 /** Use public provider avatars for recognizable automated co-authors. */
@@ -573,8 +604,10 @@ async function resolveWithGitHubCli(url: string, signal?: AbortSignal) {
   // `gh` can block indefinitely on a credential helper or a stalled network,
   // and an unbounded wait leaves the avatar slot empty with no diagnostic.
   const timer = setTimeout(() => child.kill(), REQUEST_TIMEOUT);
+  activeGitHubChildren.add(child);
   const onAbort = () => child.kill();
   signal?.addEventListener("abort", onAbort, { once: true });
+  shutdownRequests.signal.addEventListener("abort", onAbort, { once: true });
   try {
     const [stdout, exitCode] = await Promise.all([
       new Response(child.stdout).text(),
@@ -588,7 +621,9 @@ async function resolveWithGitHubCli(url: string, signal?: AbortSignal) {
     return undefined;
   } finally {
     clearTimeout(timer);
+    activeGitHubChildren.delete(child);
     signal?.removeEventListener("abort", onAbort);
+    shutdownRequests.signal.removeEventListener("abort", onAbort);
   }
 }
 
