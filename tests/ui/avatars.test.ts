@@ -1,6 +1,13 @@
 import { describe, expect, test } from "bun:test";
 import { createHash } from "node:crypto";
-import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
+import {
+  mkdtemp,
+  mkdir,
+  readFile,
+  rm,
+  utimes,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { getGravatarUrl } from "../../src/ui/avatars.js";
@@ -97,4 +104,146 @@ test("a remembered miss keeps repeat scrolls off the GitHub API", async () => {
     else process.env.XDG_CACHE_HOME = previousCacheHome;
     await rm(cacheHome, { recursive: true, force: true });
   }
+});
+
+/** Run `body` with an isolated cache directory and no reachable GitHub. */
+async function withIsolatedCache(
+  body: (context: {
+    directory: string;
+    fetches: () => number;
+  }) => Promise<void>,
+) {
+  const cacheHome = await mkdtemp(join(tmpdir(), "tuig-avatar-author-"));
+  const previousCacheHome = process.env.XDG_CACHE_HOME;
+  const previousPath = process.env.PATH;
+  const previousFetch = globalThis.fetch;
+  let fetches = 0;
+  process.env.XDG_CACHE_HOME = cacheHome;
+  // An empty PATH keeps `gh` from resolving, so the public API is the only
+  // lookup a test can observe.
+  process.env.PATH = join(cacheHome, "empty-bin");
+  globalThis.fetch = (async () => {
+    fetches++;
+    throw new Error("network disabled in tests");
+  }) as unknown as typeof fetch;
+  const directory = join(cacheHome, "tuig", "avatars");
+  await mkdir(directory, { recursive: true });
+  try {
+    await body({ directory, fetches: () => fetches });
+  } finally {
+    globalThis.fetch = previousFetch;
+    if (previousCacheHome === undefined) delete process.env.XDG_CACHE_HOME;
+    else process.env.XDG_CACHE_HOME = previousCacheHome;
+    if (previousPath === undefined) delete process.env.PATH;
+    else process.env.PATH = previousPath;
+    await rm(cacheHome, { recursive: true, force: true });
+  }
+}
+
+function authorCacheKey(host: string, email: string): string {
+  return createHash("sha256").update(`author:${host}:${email}`).digest("hex");
+}
+
+test("a persisted author avatar skips the lookup for an unseen commit", async () => {
+  await withIsolatedCache(async ({ directory, fetches }) => {
+    const email = "persisted-hit@example.com";
+    const avatarUrl = "https://avatars.githubusercontent.com/u/456?v=4";
+    await writeFile(
+      join(directory, `${authorCacheKey("github.com", email)}.url`),
+      `${avatarUrl}\n`,
+    );
+    expect(
+      await getGitHubCommitAvatar(
+        "git@github.com:cached/author.git",
+        "author-hit-sha",
+        email,
+      ),
+    ).toBe(avatarUrl);
+    expect(fetches()).toBe(0);
+  });
+});
+
+test("a persisted author miss is retried only after the miss TTL", async () => {
+  await withIsolatedCache(async ({ directory, fetches }) => {
+    const email = "persisted-miss@example.com";
+    const path = join(directory, `${authorCacheKey("github.com", email)}.url`);
+    await writeFile(path, "none\n");
+    expect(
+      await getGitHubCommitAvatar(
+        "git@github.com:cached/author.git",
+        "author-miss-sha",
+        email,
+      ),
+    ).toBeUndefined();
+    expect(fetches()).toBe(0);
+
+    const expired = new Date(Date.now() - 25 * 60 * 60 * 1000);
+    await utimes(path, expired, expired);
+    expect(
+      await getGitHubCommitAvatar(
+        "git@github.com:cached/author.git",
+        "author-miss-sha-2",
+        email,
+      ),
+    ).toBeUndefined();
+    expect(fetches()).toBe(1);
+  });
+});
+
+test("an expired author avatar is refreshed", async () => {
+  await withIsolatedCache(async ({ directory, fetches }) => {
+    const email = "persisted-stale@example.com";
+    const path = join(directory, `${authorCacheKey("github.com", email)}.url`);
+    await writeFile(path, "https://avatars.githubusercontent.com/u/789?v=4\n");
+    const expired = new Date(Date.now() - 8 * 24 * 60 * 60 * 1000);
+    await utimes(path, expired, expired);
+    expect(
+      await getGitHubCommitAvatar(
+        "git@github.com:cached/author.git",
+        "author-stale-sha",
+        email,
+      ),
+    ).toBeUndefined();
+    expect(fetches()).toBe(1);
+    // The refresh failed rather than establishing an absence, so the known URL
+    // survives for the next attempt instead of being downgraded to a miss.
+    expect((await readFile(path, "utf8")).trim()).toBe(
+      "https://avatars.githubusercontent.com/u/789?v=4",
+    );
+  });
+});
+
+test("a failed lookup is not remembered as an author-wide miss", async () => {
+  await withIsolatedCache(async ({ directory, fetches }) => {
+    const email = "offline@example.com";
+    const path = join(directory, `${authorCacheKey("github.com", email)}.url`);
+    expect(
+      await getGitHubCommitAvatar(
+        "git@github.com:cached/author.git",
+        "offline-sha",
+        email,
+      ),
+    ).toBeUndefined();
+    expect(fetches()).toBe(1);
+    expect(await Bun.file(path).exists()).toBe(false);
+  });
+});
+
+test("a commit with no linked account is remembered as a miss", async () => {
+  await withIsolatedCache(async ({ directory }) => {
+    const email = "unlinked@example.com";
+    const path = join(directory, `${authorCacheKey("github.com", email)}.url`);
+    globalThis.fetch = (async () =>
+      new Response(JSON.stringify({ author: null }), {
+        status: 200,
+      })) as unknown as typeof fetch;
+    expect(
+      await getGitHubCommitAvatar(
+        "git@github.com:cached/author.git",
+        "unlinked-sha",
+        email,
+      ),
+    ).toBeUndefined();
+    expect((await readFile(path, "utf8")).trim()).toBe("none");
+  });
 });

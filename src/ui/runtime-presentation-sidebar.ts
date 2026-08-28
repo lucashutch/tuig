@@ -1,8 +1,10 @@
 import { StyledText, bg, fg } from "@opentui/core";
 import type { RepositorySnapshot, Submodule, Worktree } from "../git/types.js";
 import {
-  branchPresence,
+  branchPresenceFromIndex,
+  branchRefFilter,
   branchPresenceIcon,
+  presenceIndexFor,
   displayBranchName,
   filterBranchRefs,
   HEAD_ICON,
@@ -222,16 +224,21 @@ export function sidebarRows(
   width: number,
   branchFilter = "",
 ): string[] {
-  if (section === "local" || section === "remote")
-    return filterBranchRefs(
-      snapshot.branches.filter((b) =>
-        section === "local" ? !b.remote : b.remote,
-      ),
-      branchFilter,
-    ).map(
-      (b) =>
-        `${branchPresenceIcon(branchPresence(b, snapshot.branches), b.current)} ${section === "local" ? LAPTOP_BRANCH_ICON : REMOTE_BRANCH_ICON} ${displayBranchName(b.name)}`,
-    );
+  if (section === "local" || section === "remote") {
+    const remote = section === "remote";
+    const icon = remote ? REMOTE_BRANCH_ICON : LAPTOP_BRANCH_ICON;
+    // One index for the whole section keeps presence lookups constant time.
+    const presenceIndex = presenceIndexFor(snapshot.branches);
+    const matches = branchRefFilter(branchFilter);
+    const rows: string[] = [];
+    for (const b of snapshot.branches) {
+      if (b.remote !== remote || !matches(b)) continue;
+      rows.push(
+        `${branchPresenceIcon(branchPresenceFromIndex(b, presenceIndex), b.current)} ${icon} ${displayBranchName(b.name)}`,
+      );
+    }
+    return rows;
+  }
   if (section === "submodules")
     return snapshot.submodules.flatMap((s) => [
       ` ${s.state === "clean" ? "✓" : s.state === "uninitialized" ? "✖" : "!"} ${submoduleDisplayName(s)}`,
@@ -365,6 +372,7 @@ export function renderSidebar({
     0,
     Math.min(requestedRemoteStart, remoteBranches.length - branchLimit),
   );
+  const presenceIndex = presenceIndexFor(snapshot.branches);
   const formatBranches = (
     branches: typeof localBranches,
     start: number,
@@ -374,7 +382,7 @@ export function renderSidebar({
       .slice(start, start + branchLimit)
       .map(
         (branch) =>
-          `${branchPresenceIcon(branchPresence(branch, snapshot.branches), branch.current)} ${icon} ${displayBranchName(branch.name)}`,
+          `${branchPresenceIcon(branchPresenceFromIndex(branch, presenceIndex), branch.current)} ${icon} ${displayBranchName(branch.name)}`,
       )
       .join("\n") || "  (none)";
   const local = formatBranches(
