@@ -102,7 +102,7 @@ export type RuntimeWidgetActions = {
   sidebarToggle(section: SidebarSection): void;
   sidebarScroll(y: number, delta: number): void;
   sidebarResize(section: SidebarSection, y: number): void;
-  historyScroll(delta: number): void;
+  historyScroll(delta: number, axis?: "vertical" | "horizontal"): void;
   historyClick(x: number, y: number, button: number): void;
   filesScroll(section: ChangeSection, delta: number): void;
   filesClick(
@@ -156,8 +156,19 @@ export function createRuntimeWidgets(
     id: "history",
     top: PANE_TOP,
     backgroundColor: oneDarkTheme.bg,
-    onMouseScroll: (e) =>
-      actions.historyScroll(e.scroll?.direction === "up" ? -3 : 3),
+    onMouseScroll: (e) => {
+      const direction = e.scroll?.direction;
+      // Shift with a vertical wheel is the usual terminal way to scroll
+      // sideways; a real horizontal wheel is honoured too.
+      if (direction === "left" || direction === "right")
+        return actions.historyScroll(
+          direction === "left" ? -1 : 1,
+          "horizontal",
+        );
+      if (e.modifiers.shift)
+        return actions.historyScroll(direction === "up" ? -1 : 1, "horizontal");
+      actions.historyScroll(direction === "up" ? -3 : 3);
+    },
   });
   const details = new BoxRenderable(renderer, {
     ...absolute,

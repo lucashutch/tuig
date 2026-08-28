@@ -13,6 +13,12 @@ import type {
 import { buildFileTree, fitTreeLabel, flattenVisible } from "./file-tree.js";
 import type { GraphRow } from "./graph.js";
 import {
+  clampGraphScroll,
+  graphWindowCells,
+  laneVisible,
+  visibleGraphColumns,
+} from "./graph-viewport.js";
+import {
   filterBranchRefs,
   primaryDecorationRef,
   shortSha,
@@ -69,6 +75,9 @@ export interface RuntimePaintContext {
   detailsPaneWidth: number;
   graphRows: GraphRow[];
   graphColumns: number;
+  graphScroll: number;
+  setGraphScroll(value: number): void;
+  setGraphVisibleColumns(value: number): void;
   branchHints: Map<string, string>;
   historySelection: "working" | "commit";
   commitIndex: number;
@@ -217,6 +226,18 @@ export function paintHistory(ctx: RuntimePaintContext) {
       Math.max(14, Math.floor(ctx.historyContentWidth * 0.28)),
     ),
     backgrounds = [oneDarkTheme.bg, oneDarkTheme.panelRaised];
+  const graphVisibleColumns = visibleGraphColumns(
+      ctx.graphColumns,
+      ctx.historyContentWidth,
+      labelWidth,
+    ),
+    graphScroll = clampGraphScroll(
+      ctx.graphScroll,
+      ctx.graphColumns,
+      graphVisibleColumns,
+    );
+  ctx.setGraphVisibleColumns(graphVisibleColumns);
+  ctx.setGraphScroll(graphScroll);
   const maxStart = Math.max(0, total - visible),
     thumbSize = Math.max(
       1,
@@ -282,12 +303,19 @@ export function paintHistory(ctx: RuntimePaintContext) {
       ),
       textWidth = Math.max(
         2,
-        ctx.historyContentWidth - (labelWidth + 2 + ctx.graphColumns * 2 + 15),
+        ctx.historyContentWidth -
+          (labelWidth + 2 + graphVisibleColumns * 2 + 15),
       ),
       authorWidth = Math.max(1, Math.min(11, textWidth - 8)),
       subjectWidth = Math.max(1, textWidth - authorWidth),
       subject = fitColumns(row.commit.subject, subjectWidth, true),
-      padding = Math.max(0, ctx.graphColumns - row.cells.length),
+      graphWindow = graphWindowCells(
+        row.cells,
+        graphScroll,
+        graphVisibleColumns,
+        ctx.graphColumns,
+        oneDarkTheme.muted,
+      ),
       author = fitColumns(row.commit.author, authorWidth, true);
     chunks.push(
       bg(stash ? oneDarkTheme.panelRaised : rowBg)(
@@ -296,8 +324,7 @@ export function paintHistory(ctx: RuntimePaintContext) {
         )(labelText),
       ),
       bg(rowBg)(fg(oneDarkTheme.muted)(selected ? "▸ " : "  ")),
-      ...row.cells.map((c) => bg(rowBg)(fg(c.color)(c.symbol))),
-      bg(rowBg)(fg(oneDarkTheme.muted)("  ".repeat(padding))),
+      ...graphWindow.cells.map((c) => bg(rowBg)(fg(c.color)(c.symbol))),
       bg(rowBg)(
         fg(row.head ? oneDarkTheme.warning : oneDarkTheme.text)(subject),
       ),
@@ -313,25 +340,28 @@ export function paintHistory(ctx: RuntimePaintContext) {
     );
     const dotLine = line;
     line++;
-    avatarRequests.push({
-      // Slots are tied to viewport rows, so scrolling changes their image but
-      // never moves their terminal placement vertically.
-      slot: dotLine,
-      commit: row.commit,
-      color: row.cells[row.lane]?.color ?? oneDarkTheme.accent,
-      background: rowBg,
-      continuesAbove: row.continuesAbove,
-      continuesBelow: row.commit.parents.length > 0,
-      left: 1 + labelWidth + 2 + row.lane * 2 - 1,
-      // The working-changes row adds one real text line at the top only while
-      // the viewport is at offset zero. Account for it in the image layer as
-      // well, otherwise every avatar is one row low after scrolling past it.
-      top: 2 + dotLine,
-    });
+    if (
+      laneVisible(row.lane, graphScroll, graphVisibleColumns, ctx.graphColumns)
+    )
+      avatarRequests.push({
+        // Slots are tied to viewport rows, so scrolling changes their image but
+        // never moves their terminal placement vertically.
+        slot: dotLine,
+        commit: row.commit,
+        color: row.cells[row.lane]?.color ?? oneDarkTheme.accent,
+        background: rowBg,
+        continuesAbove: row.continuesAbove,
+        continuesBelow: row.commit.parents.length > 0,
+        left: 1 + labelWidth + 2 + (row.lane - graphScroll) * 2 - 1,
+        // The working-changes row adds one real text line at the top only while
+        // the viewport is at offset zero. Account for it in the image layer as
+        // well, otherwise every avatar is one row low after scrolling past it.
+        top: 2 + dotLine,
+      });
     const shaStart =
       labelWidth +
       2 +
-      ctx.graphColumns * 2 +
+      graphVisibleColumns * 2 +
       subjectWidth +
       3 +
       authorWidth +
