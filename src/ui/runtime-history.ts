@@ -1,7 +1,6 @@
 import { MouseButton, type CliRenderer } from "@opentui/core";
 import type { BranchRef, RepositorySnapshot, Stash } from "../git/types.js";
 import type { GraphRow } from "./graph.js";
-import { GRAPH_ROW_LINES } from "./runtime-paint.js";
 import { shortSha } from "./history.js";
 
 export interface RuntimeHistoryContext {
@@ -88,7 +87,7 @@ export function scrollHistoryViewport(
   const total =
     context.graphRows.length + (context.snapshot.files.length > 0 ? 1 : 0);
   const reserved = hasWorking && context.historyStart === 0 ? 1 : 0;
-  const visible = Math.max(1, Math.floor((lines - reserved) / GRAPH_ROW_LINES));
+  const visible = Math.max(1, lines - reserved);
   context.historyViewportDetached = true;
   context.historyStart = Math.max(
     0,
@@ -101,8 +100,7 @@ export function scrollHistoryViewport(
  * Map a clicked history line to a commit row.
  *
  * The first body line is the working row when it is on screen; every commit
- * then owns GRAPH_ROW_LINES lines, so a click on a continuation line selects
- * the commit whose dot sits above it.
+ * owns one line after it.
  */
 export function commitRowAtLine(
   bodyLine: number,
@@ -114,7 +112,7 @@ export function commitRowAtLine(
   const commitLine = bodyLine - (hasWorking && start === 0 ? 1 : 0);
   if (commitLine < 0) return -1;
   const base = start - (hasWorking && start > 0 ? 1 : 0);
-  return base + Math.floor(commitLine / GRAPH_ROW_LINES);
+  return base + commitLine;
 }
 
 export function historyClick(

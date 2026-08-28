@@ -70,3 +70,31 @@ test("GitHub avatar URLs survive a process restart through the disk cache", asyn
     await rm(cacheHome, { recursive: true, force: true });
   }
 });
+
+test("a remembered miss keeps repeat scrolls off the GitHub API", async () => {
+  const cacheHome = await mkdtemp(join(tmpdir(), "tuig-avatar-miss-"));
+  const previousCacheHome = process.env.XDG_CACHE_HOME;
+  const remote = "git@github.com:cached/miss.git";
+  const apiUrl = getGitHubCommitUrl(remote, "miss-cache-test")!;
+  const key = createHash("sha256").update(apiUrl).digest("hex");
+  process.env.XDG_CACHE_HOME = cacheHome;
+
+  try {
+    const directory = join(cacheHome, "tuig", "avatars");
+    await mkdir(directory, { recursive: true });
+    // GitHub allows 60 unauthenticated requests an hour, so a commit with no
+    // linked account must not be looked up again on the next scroll.
+    await writeFile(join(directory, `${key}.url`), "none\n");
+    expect(
+      await getGitHubCommitAvatar(
+        remote,
+        "miss-cache-test",
+        "miss@example.com",
+      ),
+    ).toBeUndefined();
+  } finally {
+    if (previousCacheHome === undefined) delete process.env.XDG_CACHE_HOME;
+    else process.env.XDG_CACHE_HOME = previousCacheHome;
+    await rm(cacheHome, { recursive: true, force: true });
+  }
+});
