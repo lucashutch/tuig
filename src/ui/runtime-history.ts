@@ -129,8 +129,7 @@ export function historyClick(
   context.pendingScroll = 0;
   context.historyViewportDetached = false;
   const hasWorking = (context.snapshot?.files.length ?? 0) > 0;
-  // Header occupies the first body line offset, then the working row (one
-  // line) and two-line commit rows follow.
+  // Header occupies the first body line offset, followed by one line per row.
   const row = commitRowAtLine(y - 2, context.historyStart, hasWorking);
   if (hasWorking && context.historyStart === 0 && y - 2 === 0) {
     context.diffOrigin = undefined;
