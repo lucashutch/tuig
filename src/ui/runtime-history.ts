@@ -149,9 +149,9 @@ export function historyClick(
     context.openGraphMenu(x, y + context.paneTop, {
       sha: commit.sha,
       branch: onLabel ? labelHit?.ref : undefined,
-      stash: onLabel
-        ? context.snapshot?.stashes.find((stash) => stash.sha === commit.sha)
-        : undefined,
+      stash: context.snapshot?.stashes.find(
+        (stash) => stash.sha === commit.sha,
+      ),
     });
     return;
   }

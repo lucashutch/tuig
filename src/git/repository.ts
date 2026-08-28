@@ -260,27 +260,16 @@ export class GitRepositoryService implements GitRepository {
     };
   }
   async diff(r: DiffRequest) {
-    const result = await this.git(
-      r.commit
-        ? [
-            "show",
-            "--format=",
-            "--no-ext-diff",
-            ...(r.context !== undefined ? [`-U${r.context}`] : []),
-            r.commit,
-            "--",
-            ...(r.path ? [r.path] : []),
-          ]
-        : [
-            "diff",
-            "--no-ext-diff",
-            ...(r.staged ? ["--cached"] : []),
-            ...(r.context !== undefined ? [`-U${r.context}`] : []),
-            "--",
-            ...(r.path ? [r.path] : []),
-          ],
-    );
-    if (result.stdout || r.commit || r.staged || !r.path) return result.stdout;
+    if (r.commit) return this.commitDiff(r);
+    const result = await this.git([
+      "diff",
+      "--no-ext-diff",
+      ...(r.staged ? ["--cached"] : []),
+      ...(r.context !== undefined ? [`-U${r.context}`] : []),
+      "--",
+      ...(r.path ? [r.path] : []),
+    ]);
+    if (result.stdout || r.staged || !r.path) return result.stdout;
     try {
       await this.git(["ls-files", "--error-unmatch", "--", r.path]);
       return "";
@@ -304,7 +293,9 @@ export class GitRepositoryService implements GitRepository {
     return "";
   }
   async commitFiles(sha: string) {
-    return parseNameStatus(
+    const { resolved, parents, untrackedParent } =
+      await this.commitDetails(sha);
+    const outputs = [
       (
         await this.git([
           "diff-tree",
@@ -314,10 +305,96 @@ export class GitRepositoryService implements GitRepository {
           "-z",
           "-r",
           "-M",
-          sha,
+          ...(parents[0] ? [parents[0], resolved] : [resolved]),
         ])
       ).stdout,
+    ];
+    if (untrackedParent)
+      outputs.push(
+        (
+          await this.git([
+            "diff-tree",
+            "--root",
+            "--no-commit-id",
+            "--name-status",
+            "-z",
+            "-r",
+            "-M",
+            untrackedParent,
+          ])
+        ).stdout,
+      );
+    const files = outputs.flatMap(parseNameStatus);
+    return files.filter(
+      (file, index) =>
+        files.findIndex((other) => other.path === file.path) === index,
     );
+  }
+  private async commitDetails(sha: string) {
+    const resolved = (
+      await this.git(["rev-parse", "--verify", `${sha}^{commit}`])
+    ).stdout.trim();
+    const parents = (
+      await this.git(["show", "-s", "--format=%P", resolved])
+    ).stdout
+      .trim()
+      .split(/\s+/)
+      .filter(Boolean);
+    let untrackedParent: string | undefined;
+    if (parents.length === 3) {
+      const stashShas = (
+        await this.git(["reflog", "show", "--format=%H", "refs/stash"]).catch(
+          () => ({ stdout: "" }),
+        )
+      ).stdout.split("\n");
+      const thirdParents = (
+        await this.git(["show", "-s", "--format=%P", parents[2]!])
+      ).stdout.trim();
+      // Only stash commits currently named by the stash reflog get the special
+      // third-parent treatment. This avoids reinterpreting arbitrary octopus
+      // merges, while the parentless third commit is Git's untracked tree.
+      if (stashShas.includes(resolved) && !thirdParents)
+        untrackedParent = parents[2];
+    }
+    return { resolved, parents, untrackedParent };
+  }
+  private async commitDiff(r: DiffRequest): Promise<string> {
+    const { resolved, parents, untrackedParent } = await this.commitDetails(
+      r.commit!,
+    );
+    const args = parents[0]
+      ? [
+          "diff",
+          "--no-ext-diff",
+          ...(r.context !== undefined ? [`-U${r.context}`] : []),
+          parents[0],
+          resolved,
+          "--",
+          ...(r.path ? [r.path] : []),
+        ]
+      : [
+          "show",
+          "--format=",
+          "--no-ext-diff",
+          ...(r.context !== undefined ? [`-U${r.context}`] : []),
+          resolved,
+          "--",
+          ...(r.path ? [r.path] : []),
+        ];
+    const tracked = (await this.git(args)).stdout;
+    if (!untrackedParent) return tracked;
+    const untracked = (
+      await this.git([
+        "show",
+        "--format=",
+        "--no-ext-diff",
+        ...(r.context !== undefined ? [`-U${r.context}`] : []),
+        untrackedParent,
+        "--",
+        ...(r.path ? [r.path] : []),
+      ])
+    ).stdout;
+    return tracked + untracked;
   }
   async stage(p: string[]) {
     await this.git(["add", "--", ...p]);
