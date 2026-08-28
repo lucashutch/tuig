@@ -983,8 +983,8 @@ class Runtime {
       graphAvatarTokens: runtime.graphAvatarTokens,
       // OpenTUI's block protocol can render images even without Kitty or
       // Sixel, so keep photo loading enabled on ordinary terminals too. The
-      // pooled graph avatars need real pixels, though: a 2x2-cell half-block
-      // image is an unrecognizable smear.
+      // pooled graph avatars need real pixels, though: a block-rendered image
+      // this small is an unrecognizable smear.
       get avatarSupported() {
         return runtime.authorPhoto.effectiveProtocol !== "blocks";
       },

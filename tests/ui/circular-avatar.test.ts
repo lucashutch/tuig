@@ -39,6 +39,8 @@ describe("circular avatars", () => {
     // Corners carry the row background at full opacity, so avatars blend
     // with the pane even in terminals that ignore image alpha.
     expect(at(0, 0)).toEqual([0x28, 0x2c, 0x34, 255]);
+    // The vertical lane remains visible in the image area outside the circle.
+    expect(at(32, 0)).toEqual([0x4b, 0x9c, 0xd3, 255]);
     // The ring band carries the lane color at full opacity. The mask is an
     // ellipse, so the ring point is sampled on its vertical axis.
     const edge = at(32, 11);

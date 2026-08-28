@@ -180,7 +180,7 @@ export function paint(ctx: RuntimePaintContext) {
 }
 
 /** Physical terminal lines per commit row; the extra line enlarges the dot. */
-export const GRAPH_ROW_LINES = 2;
+export const GRAPH_ROW_LINES = 1;
 
 export function paintHistory(ctx: RuntimePaintContext) {
   const s = ctx.snapshot;
@@ -312,38 +312,20 @@ export function paintHistory(ctx: RuntimePaintContext) {
     );
     const dotLine = line;
     line++;
-    // The second line keeps each lane's route running between dots, so the
-    // enlarged avatar has room without breaking the graph apart.
-    if (line < lines) {
-      const graphWidth = labelWidth + 2 + ctx.graphColumns * 2,
-        contentPad = Math.max(1, ctx.historyContentWidth - graphWidth - 1),
-        connectorPadding = Math.max(
-          0,
-          ctx.graphColumns - row.connectors.length,
-        );
-      chunks.push(
-        bg(rowBg)(fg(oneDarkTheme.muted)(" ".repeat(labelWidth + 2))),
-        ...row.connectors.map((c) => bg(rowBg)(fg(c.color)(c.symbol))),
-        bg(rowBg)(fg(oneDarkTheme.muted)("  ".repeat(connectorPadding))),
-        bg(rowBg)(fg(oneDarkTheme.muted)(" ".repeat(contentPad))),
-        bg(rowBg)(
-          fg(thumb(offset) ? oneDarkTheme.accent : oneDarkTheme.border)(
-            `${scroll(offset)}\n`,
-          ),
-        ),
-      );
-      line++;
-    }
     avatarRequests.push({
-      slot: avatarRequests.length,
+      // Slots are tied to viewport rows, so scrolling changes their image but
+      // never moves their terminal placement vertically.
+      slot: dotLine,
       commit: row.commit,
       color: row.cells[row.lane]?.color ?? oneDarkTheme.accent,
       background: rowBg,
-      // The dot sits in the left character of its two-column cell; a
-      // three-column box starting one column left centers the lane line
-      // behind the avatar the way desktop Git clients draw it.
+      continuesAbove: row.continuesAbove,
+      continuesBelow: row.commit.parents.length > 0,
       left: 1 + labelWidth + 2 + row.lane * 2 - 1,
-      top: 2 + dotLine,
+      // The working-changes row adds one real text line at the top only while
+      // the viewport is at offset zero. Account for it in the image layer as
+      // well, otherwise every avatar is one row low after scrolling past it.
+      top: (hasWorking && start === 0 ? 2 : 1) + dotLine,
     });
     const shaStart =
       labelWidth +

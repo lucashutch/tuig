@@ -6,8 +6,11 @@ import { NativeImage } from "@opentui/core";
 
 const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const AVATAR_CACHE_TTL = 7 * 24 * 60 * 60 * 1000;
+const DECODED_AVATAR_CACHE_SIZE = 128;
 const githubAvatarCache = new Map<string, string>();
 const authorAvatarCache = new Map<string, string>();
+const decodedAvatarCache = new Map<string, NativeImage>();
+const pendingAvatarLoads = new Map<string, Promise<NativeImage>>();
 
 /** Use public provider avatars for recognizable automated co-authors. */
 export function getProviderAvatarUrl(
@@ -63,6 +66,8 @@ export function circularAvatar(
   background: string,
   stretch: number,
   cacheKey: string,
+  continuesAbove = true,
+  continuesBelow = true,
 ): NativeImage {
   const cached = circularCache.get(cacheKey);
   if (cached) return cached.clone();
@@ -89,10 +94,14 @@ export function circularAvatar(
       const source = y * stride + x * 4;
       if (distance >= 1) {
         // Opaque corners in the row background blend with the pane even in
-        // terminals that ignore image alpha.
-        pixels[out] = corner[0];
-        pixels[out + 1] = corner[1];
-        pixels[out + 2] = corner[2];
+        // terminals that ignore image alpha. Keep the lane visible above and
+        // below the circle instead of covering it with the image rectangle.
+        const lane =
+          Math.abs(x - center) <= ringThickness / 2 &&
+          (y < center ? continuesAbove : continuesBelow);
+        pixels[out] = lane ? ring[0] : corner[0];
+        pixels[out + 1] = lane ? ring[1] : corner[1];
+        pixels[out + 2] = lane ? ring[2] : corner[2];
         pixels[out + 3] = 255;
         continue;
       }
@@ -114,6 +123,36 @@ export function circularAvatar(
   const masked = NativeImage.fromRgba(pixels, size, size);
   circularCache.set(cacheKey, masked);
   return masked.clone();
+}
+
+/** Pad a square avatar to the physical 3:2 aspect of a 3x1 terminal-cell box. */
+export function graphAvatarCanvas(
+  image: NativeImage,
+  background: string,
+): NativeImage {
+  const raw = image.raw("rgba8");
+  const width = Math.round(raw.width * 1.5);
+  const left = Math.floor((width - raw.width) / 2);
+  const corner = ringRgb(background) ?? [0, 0, 0];
+  const pixels = new Uint8Array(width * raw.height * 4);
+  for (let y = 0; y < raw.height; y++) {
+    for (let x = 0; x < width; x++) {
+      const out = (y * width + x) * 4;
+      if (x >= left && x < left + raw.width) {
+        const source = y * raw.stride + (x - left) * 4;
+        pixels[out] = raw.data[source]!;
+        pixels[out + 1] = raw.data[source + 1]!;
+        pixels[out + 2] = raw.data[source + 2]!;
+        pixels[out + 3] = raw.data[source + 3]!;
+      } else {
+        pixels[out] = corner[0];
+        pixels[out + 1] = corner[1];
+        pixels[out + 2] = corner[2];
+        pixels[out + 3] = 255;
+      }
+    }
+  }
+  return NativeImage.fromRgba(pixels, width, raw.height);
 }
 
 function avatarCachePath(source: string): string {
@@ -152,6 +191,51 @@ async function writeCachedAvatarSource(source: string, value: string) {
 
 /** Load an avatar from the seven-day disk cache, refreshing it when stale. */
 export async function loadCachedAvatar(
+  source: string,
+  signal?: AbortSignal,
+): Promise<NativeImage> {
+  const cached = decodedAvatarCache.get(source);
+  if (cached) {
+    // Refresh insertion order so frequently visible authors stay resident.
+    decodedAvatarCache.delete(source);
+    decodedAvatarCache.set(source, cached);
+    return cached.clone();
+  }
+  if (!signal) {
+    const pending = pendingAvatarLoads.get(source);
+    if (pending) return (await pending).clone();
+    const load = loadAvatarFromDiskOrNetwork(source).then((image) => {
+      cacheDecodedAvatar(source, image);
+      return image;
+    });
+    pendingAvatarLoads.set(source, load);
+    try {
+      return (await load).clone();
+    } finally {
+      pendingAvatarLoads.delete(source);
+    }
+  }
+  const image = await loadAvatarFromDiskOrNetwork(source, signal);
+  cacheDecodedAvatar(source, image);
+  return image.clone();
+}
+
+function cacheDecodedAvatar(source: string, image: NativeImage) {
+  const previous = decodedAvatarCache.get(source);
+  if (previous && previous !== image) previous.dispose();
+  decodedAvatarCache.delete(source);
+  decodedAvatarCache.set(source, image);
+  while (decodedAvatarCache.size > DECODED_AVATAR_CACHE_SIZE) {
+    const oldest = decodedAvatarCache.entries().next().value as
+      | [string, NativeImage]
+      | undefined;
+    if (!oldest) break;
+    decodedAvatarCache.delete(oldest[0]);
+    oldest[1].dispose();
+  }
+}
+
+async function loadAvatarFromDiskOrNetwork(
   source: string,
   signal?: AbortSignal,
 ): Promise<NativeImage> {
