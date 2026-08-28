@@ -29,6 +29,10 @@ export interface RuntimeCommandsContext {
   syncedAt?: number;
   suppressEnterUntil: number;
   discardArmed: boolean;
+  /** Label of the mutation currently running, when one is. */
+  busy?: string;
+  /** Controller for the running remote mutation, when one is cancellable. */
+  mutationAbort?: AbortController;
   namePrompt?: {
     title: string;
     placeholder: string;
@@ -55,20 +59,47 @@ export interface RuntimeCommandsContext {
   fail(error: unknown): void;
 }
 
+/**
+ * Runs one repository mutation at a time. Overlapping commands would race on
+ * the index and refs, so while one is in flight new requests are refused.
+ * Remote operations also get an abort controller so Escape can cancel them.
+ */
 export async function perform(
   context: RuntimeCommandsContext,
   label: string,
-  action: () => Promise<void>,
+  action: (signal?: AbortSignal) => Promise<void>,
   remote = false,
 ) {
+  if (context.busy !== undefined)
+    return context.notify(`${context.busy} is still running`, "error");
+  context.busy = label;
+  const abort = remote ? new AbortController() : undefined;
+  context.mutationAbort = abort;
   context.notify(label, "busy");
   try {
-    await action();
+    await action(abort?.signal);
     if (remote) context.syncedAt = Date.now();
     await context.refresh();
   } catch (error) {
-    context.fail(error);
+    if (error instanceof Error && error.name === "GitCommandAbortedError")
+      context.notify(`Cancelled ${label.toLowerCase()}`);
+    else context.fail(error);
+  } finally {
+    context.busy = undefined;
+    context.mutationAbort = undefined;
   }
+}
+
+/**
+ * Escape hatch for a hung remote operation. Local mutations are fast and
+ * middle-of-command cancellation can leave the index inconsistent, so only
+ * cancellable remote work is aborted here.
+ */
+export function cancelActiveMutation(context: RuntimeCommandsContext) {
+  const abort = context.mutationAbort;
+  if (!abort) return false;
+  abort.abort();
+  return true;
 }
 
 export async function runToolbarAction(
@@ -80,21 +111,21 @@ export async function runToolbarAction(
     return void perform(
       context,
       "Fetching…",
-      () => context.repository.fetch(),
+      (signal) => context.repository.fetch(undefined, signal),
       true,
     );
   if (action === "pull")
     return void perform(
       context,
       "Pulling…",
-      () => context.repository.pull(),
+      (signal) => context.repository.pull(false, signal),
       true,
     );
   if (action === "push")
     return void perform(
       context,
       "Pushing…",
-      () => context.repository.push(),
+      (signal) => context.repository.push(undefined, false, signal),
       true,
     );
   if (action === "stash")
