@@ -345,6 +345,9 @@ export function paintHistory(ctx: RuntimePaintContext) {
       });
   }
   ctx.historyText.content = new StyledText(chunks);
+  // Diff rows do not paint empty trailing cells. Hide the history text while
+  // the diff is open so short patches cannot show graph rows underneath it.
+  ctx.historyText.visible = !ctx.commitDiffVisible;
   ctx.updateGraphAvatars(ctx.commitDiffVisible ? [] : avatarRequests);
   // Fetch the next page once the reader can nearly see the end of the graph,
   // so scrolling continues into history that has not been read yet.
