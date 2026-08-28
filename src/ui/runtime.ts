@@ -19,7 +19,7 @@ import type {
   GitRepository,
   RepositorySnapshot,
 } from "../git/types.js";
-import { type GraphRow } from "./graph.js";
+import { type GraphLayoutState, type GraphRow } from "./graph.js";
 import {
   branchRefsForSection,
   clampBranchSelection,
@@ -82,6 +82,8 @@ import {
   loadDiff as loadRuntimeDiff,
   openCommit as openRuntimeCommit,
   openWorkingDiff as openRuntimeWorkingDiff,
+  HISTORY_PAGE,
+  loadMoreCommits as loadMoreRuntimeCommits,
   refresh as refreshRuntimeData,
   refreshWorkingStatus as refreshRuntimeWorkingStatus,
   showCommitMeta as showRuntimeCommitMeta,
@@ -153,6 +155,9 @@ class Runtime {
   };
   private snapshot?: RepositorySnapshot;
   private snapshotSignature?: string;
+  private historyLimit = HISTORY_PAGE;
+  private loadingMoreCommits = false;
+  private graphLayoutState?: GraphLayoutState;
   private commitIndex = 0;
   private historySelection: "working" | "commit" = "working";
   private fileIndex = 0;
@@ -841,6 +846,24 @@ class Runtime {
       set snapshot(value) {
         runtime.snapshot = value;
       },
+      get historyLimit() {
+        return runtime.historyLimit;
+      },
+      set historyLimit(value) {
+        runtime.historyLimit = value;
+      },
+      get loadingMoreCommits() {
+        return runtime.loadingMoreCommits;
+      },
+      set loadingMoreCommits(value) {
+        runtime.loadingMoreCommits = value;
+      },
+      get graphLayoutState() {
+        return runtime.graphLayoutState;
+      },
+      set graphLayoutState(value) {
+        runtime.graphLayoutState = value;
+      },
       get snapshotSignature() {
         return runtime.snapshotSignature;
       },
@@ -1013,6 +1036,7 @@ class Runtime {
       layout: () => this.layout(),
       paint: () => this.paint(),
       paintFiles: () => this.paintFiles(),
+      paintHistory: () => this.paintHistory(),
       paintHints: () => this.paintHints(),
       notify: (text, tone) => this.notify(text, tone),
       fail: (error) => this.fail(error),
@@ -1064,6 +1088,9 @@ class Runtime {
       historyLabelHits: this.historyLabelHits,
       historyText: this.historyText,
       commitDiffVisible: this.commitDiff.visible,
+      requestMoreCommits: () => {
+        void loadMoreRuntimeCommits(this.dataContext());
+      },
       updateGraphAvatars: (requests: readonly GraphAvatarRequest[]) =>
         updateRuntimeGraphAvatars(this.dataContext(), requests),
       editingCommitSha: this.editingCommitSha,

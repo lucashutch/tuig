@@ -19,7 +19,11 @@ import {
   loadCachedAvatar,
 } from "./avatars.js";
 import { debugLog } from "./debug-log.js";
-import { layoutGraph, type GraphRow } from "./graph.js";
+import {
+  layoutGraphFrom,
+  type GraphLayoutState,
+  type GraphRow,
+} from "./graph.js";
 import {
   presentCommitMeta,
   parseCoAuthors,
@@ -73,7 +77,13 @@ export interface RuntimeDataContext {
   fileStart: number;
   commitFiles: ChangedFile[];
   graphRows: GraphRow[];
+  /** Lane state after the last laid-out row, so a new page resumes the fold. */
+  graphLayoutState?: GraphLayoutState;
   graphColumns: number;
+  /** Commits currently asked of Git. Grows as the viewport nears the end. */
+  historyLimit: number;
+  /** Guard so one page loads at a time. */
+  loadingMoreCommits: boolean;
   branchHints: Map<string, string>;
   detailsPaneWidth: number;
   commitInfoValue: string;
@@ -96,6 +106,7 @@ export interface RuntimeDataContext {
   layout(): void;
   paint(): void;
   paintFiles(): void;
+  paintHistory(): void;
   paintHints(): void;
   notify(text: string, tone?: "info" | "error" | "busy"): void;
   fail(error: unknown): void;
@@ -199,6 +210,108 @@ export async function refreshWorkingStatus(
   }
 }
 
+/** Widest row, so every graph row is padded to one column count. */
+function graphColumnsFor(rows: readonly GraphRow[]): number {
+  let columns = 1;
+  for (const row of rows)
+    columns = Math.max(columns, row.cells.length, row.connectors.length);
+  return columns;
+}
+
+/** Commits added each time the viewport approaches the end of the graph. */
+export const HISTORY_PAGE = 250;
+/**
+ * Distance from the last loaded row at which the next page is fetched. One
+ * page is 250 rows, so the read starts while fifty rows are still unseen.
+ */
+export const HISTORY_PREFETCH_ROWS = 50;
+
+/**
+ * Extend the loaded history by one page.
+ *
+ * Only the new commits are read: Git skips the rows already on screen, which
+ * keeps the cost of a page flat instead of growing with how far the reader has
+ * scrolled. The two reads are separate walks, so the last known commit is
+ * fetched again and compared. When it matches, the page is appended and only
+ * the new rows are laid out; when refs moved underneath, the whole range is
+ * re-read and the lanes rebuilt.
+ */
+export async function loadMoreCommits(ctx: RuntimeDataContext) {
+  const readPage = ctx.repository.commitPage?.bind(ctx.repository);
+  const base = ctx.snapshot;
+  if (!readPage || !base || base.commitsComplete || ctx.loadingMoreCommits)
+    return;
+  ctx.loadingMoreCommits = true;
+  const loaded = base.commits.length;
+  const boundary = base.commits[loaded - 1]?.sha;
+  try {
+    const page = boundary
+      ? await readPage(HISTORY_PAGE + 1, loaded - 1)
+      : await readPage(HISTORY_PAGE);
+    // A refresh that landed first already replaced the history being extended.
+    if (ctx.snapshot !== base) return;
+    const aligned = !boundary || page.commits[0]?.sha === boundary;
+    const fresh = boundary && aligned ? page.commits.slice(1) : page.commits;
+    if (aligned) {
+      ctx.historyLimit = loaded + fresh.length;
+      const commits = boundary ? [...base.commits, ...fresh] : fresh;
+      const snapshot: RepositorySnapshot = {
+        ...base,
+        commits,
+        // Nothing new despite an incomplete page: treat history as exhausted
+        // rather than asking again on the next paint.
+        commitsComplete: page.complete || fresh.length === 0,
+      };
+      const laidOut = layoutGraphFrom(
+        fresh,
+        oneDarkTheme.graph,
+        resolveHeadSha(base.branches, commits),
+        ctx.graphLayoutState,
+      );
+      ctx.graphRows = [...ctx.graphRows, ...laidOut.rows];
+      ctx.graphLayoutState = laidOut.state;
+      ctx.graphColumns = graphColumnsFor(ctx.graphRows);
+      ctx.branchHints = buildCommitBranchHints(commits, base.branches);
+      ctx.snapshot = snapshot;
+      ctx.snapshotSignature = snapshotSignature(snapshot);
+      debugLog(
+        "history",
+        `appended ${fresh.length} commits (${commits.length} loaded, complete=${snapshot.commitsComplete})`,
+      );
+      ctx.paintHistory();
+      return;
+    }
+    // The walk no longer lines up with what is on screen, so the loaded range
+    // is re-read as a whole and the lanes are rebuilt from the top.
+    const limit = ctx.historyLimit + HISTORY_PAGE;
+    const whole = await readPage(limit);
+    if (ctx.snapshot !== base) return;
+    ctx.historyLimit = limit;
+    const snapshot: RepositorySnapshot = {
+      ...base,
+      commits: whole.commits,
+      commitsComplete: whole.complete,
+    };
+    const laidOut = layoutGraphFrom(
+      whole.commits,
+      oneDarkTheme.graph,
+      resolveHeadSha(base.branches, whole.commits),
+    );
+    ctx.graphRows = laidOut.rows;
+    ctx.graphLayoutState = laidOut.state;
+    ctx.graphColumns = graphColumnsFor(ctx.graphRows);
+    ctx.branchHints = buildCommitBranchHints(whole.commits, base.branches);
+    ctx.snapshot = snapshot;
+    ctx.snapshotSignature = snapshotSignature(snapshot);
+    ctx.paintHistory();
+  } catch (error) {
+    // History already on screen stays usable, so a failed page is not fatal.
+    debugLog("history", `loading history past ${loaded} commits failed`, error);
+  } finally {
+    ctx.loadingMoreCommits = false;
+  }
+}
+
 export async function refresh(ctx: RuntimeDataContext, message?: string) {
   if (ctx.busy) {
     ctx.refreshPending = true;
@@ -213,7 +326,7 @@ export async function refresh(ctx: RuntimeDataContext, message?: string) {
   const selectedPath = ctx.selectedFile()?.path;
   ctx.notify(message ?? "Refreshing…", "busy");
   try {
-    const snapshot = await ctx.repository.snapshot(1000);
+    const snapshot = await ctx.repository.snapshot(ctx.historyLimit);
     if (request !== ctx.snapshotRequest || ctx.refreshPending) return;
     const signature = snapshotSignature(snapshot);
     // Keep the existing snapshot object: in-flight diff and commit-file loads
@@ -229,21 +342,18 @@ export async function refresh(ctx: RuntimeDataContext, message?: string) {
     ++ctx.diffRequest;
     ++ctx.commitFilesRequest;
     ctx.snapshot = snapshot;
-    ctx.graphRows = layoutGraph(
+    const laidOut = layoutGraphFrom(
       snapshot.commits,
       oneDarkTheme.graph,
       resolveHeadSha(snapshot.branches, snapshot.commits),
     );
+    ctx.graphRows = laidOut.rows;
+    ctx.graphLayoutState = laidOut.state;
     ctx.branchHints = buildCommitBranchHints(
       snapshot.commits,
       snapshot.branches,
     );
-    ctx.graphColumns = Math.max(
-      1,
-      ...ctx.graphRows.map((row) =>
-        Math.max(row.cells.length, row.connectors.length),
-      ),
-    );
+    ctx.graphColumns = graphColumnsFor(ctx.graphRows);
     const commitAt = selectedSha
       ? snapshot.commits.findIndex((commit) => commit.sha === selectedSha)
       : -1;

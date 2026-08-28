@@ -19,7 +19,10 @@ import {
   summariseDecorations,
 } from "./history.js";
 import { resolveMaterialIcon } from "./icon-theme.js";
-import type { GraphAvatarRequest } from "./runtime-data.js";
+import {
+  HISTORY_PREFETCH_ROWS,
+  type GraphAvatarRequest,
+} from "./runtime-data.js";
 import {
   SIDEBAR_SECTIONS,
   fileColor,
@@ -79,6 +82,8 @@ export interface RuntimePaintContext {
     { start: number; end: number; ref?: BranchRef }
   >;
   historyText: TextRenderable;
+  /** Ask for the next page when the viewport nears the loaded end. */
+  requestMoreCommits(): void;
   /** True while a diff overlay covers the history pane. */
   commitDiffVisible: boolean;
   updateGraphAvatars(requests: readonly GraphAvatarRequest[]): void;
@@ -200,7 +205,9 @@ export function paintHistory(ctx: RuntimePaintContext) {
   const visible = visibleUnits(ctx);
   const chunks = [
     fg(ctx.focus === "history" ? oneDarkTheme.accent : oneDarkTheme.muted)(
-      ` BRANCH / TAG          GRAPH  ${s.commits.length} COMMITS\n`,
+      // The trailing marker distinguishes "all of history" from "as much of
+      // it as has been read so far".
+      ` BRANCH / TAG          GRAPH  ${s.commits.length}${s.commitsComplete ? "" : "+"} COMMITS\n`,
     ),
   ];
   ctx.historyShaHits.clear();
@@ -339,6 +346,10 @@ export function paintHistory(ctx: RuntimePaintContext) {
   }
   ctx.historyText.content = new StyledText(chunks);
   ctx.updateGraphAvatars(ctx.commitDiffVisible ? [] : avatarRequests);
+  // Fetch the next page once the reader can nearly see the end of the graph,
+  // so scrolling continues into history that has not been read yet.
+  if (!s.commitsComplete && total - (start + visible) <= HISTORY_PREFETCH_ROWS)
+    ctx.requestMoreCommits();
 }
 
 /** Commit rows that fit in the history viewport from a given scroll offset. */

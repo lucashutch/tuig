@@ -73,21 +73,51 @@ function symbol(topology: Topology | undefined): string {
   return (commit ? dot : (GLYPHS.get(mask) ?? " ")) + trailing;
 }
 
+/**
+ * The fold state carried between `layoutGraphFrom` calls.  History is loaded a
+ * page at a time, so appending must resume rather than re-fold the whole log.
+ */
+export interface GraphLayoutState {
+  /** Lane occupancy: the sha each column is currently waiting for. */
+  readonly active: readonly string[];
+  // Colors belong to an ancestry, not a column.  Inserting or deleting a lane
+  // must therefore not recolor an unrelated line.
+  readonly activeColors: readonly string[];
+  readonly nextColor: number;
+}
+
+export const emptyGraphLayoutState: GraphLayoutState = {
+  active: [],
+  activeColors: [],
+  nextColor: 0,
+};
+
 /** Assigns persistent lanes in newest-first log order. */
 export function layoutGraph(
   commits: readonly Commit[],
   colors: readonly string[],
   headSha?: string,
 ): GraphRow[] {
-  const active: string[] = [];
-  // Colors belong to an ancestry, not a column.  Inserting or deleting a lane
-  // must therefore not recolor an unrelated line.
-  const activeColors: string[] = [];
-  let nextColor = 0;
+  return layoutGraphFrom(commits, colors, headSha).rows;
+}
+
+/**
+ * Lays out `commits` as if they directly followed the commits that produced
+ * `state`.  The incoming state is copied, so a caller may keep holding it.
+ */
+export function layoutGraphFrom(
+  commits: readonly Commit[],
+  colors: readonly string[],
+  headSha?: string,
+  state: GraphLayoutState = emptyGraphLayoutState,
+): { rows: GraphRow[]; state: GraphLayoutState } {
+  const active: string[] = [...state.active];
+  const activeColors: string[] = [...state.activeColors];
+  let nextColor = state.nextColor;
   const color = () =>
     colors[nextColor++ % Math.max(1, colors.length)] ?? "#888888";
 
-  return commits.map((commit) => {
+  const rows = commits.map((commit) => {
     let incoming = active.flatMap((sha, index) =>
       sha === commit.sha ? [index] : [],
     );
@@ -203,4 +233,6 @@ export function layoutGraph(
       laneColors: cells.map((cell) => cell.color),
     };
   });
+
+  return { rows, state: { active, activeColors, nextColor } };
 }
