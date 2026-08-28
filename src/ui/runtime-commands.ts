@@ -6,6 +6,7 @@ import type {
   RepositorySnapshot,
   ResetMode,
   Stash,
+  Worktree,
 } from "../git/types.js";
 import { splitPatchHunks } from "../git/hunks.js";
 import { displayBranchName, shortSha } from "./history.js";
@@ -214,11 +215,81 @@ export async function checkoutBranch(
 export async function runMenuAction(
   context: RuntimeCommandsContext,
   action: GraphMenuAction,
-  target: { sha: string; branch?: BranchRef; stash?: Stash },
+  target: {
+    sha: string;
+    branch?: BranchRef;
+    stash?: Stash;
+    worktree?: Worktree;
+    file?: ChangedFile;
+    fileStaged?: boolean;
+  },
 ) {
   const branch = target.branch;
   const stash = target.stash;
+  const worktree = target.worktree;
+  const file = target.file;
   const reference = branch ? branch.name : target.sha;
+  if (action === "copy-path") {
+    const path = file?.path ?? worktree?.path;
+    return void (
+      path &&
+      context.copy(path) &&
+      context.notify(`Copied ${path}`)
+    );
+  }
+  if (action === "stage-file" || action === "unstage-file") {
+    if (!file) return;
+    const staging = action === "stage-file";
+    return perform(
+      context,
+      `${staging ? "Staging" : "Unstaging"} ${file.path}…`,
+      () =>
+        staging
+          ? context.repository.stage([file.path])
+          : context.repository.unstage([file.path]),
+    );
+  }
+  if (action === "discard-file") {
+    if (!file) return;
+    return confirmThen(
+      context,
+      {
+        title: "Discard changes",
+        lines: [`Discard unstaged changes in ${file.path}?`],
+        confirmLabel: "Discard changes",
+        destructive: true,
+      },
+      () =>
+        perform(context, `Discarding ${file.path}…`, () =>
+          context.repository.discard([file.path]),
+        ),
+    );
+  }
+  if (action === "lock-worktree" || action === "unlock-worktree") {
+    if (!worktree) return;
+    const lock = action === "lock-worktree";
+    return perform(context, `${lock ? "Locking" : "Unlocking"} worktree…`, () =>
+      context.repository.lockWorktree(worktree.path, lock),
+    );
+  }
+  if (action === "remove-worktree") {
+    if (!worktree) return;
+    const name =
+      worktree.path.replace(/\/+$/, "").split("/").at(-1) ?? worktree.path;
+    return confirmThen(
+      context,
+      {
+        title: "Remove worktree",
+        lines: [`Remove the worktree at ${worktree.path}?`],
+        confirmLabel: `Remove ${name}`,
+        destructive: true,
+      },
+      () =>
+        perform(context, `Removing ${name}…`, () =>
+          context.repository.removeWorktree(worktree.path),
+        ),
+    );
+  }
   if (action === "delete-stash" || action === "drop-stash") {
     if (!stash) return;
     const verb = action === "delete-stash" ? "Delete" : "Drop";
