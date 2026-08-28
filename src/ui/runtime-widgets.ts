@@ -896,12 +896,12 @@ export function createRuntimeWidgets(
         id: `graph-avatar-${slot}`,
         left: 0,
         top: 0,
-        // Four columns by two rows: terminal cells are about twice as tall
-        // as wide, so this is roughly square in pixels and a circular mask
-        // stays circular.
-        width: 4,
+        // Three columns by two rows: wide enough for a face, with the extra
+        // column left of the dot centering the lane line behind the avatar.
+        // "fill" stretches the pre-masked ellipse back into a circle.
+        width: 3,
         height: 2,
-        fit: "cover",
+        fit: "fill",
         protocol: "auto",
         visible: false,
       }),

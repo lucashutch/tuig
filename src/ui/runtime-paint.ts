@@ -322,7 +322,7 @@ export function paintHistory(ctx: RuntimePaintContext) {
           ctx.graphColumns - row.connectors.length,
         );
       chunks.push(
-        bg(rowBg)(fg(oneDarkTheme.muted)("  ".repeat(labelWidth + 2))),
+        bg(rowBg)(fg(oneDarkTheme.muted)(" ".repeat(labelWidth + 2))),
         ...row.connectors.map((c) => bg(rowBg)(fg(c.color)(c.symbol))),
         bg(rowBg)(fg(oneDarkTheme.muted)("  ".repeat(connectorPadding))),
         bg(rowBg)(fg(oneDarkTheme.muted)(" ".repeat(contentPad))),
@@ -338,8 +338,9 @@ export function paintHistory(ctx: RuntimePaintContext) {
       slot: avatarRequests.length,
       commit: row.commit,
       color: row.cells[row.lane]?.color ?? oneDarkTheme.accent,
+      background: rowBg,
       // The dot sits in the left character of its two-column cell; a
-      // four-column box starting one column left centers the lane line
+      // three-column box starting one column left centers the lane line
       // behind the avatar the way desktop Git clients draw it.
       left: 1 + labelWidth + 2 + row.lane * 2 - 1,
       top: 2 + dotLine,
