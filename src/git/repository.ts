@@ -241,7 +241,7 @@ export class GitRepositoryService implements GitRepository {
   }
   async discardAll() {
     // Untracked files are not restorable, so they are removed separately.
-    await this.git(["restore", "--worktree", "--", "."]);
+    await this.discard(["."]);
     await this.git(["clean", "-fd"]);
   }
   async commit(m: string) {
@@ -415,6 +415,17 @@ export class GitRepositoryService implements GitRepository {
   }
   async removeWorktree(path: string, force = false) {
     await this.git(["worktree", "remove", ...(force ? ["--force"] : []), path]);
+  }
+  async lockWorktree(path: string, lock = true, reason?: string) {
+    await this.git([
+      "worktree",
+      lock ? "lock" : "unlock",
+      ...(lock && reason ? ["--reason", reason] : []),
+      path,
+    ]);
+  }
+  async discard(paths: string[]) {
+    await this.git(["restore", "--worktree", "--", ...paths]);
   }
 }
 export const createGitRepository = GitRepositoryService.open;

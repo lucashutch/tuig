@@ -1,4 +1,5 @@
 import type { DiffRenderable, TextRenderable } from "@opentui/core";
+import { MouseButton } from "@opentui/core";
 import type { ChangedFile, RepositorySnapshot } from "../git/types.js";
 import {
   buildFileTree,
@@ -40,6 +41,16 @@ export interface RuntimeFilesContext {
   notify(text: string): void;
   fail(error: unknown): void;
   persistLayoutPreferences(): void;
+  /** Opens a context menu for a right-clicked file row. */
+  openFileMenu(
+    x: number,
+    y: number,
+    target: {
+      sha: string;
+      file: ChangedFile;
+      fileStaged: boolean;
+    },
+  ): void;
 }
 
 function list(
@@ -126,6 +137,8 @@ export function filesClick(
   context: RuntimeFilesContext,
   section: ChangeSection,
   y: number,
+  button?: number,
+  x?: number,
 ) {
   context.setFocus("changes");
   if (context.view !== "commit" && section !== context.mode) {
@@ -137,6 +150,19 @@ export function filesClick(
     y - Number(list(context, section).top) + context.sectionStart[section];
   const node = sectionRows(context, section)[row]?.node;
   if (!node) return;
+  if (button === MouseButton.RIGHT) {
+    if (context.view !== "history" || node.kind !== "file") return;
+    const file = files(context).find(
+      (candidate) => candidate.path === node.path,
+    );
+    if (!file) return;
+    context.openFileMenu(x ?? 0, y, {
+      sha: "",
+      file,
+      fileStaged: section === "staged",
+    });
+    return;
+  }
   if (node.kind === "directory") {
     context.expandedFiles = toggleExpansion(context.expandedFiles, node.path);
     context.paintFiles();

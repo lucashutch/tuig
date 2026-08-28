@@ -1,10 +1,11 @@
 import { InputRenderable, MouseButton } from "@opentui/core";
-import type { BranchRef, RepositorySnapshot, Stash } from "../git/types.js";
+import type { BranchRef, RepositorySnapshot } from "../git/types.js";
 import {
   branchRefsForSection,
   clampBranchSelection,
   filterBranchRefs,
 } from "./history.js";
+import type { GraphMenuTarget } from "./graph-menu.js";
 import {
   layoutSidebarSections,
   resizeSidebarBoundary,
@@ -34,11 +35,7 @@ export interface RuntimeSidebarContext {
   persistLayoutPreferences(): void;
   notify(text: string): void;
   checkoutBranch(branch: BranchRef): Promise<void>;
-  openGraphMenu(
-    x: number,
-    y: number,
-    target: { sha: string; branch?: BranchRef; stash?: Stash },
-  ): void;
+  openGraphMenu(x: number, y: number, target: GraphMenuTarget): void;
 }
 
 export function sidebarClick(
@@ -61,7 +58,8 @@ export function sidebarClick(
       return (
         (candidate === "local" ||
           candidate === "remote" ||
-          candidate === "stashes") &&
+          candidate === "stashes" ||
+          candidate === "worktrees") &&
         !context.sidebarCollapsed[candidate] &&
         y >= rect.contentTop &&
         y < rect.contentTop + rect.contentHeight
@@ -74,6 +72,15 @@ export function sidebarClick(
     const stash = snapshot.stashes[row];
     if (stash)
       context.openGraphMenu(x, y + context.paneTop, { sha: stash.sha, stash });
+    return;
+  }
+  if (section === "worktrees") {
+    const worktree = snapshot.worktrees[row];
+    if (worktree)
+      context.openGraphMenu(x, y + context.paneTop, {
+        sha: worktree.sha,
+        worktree,
+      });
     return;
   }
   const branches = filterBranchRefs(
