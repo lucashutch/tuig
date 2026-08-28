@@ -179,9 +179,6 @@ export function paint(ctx: RuntimePaintContext) {
   paintFiles(ctx);
 }
 
-/** Physical terminal lines per commit row; the extra line enlarges the dot. */
-export const GRAPH_ROW_LINES = 1;
-
 export function paintHistory(ctx: RuntimePaintContext) {
   const s = ctx.snapshot;
   if (!s) return;
@@ -228,8 +225,8 @@ export function paintHistory(ctx: RuntimePaintContext) {
     scroll = (o: number) => (thumb(o) ? "█" : "│");
   const avatarRequests: GraphAvatarRequest[] = [];
   let line = 0;
-  // While the working row is on screen it still takes a single line; past it
-  // every commit owns GRAPH_ROW_LINES lines.
+  // The working row takes the first line while it is on screen; every commit
+  // owns exactly one line after it.
   if (hasWorking && start === 0 && line < lines) {
     const selected = ctx.historySelection === "working",
       rowBg = selected ? oneDarkTheme.selected : oneDarkTheme.panelRaised,
@@ -352,7 +349,7 @@ function visibleUnits(ctx: RuntimePaintContext, start: number): number {
   const lines = Math.max(1, ctx.contentHeight - 3);
   const reserved =
     ctx.snapshot && ctx.snapshot.files.length > 0 && start === 0 ? 1 : 0;
-  return Math.max(1, Math.floor((lines - reserved) / GRAPH_ROW_LINES));
+  return Math.max(1, lines - reserved);
 }
 
 export function paintFiles(ctx: RuntimePaintContext) {

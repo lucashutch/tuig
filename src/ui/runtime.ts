@@ -84,6 +84,7 @@ import {
   openWorkingDiff as openRuntimeWorkingDiff,
   refresh as refreshRuntimeData,
   showCommitMeta as showRuntimeCommitMeta,
+  cancelGraphAvatars as cancelRuntimeGraphAvatars,
   updateGraphAvatars as updateRuntimeGraphAvatars,
   type GraphAvatarRequest,
   type RuntimeDataContext,
@@ -242,6 +243,7 @@ class Runtime {
   private readonly commitCoAuthors: TextRenderable;
   private readonly commitCoAuthorProvider: ImageRenderable;
   private readonly graphAvatars: ImageRenderable[];
+  private readonly ensureGraphAvatarSlots: (count: number) => void;
   private readonly editMessageButton: TextRenderable;
   private readonly commitHeader: TextRenderable;
   private readonly commitBody: TextRenderable;
@@ -309,6 +311,7 @@ class Runtime {
   private avatarAbort?: AbortController;
   private graphAvatarKeys: Array<string | undefined> = [];
   private graphAvatarTokens: number[] = [];
+  private graphAvatarAborts: Array<AbortController | undefined> = [];
   private preferredUnstagedHeight?: number;
   private preferredComposerHeight?: number;
   private preferencesTimer?: ReturnType<typeof setTimeout>;
@@ -419,6 +422,7 @@ class Runtime {
     this.commitCoAuthors = widgets.commitCoAuthors;
     this.commitCoAuthorProvider = widgets.commitCoAuthorProvider;
     this.graphAvatars = widgets.graphAvatars;
+    this.ensureGraphAvatarSlots = widgets.ensureGraphAvatarSlots;
     this.editMessageButton = widgets.editMessageButton;
     this.commitHeader = widgets.commitHeader;
     this.commitBody = widgets.commitBody;
@@ -809,6 +813,7 @@ class Runtime {
         history: this.history,
         historyText: this.historyText,
         graphAvatars: this.graphAvatars,
+        ensureGraphAvatarSlots: this.ensureGraphAvatarSlots,
         commitDiff: this.commitDiff,
         commitDiffEmpty: this.commitDiffEmpty,
         workingBanner: this.workingBanner,
@@ -981,6 +986,7 @@ class Runtime {
       },
       graphAvatarKeys: runtime.graphAvatarKeys,
       graphAvatarTokens: runtime.graphAvatarTokens,
+      graphAvatarAborts: runtime.graphAvatarAborts,
       // OpenTUI's block protocol can render images even without Kitty or
       // Sixel, so keep photo loading enabled on ordinary terminals too. The
       // pooled graph avatars need real pixels, though: a block-rendered image
@@ -1425,6 +1431,7 @@ class Runtime {
     }
     if (key.name === "q" || (key.ctrl && key.name === "c")) {
       this.avatarAbort?.abort();
+      cancelRuntimeGraphAvatars(this.dataContext());
       if (this.refreshTimer) clearInterval(this.refreshTimer);
       if (this.remoteFetchTimer) clearInterval(this.remoteFetchTimer);
       if (this.scrollTimer) clearTimeout(this.scrollTimer);

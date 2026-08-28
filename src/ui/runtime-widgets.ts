@@ -23,8 +23,8 @@ import {
 
 export type ChangeSection = "unstaged" | "staged";
 
-/** Enough pooled avatars for tall terminals with one commit per row. */
-export const GRAPH_AVATAR_SLOTS = 256;
+/** Hard ceiling on pooled avatars; the pool grows to the terminal height. */
+export const GRAPH_AVATAR_SLOT_LIMIT = 512;
 
 /** Row the diff starts on inside the details pane. */
 export const COMMIT_DIFF_TOP = 2;
@@ -54,6 +54,8 @@ export type RuntimeWidgets = {
   historyText: TextRenderable;
   /** Pooled avatar images layered over graph dots, one per visible row. */
   graphAvatars: ImageRenderable[];
+  /** Grow the avatar pool so `graphAvatars` covers `count` viewport rows. */
+  ensureGraphAvatarSlots: (count: number) => void;
   commitDiff: DiffRenderable;
   commitDiffEmpty: TextRenderable;
   unstagedLabel: TextRenderable;
@@ -888,10 +890,18 @@ export function createRuntimeWidgets(
   const menuText = menu.text;
   const submenuBox = submenu.box;
   const submenuText = submenu.text;
-  const graphAvatars = Array.from(
-    { length: GRAPH_AVATAR_SLOTS },
-    (_, slot) =>
-      new ImageRenderable(renderer, {
+  const graphAvatars: ImageRenderable[] = [];
+  /**
+   * Grow the avatar pool to cover the visible rows.
+   *
+   * Every pooled image is a child of the history pane and is walked each
+   * frame, so a short terminal should not pay for a tall one's slots.
+   */
+  const ensureGraphAvatarSlots = (count: number) => {
+    const target = Math.min(GRAPH_AVATAR_SLOT_LIMIT, count);
+    while (graphAvatars.length < target) {
+      const slot = graphAvatars.length;
+      const avatar = new ImageRenderable(renderer, {
         ...absolute,
         id: `graph-avatar-${slot}`,
         left: 0,
@@ -902,12 +912,19 @@ export function createRuntimeWidgets(
         height: 1,
         fit: "fill",
         protocol: "auto",
+        // Above the history text, which draws the graph dot underneath, and
+        // below the diff overlay. Slots are added to the pane as the viewport
+        // grows, so paint order alone cannot be relied on.
+        zIndex: 1,
         visible: false,
-      }),
-  );
+      });
+      graphAvatars.push(avatar);
+      history.add(avatar);
+    }
+  };
   sidebar.add(sidebarText);
   history.add(historyText);
-  for (const avatar of graphAvatars) history.add(avatar);
+  ensureGraphAvatarSlots(renderer.terminalHeight);
   details.add(commitInfoBox);
   details.add(workingBanner);
   details.add(commitBodyBox);
@@ -959,6 +976,7 @@ export function createRuntimeWidgets(
     sidebarSections,
     historyText,
     graphAvatars,
+    ensureGraphAvatarSlots,
     commitDiff,
     commitDiffEmpty,
     unstagedLabel,
