@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { layoutGraph } from "../../src/ui/graph.js";
+import { layoutGraph, layoutGraphFrom } from "../../src/ui/graph.js";
 import { contextMenu } from "../../src/ui/menu.js";
 import {
   branchPresence,
@@ -436,5 +436,63 @@ describe("decoration summaries", () => {
 
   test("reports nothing for an undecorated commit", () => {
     expect(summariseDecorations([], refs)).toEqual({ label: "", extra: 0 });
+  });
+});
+
+describe("resumable graph layout", () => {
+  const base = {
+    author: "A",
+    authorEmail: "a@b",
+    authoredAt: "2026-01-01",
+    committer: "Test Committer",
+    committerEmail: "committer@example.com",
+    committedAt: "2026-01-01",
+    subject: "x",
+    decorations: [],
+  };
+  const commit = (sha: string, ...parents: string[]) => ({
+    ...base,
+    sha,
+    parents,
+  });
+  const colors = ["red", "green", "blue", "yellow"];
+  // Newest-first history with a merge, fan-out into three lanes, a lane that
+  // ends (so its column is reused), and a crossing back to an older lane.
+  const history = [
+    commit("m1", "t1", "s1"),
+    commit("t1", "t2"),
+    commit("s1", "b1"),
+    commit("t2", "b1"),
+    commit("f1", "b1"),
+    commit("m2", "b1", "x1"),
+    commit("x1", "b2"),
+    commit("b1", "b2"),
+    commit("b2", "root"),
+    commit("root"),
+  ];
+  const mergeIndex = history.findIndex((entry) => entry.sha === "m2");
+
+  for (const headSha of [undefined, "m1", "b1", "root"]) {
+    for (const split of [0, 1, mergeIndex, history.length - 1, history.length])
+      test(`split ${split} with head ${headSha ?? "none"} matches a single pass`, () => {
+        const whole = layoutGraph(history, colors, headSha);
+        const first = layoutGraphFrom(history.slice(0, split), colors, headSha);
+        const second = layoutGraphFrom(
+          history.slice(split),
+          colors,
+          headSha,
+          first.state,
+        );
+        expect([...first.rows, ...second.rows]).toEqual(whole);
+      });
+  }
+
+  test("resuming does not mutate the state the caller still holds", () => {
+    const first = layoutGraphFrom(history.slice(0, 4), colors, "m1");
+    const snapshot = structuredClone(first.state);
+    layoutGraphFrom(history.slice(4), colors, "m1", first.state);
+    const again = layoutGraphFrom(history.slice(4), colors, "m1", first.state);
+    expect(first.state).toEqual(snapshot);
+    expect(again.rows).toEqual(layoutGraph(history, colors, "m1").slice(4));
   });
 });

@@ -1,11 +1,16 @@
 import { describe, expect, test } from "bun:test";
 import type { RepositorySnapshot, WorkingStatus } from "../../src/git/types.js";
+import type { Commit, CommitPage } from "../../src/git/types.js";
 import {
+  HISTORY_PAGE,
+  loadMoreCommits,
   refresh,
   refreshWorkingStatus,
   snapshotSignature,
   type RuntimeDataContext,
 } from "../../src/ui/runtime-data.js";
+import { layoutGraph, layoutGraphFrom } from "../../src/ui/graph.js";
+import { oneDarkTheme } from "../../src/ui/theme.js";
 
 function snapshot(
   overrides: Partial<RepositorySnapshot> = {},
@@ -13,6 +18,7 @@ function snapshot(
   return {
     root: "/repo",
     branch: "main",
+    commitsComplete: true,
     ahead: 0,
     behind: 0,
     files: [],
@@ -46,18 +52,27 @@ function snapshot(
   };
 }
 
-type Stub = RuntimeDataContext & { paints: number; snapshotReads: number };
+type Stub = RuntimeDataContext & {
+  paints: number;
+  snapshotReads: number;
+  historyPaints: number;
+  pageRequests: Array<[number, number]>;
+};
 
 function stubContext(
   initial: RepositorySnapshot | undefined,
   reader: {
     snapshot?: () => Promise<RepositorySnapshot>;
     workingStatus?: () => Promise<WorkingStatus>;
+    commitPage?: (limit: number, skip?: number) => Promise<CommitPage>;
   },
 ): Stub {
+  const laidOut = layoutGraphFrom(initial?.commits ?? [], oneDarkTheme.graph);
   const context = {
     paints: 0,
     snapshotReads: 0,
+    historyPaints: 0,
+    pageRequests: [] as Array<[number, number]>,
     repository: {
       root: "/repo",
       async snapshot() {
@@ -65,11 +80,23 @@ function stubContext(
         return reader.snapshot?.() ?? snapshot();
       },
       workingStatus: reader.workingStatus,
+      commitPage: reader.commitPage
+        ? (limit: number, skip = 0) => {
+            context.pageRequests.push([limit, skip]);
+            return reader.commitPage!(limit, skip);
+          }
+        : undefined,
     },
     widgets: { commitDiff: { visible: false } },
     snapshot: initial,
     snapshotSignature: initial ? snapshotSignature(initial) : undefined,
     snapshotRequest: 0,
+    historyLimit: HISTORY_PAGE,
+    loadingMoreCommits: false,
+    graphRows: laidOut.rows,
+    graphLayoutState: laidOut.state,
+    graphColumns: 1,
+    branchHints: new Map<string, string>(),
     diffRequest: 0,
     commitFilesRequest: 0,
     busy: false,
@@ -85,6 +112,9 @@ function stubContext(
       context.paints++;
     },
     paintFiles() {},
+    paintHistory() {
+      context.historyPaints++;
+    },
     paintHints() {},
     notify() {},
     fail(error: unknown) {
@@ -197,5 +227,155 @@ describe("working-status refresh", () => {
     await refreshWorkingStatus(context);
     expect(context.snapshotReads).toBe(1);
     expect(context.snapshot?.ahead).toBe(3);
+  });
+});
+
+function commit(sha: string, parent?: string): Commit {
+  return {
+    sha,
+    parents: parent ? [parent] : [],
+    author: "Test User",
+    authorEmail: "test@example.com",
+    authoredAt: "2020-01-01T00:00:00+00:00",
+    committer: "Test User",
+    committerEmail: "test@example.com",
+    committedAt: "2020-01-01T00:00:00+00:00",
+    subject: sha,
+    decorations: [],
+  };
+}
+
+/** A linear history, newest first, as Git reports it. */
+function history(length: number): Commit[] {
+  return Array.from({ length }, (_, index) =>
+    commit(`c${index}`, index + 1 < length ? `c${index + 1}` : undefined),
+  );
+}
+
+/** Serve pages the way the repository does, honouring skip. */
+function pager(all: Commit[]) {
+  return async (limit: number, skip = 0): Promise<CommitPage> => {
+    const slice = all.slice(skip, skip + limit + 1);
+    const complete = slice.length <= limit;
+    return { commits: complete ? slice : slice.slice(0, limit), complete };
+  };
+}
+
+describe("paged history", () => {
+  test("appends the next page and keeps the earlier rows", async () => {
+    const all = history(600);
+    const loaded = snapshot({
+      commits: all.slice(0, 250),
+      commitsComplete: false,
+    });
+    const context = stubContext(loaded, { commitPage: pager(all) });
+    const before = context.graphRows.length;
+    await loadMoreCommits(context);
+    // The boundary commit is re-read so the two walks can be compared.
+    expect(context.pageRequests).toEqual([[251, 249]]);
+    expect(context.snapshot?.commits).toHaveLength(500);
+    expect(context.snapshot?.commitsComplete).toBe(false);
+    expect(context.graphRows).toHaveLength(before + 250);
+    expect(context.historyPaints).toBe(1);
+    // The appended rows must match a layout of the whole list, so resuming
+    // the fold cannot drift from a full refresh.
+    expect(context.graphRows).toEqual(
+      layoutGraph(all.slice(0, 500), oneDarkTheme.graph),
+    );
+  });
+
+  test("marks history complete on the last page", async () => {
+    const all = history(300);
+    const context = stubContext(
+      snapshot({ commits: all.slice(0, 250), commitsComplete: false }),
+      { commitPage: pager(all) },
+    );
+    await loadMoreCommits(context);
+    expect(context.snapshot?.commits).toHaveLength(300);
+    expect(context.snapshot?.commitsComplete).toBe(true);
+  });
+
+  test("does nothing once every commit is loaded", async () => {
+    const context = stubContext(snapshot({ commitsComplete: true }), {
+      commitPage: async () => ({ commits: [], complete: true }),
+    });
+    await loadMoreCommits(context);
+    expect(context.pageRequests).toEqual([]);
+    expect(context.historyPaints).toBe(0);
+  });
+
+  test("loads one page at a time", async () => {
+    const all = history(1000);
+    let release: (() => void) | undefined;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const context = stubContext(
+      snapshot({ commits: all.slice(0, 250), commitsComplete: false }),
+      {
+        commitPage: async (limit, skip) => {
+          await gate;
+          return pager(all)(limit, skip);
+        },
+      },
+    );
+    const first = loadMoreCommits(context);
+    await loadMoreCommits(context);
+    release?.();
+    await first;
+    expect(context.pageRequests).toEqual([[251, 249]]);
+  });
+
+  test("relays out the graph when the earlier page no longer matches", async () => {
+    const all = history(600);
+    const moved = [commit("new-tip", "c0"), ...all];
+    const context = stubContext(
+      snapshot({ commits: all.slice(0, 250), commitsComplete: false }),
+      {
+        commitPage: pager(moved),
+      },
+    );
+    await loadMoreCommits(context);
+    expect(context.snapshot?.commits[0]?.sha).toBe("new-tip");
+    expect(context.graphRows).toHaveLength(500);
+    expect(context.graphRows).toEqual(
+      layoutGraph(moved.slice(0, 500), oneDarkTheme.graph),
+    );
+  });
+
+  test("discards a page that a refresh has already replaced", async () => {
+    const all = history(600);
+    let release: (() => void) | undefined;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const context = stubContext(
+      snapshot({ commits: all.slice(0, 250), commitsComplete: false }),
+      {
+        commitPage: async (limit, skip) => {
+          await gate;
+          return pager(all)(limit, skip);
+        },
+      },
+    );
+    const loading = loadMoreCommits(context);
+    const replaced = snapshot({ commits: all.slice(0, 10) });
+    context.snapshot = replaced;
+    release?.();
+    await loading;
+    expect(context.snapshot).toBe(replaced);
+    expect(context.historyPaints).toBe(0);
+  });
+
+  test("keeps a failed page from breaking the loaded history", async () => {
+    const loaded = snapshot({ commits: history(250), commitsComplete: false });
+    const context = stubContext(loaded, {
+      commitPage: async () => {
+        throw new Error("git exploded");
+      },
+    });
+    await loadMoreCommits(context);
+    expect(context.snapshot).toBe(loaded);
+    expect(context.loadingMoreCommits).toBe(false);
   });
 });

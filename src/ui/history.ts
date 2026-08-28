@@ -350,36 +350,53 @@ export function buildCommitBranchHints(
   refs: readonly BranchRef[],
 ): Map<string, string> {
   const commitsBySha = new Map(commits.map((commit) => [commit.sha, commit]));
-  const best = new Map<
+  const best = new Map<string, BranchRef>();
+  // One multi-source walk, level by level, settles every commit at its
+  // smallest hop distance and expands it once; walking per ref re-walks shared
+  // history once per ref, which dominates on repositories with many refs.
+  let frontier = new Map<
     string,
-    { distance: number; priority: number; ref: BranchRef }
+    { priority: number; order: number; ref: BranchRef }
   >();
-  for (const ref of refs) {
-    const queue: Array<{ sha: string; distance: number }> = [
-      { sha: ref.sha, distance: 0 },
-    ];
-    const seen = new Set<string>();
-    for (let at = 0; at < queue.length; at++) {
-      const item = queue[at]!;
-      if (seen.has(item.sha)) continue;
-      seen.add(item.sha);
-      const priority = ref.current ? 0 : ref.remote ? 2 : 1;
-      const previous = best.get(item.sha);
-      if (
-        !previous ||
-        item.distance < previous.distance ||
-        (item.distance === previous.distance && priority < previous.priority)
-      )
-        best.set(item.sha, { distance: item.distance, priority, ref });
-      const commit = commitsBySha.get(item.sha);
+  const consider = (
+    into: Map<string, { priority: number; order: number; ref: BranchRef }>,
+    sha: string,
+    candidate: { priority: number; order: number; ref: BranchRef },
+  ) => {
+    if (best.has(sha)) return;
+    const previous = into.get(sha);
+    if (
+      !previous ||
+      candidate.priority < previous.priority ||
+      (candidate.priority === previous.priority &&
+        candidate.order < previous.order)
+    )
+      into.set(sha, candidate);
+  };
+  refs.forEach((ref, order) => {
+    consider(frontier, ref.sha, {
+      priority: ref.current ? 0 : ref.remote ? 2 : 1,
+      order,
+      ref,
+    });
+  });
+  while (frontier.size > 0) {
+    const next = new Map<
+      string,
+      { priority: number; order: number; ref: BranchRef }
+    >();
+    for (const [sha, candidate] of frontier) best.set(sha, candidate.ref);
+    for (const [sha, candidate] of frontier) {
+      const commit = commitsBySha.get(sha);
       for (const parent of commit?.parents ?? [])
-        queue.push({ sha: parent, distance: item.distance + 1 });
+        consider(next, parent, candidate);
     }
+    frontier = next;
   }
   return new Map(
-    [...best].map(([sha, value]) => [
+    [...best].map(([sha, ref]) => [
       sha,
-      `↳ ${value.ref.remote ? REMOTE_BRANCH_ICON : LAPTOP_BRANCH_ICON} ${displayBranchName(value.ref.name)}`,
+      `↳ ${ref.remote ? REMOTE_BRANCH_ICON : LAPTOP_BRANCH_ICON} ${displayBranchName(ref.name)}`,
     ]),
   );
 }

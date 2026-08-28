@@ -80,6 +80,14 @@ export interface RepositorySnapshot {
   worktrees: Worktree[];
   submodules: Submodule[];
   commits: Commit[];
+  /** False while older commits remain unread beyond the requested page. */
+  commitsComplete: boolean;
+}
+
+/** One page of history, with whether it reached the end of the graph. */
+export interface CommitPage {
+  commits: Commit[];
+  complete: boolean;
 }
 
 /** The subset of a snapshot that an index or working-tree change can alter. */
@@ -107,6 +115,11 @@ export interface GitRepository {
   readonly root: string;
   remoteUrl?(): Promise<string | undefined>;
   snapshot(limit?: number): Promise<RepositorySnapshot>;
+  /**
+   * Optional history-only read, used to extend the loaded page without
+   * paying for the rest of a snapshot. Callers without it cannot page.
+   */
+  commitPage?(limit: number, skip?: number): Promise<CommitPage>;
   /**
    * Optional fast path for refreshes that cannot have changed history.
    * Callers fall back to a full snapshot when an implementation omits it.
