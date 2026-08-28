@@ -84,6 +84,8 @@ import {
   openWorkingDiff as openRuntimeWorkingDiff,
   refresh as refreshRuntimeData,
   showCommitMeta as showRuntimeCommitMeta,
+  updateGraphAvatars as updateRuntimeGraphAvatars,
+  type GraphAvatarRequest,
   type RuntimeDataContext,
 } from "./runtime-data.js";
 import {
@@ -239,6 +241,7 @@ class Runtime {
   private readonly authorBadge: TextRenderable;
   private readonly commitCoAuthors: TextRenderable;
   private readonly commitCoAuthorProvider: ImageRenderable;
+  private readonly graphAvatars: ImageRenderable[];
   private readonly editMessageButton: TextRenderable;
   private readonly commitHeader: TextRenderable;
   private readonly commitBody: TextRenderable;
@@ -304,6 +307,8 @@ class Runtime {
   private commitCoAuthorsProviderVisible = false;
   private avatarRequest = 0;
   private avatarAbort?: AbortController;
+  private graphAvatarShas: Array<string | undefined> = [];
+  private graphAvatarTokens: number[] = [];
   private preferredUnstagedHeight?: number;
   private preferredComposerHeight?: number;
   private preferencesTimer?: ReturnType<typeof setTimeout>;
@@ -413,6 +418,7 @@ class Runtime {
     this.authorBadge = widgets.authorBadge;
     this.commitCoAuthors = widgets.commitCoAuthors;
     this.commitCoAuthorProvider = widgets.commitCoAuthorProvider;
+    this.graphAvatars = widgets.graphAvatars;
     this.editMessageButton = widgets.editMessageButton;
     this.commitHeader = widgets.commitHeader;
     this.commitBody = widgets.commitBody;
@@ -802,6 +808,7 @@ class Runtime {
       widgets: {
         history: this.history,
         historyText: this.historyText,
+        graphAvatars: this.graphAvatars,
         commitDiff: this.commitDiff,
         commitDiffEmpty: this.commitDiffEmpty,
         workingBanner: this.workingBanner,
@@ -972,9 +979,15 @@ class Runtime {
       set avatarAbort(value) {
         runtime.avatarAbort = value;
       },
+      graphAvatarShas: runtime.graphAvatarShas,
+      graphAvatarTokens: runtime.graphAvatarTokens,
       // OpenTUI's block protocol can render images even without Kitty or
-      // Sixel, so keep photo loading enabled on ordinary terminals too.
-      avatarSupported: true,
+      // Sixel, so keep photo loading enabled on ordinary terminals too. The
+      // pooled graph avatars need real pixels, though: a 2x2-cell half-block
+      // image is an unrecognizable smear.
+      get avatarSupported() {
+        return runtime.authorPhoto.effectiveProtocol !== "blocks";
+      },
       files: () => this.files(),
       selectedFile: () => this.selectedFile(),
       ensureFileVisible: () => this.ensureFileVisible(),
@@ -1031,6 +1044,9 @@ class Runtime {
       historyShaHits: this.historyShaHits,
       historyLabelHits: this.historyLabelHits,
       historyText: this.historyText,
+      commitDiffVisible: this.commitDiff.visible,
+      updateGraphAvatars: (requests: readonly GraphAvatarRequest[]) =>
+        updateRuntimeGraphAvatars(this.dataContext(), requests),
       editingCommitSha: this.editingCommitSha,
       composerSummary: this.composerSummary,
       commitButton: this.commitButton,

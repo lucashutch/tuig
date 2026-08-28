@@ -23,6 +23,9 @@ import {
 
 export type ChangeSection = "unstaged" | "staged";
 
+/** Enough pooled avatars to cover any reasonable history viewport. */
+export const GRAPH_AVATAR_SLOTS = 48;
+
 /** Row the diff starts on inside the details pane. */
 export const COMMIT_DIFF_TOP = 2;
 
@@ -49,6 +52,8 @@ export type RuntimeWidgets = {
     }
   >;
   historyText: TextRenderable;
+  /** Pooled avatar images layered over graph dots, one per visible row. */
+  graphAvatars: ImageRenderable[];
   commitDiff: DiffRenderable;
   commitDiffEmpty: TextRenderable;
   unstagedLabel: TextRenderable;
@@ -883,8 +888,24 @@ export function createRuntimeWidgets(
   const menuText = menu.text;
   const submenuBox = submenu.box;
   const submenuText = submenu.text;
+  const graphAvatars = Array.from(
+    { length: GRAPH_AVATAR_SLOTS },
+    (_, slot) =>
+      new ImageRenderable(renderer, {
+        ...absolute,
+        id: `graph-avatar-${slot}`,
+        left: 0,
+        top: 0,
+        width: 2,
+        height: 2,
+        fit: "cover",
+        protocol: "auto",
+        visible: false,
+      }),
+  );
   sidebar.add(sidebarText);
   history.add(historyText);
+  for (const avatar of graphAvatars) history.add(avatar);
   details.add(commitInfoBox);
   details.add(workingBanner);
   details.add(commitBodyBox);
@@ -935,6 +956,7 @@ export function createRuntimeWidgets(
     sidebarText,
     sidebarSections,
     historyText,
+    graphAvatars,
     commitDiff,
     commitDiffEmpty,
     unstagedLabel,

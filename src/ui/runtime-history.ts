@@ -1,6 +1,7 @@
 import { MouseButton, type CliRenderer } from "@opentui/core";
 import type { BranchRef, RepositorySnapshot, Stash } from "../git/types.js";
 import type { GraphRow } from "./graph.js";
+import { GRAPH_ROW_LINES } from "./runtime-paint.js";
 import { shortSha } from "./history.js";
 
 export interface RuntimeHistoryContext {
@@ -82,15 +83,38 @@ export function scrollHistoryViewport(
   delta: number,
 ) {
   if (!context.snapshot) return;
+  const hasWorking = context.snapshot.files.length > 0;
+  const lines = Math.max(1, context.contentHeight - 3);
   const total =
     context.graphRows.length + (context.snapshot.files.length > 0 ? 1 : 0);
-  const visible = Math.max(1, context.contentHeight - 3);
+  const reserved = hasWorking && context.historyStart === 0 ? 1 : 0;
+  const visible = Math.max(1, Math.floor((lines - reserved) / GRAPH_ROW_LINES));
   context.historyViewportDetached = true;
   context.historyStart = Math.max(
     0,
     Math.min(Math.max(0, total - visible), context.historyStart + delta),
   );
   context.paintHistory();
+}
+
+/**
+ * Map a clicked history line to a commit row.
+ *
+ * The first body line is the working row when it is on screen; every commit
+ * then owns GRAPH_ROW_LINES lines, so a click on a continuation line selects
+ * the commit whose dot sits above it.
+ */
+export function commitRowAtLine(
+  bodyLine: number,
+  start: number,
+  hasWorking: boolean,
+): number {
+  if (bodyLine < 0) return -1;
+  if (hasWorking && start === 0 && bodyLine === 0) return -1;
+  const commitLine = bodyLine - (hasWorking && start === 0 ? 1 : 0);
+  if (commitLine < 0) return -1;
+  const base = start - (hasWorking && start > 0 ? 1 : 0);
+  return base + Math.floor(commitLine / GRAPH_ROW_LINES);
 }
 
 export function historyClick(
@@ -105,15 +129,16 @@ export function historyClick(
   context.pendingScroll = 0;
   context.historyViewportDetached = false;
   const hasWorking = (context.snapshot?.files.length ?? 0) > 0;
-  const displayIndex = context.historyStart + y - 2;
-  if (hasWorking && displayIndex === 0) {
+  // Header occupies the first body line offset, then the working row (one
+  // line) and two-line commit rows follow.
+  const row = commitRowAtLine(y - 2, context.historyStart, hasWorking);
+  if (hasWorking && context.historyStart === 0 && y - 2 === 0) {
     context.diffOrigin = undefined;
     context.closeDiff();
     context.mode = "unstaged";
     context.paint();
     return;
   }
-  const row = displayIndex - (hasWorking ? 1 : 0);
   if (row < 0 || row >= (context.snapshot?.commits.length ?? 0)) return;
   context.commitIndex = row;
   context.historySelection = "commit";
