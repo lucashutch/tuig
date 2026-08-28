@@ -57,6 +57,26 @@ describe("porcelain parsers", () => {
       },
     ]);
   });
+  test("parses multiple stash records separated by NUL and newline", () => {
+    expect(
+      parseStashes(
+        "stash@{0}\tabc\t2 hours ago\tfirst\0\nstash@{1}\tdef\tyesterday\tsecond\0\n",
+      ),
+    ).toEqual([
+      {
+        ref: "stash@{0}",
+        sha: "abc",
+        createdAt: "2 hours ago",
+        subject: "first",
+      },
+      {
+        ref: "stash@{1}",
+        sha: "def",
+        createdAt: "yesterday",
+        subject: "second",
+      },
+    ]);
+  });
 
   test("parses full worktree SHA and normalizes branch", () => {
     const sha = "1234567890123456789012345678901234567890";
@@ -349,6 +369,15 @@ test("rewords merge commits while preserving merge topology and tree", async () 
   const tree = (
     await runGit(["show", "-s", "--format=%T", "HEAD"], root)
   ).stdout.trim();
+  expect(await repo.commitFiles(merge)).toMatchObject([
+    { path: "topic", state: "added" },
+  ]);
+  expect(await repo.diff({ commit: merge })).toContain(
+    "diff --git a/topic b/topic",
+  );
+  expect(await repo.diff({ commit: merge })).not.toContain(
+    "diff --git a/main b/main",
+  );
   await repo.rewordCommit(merge, "renamed merge");
   expect((await runGit(["log", "-1", "--format=%s"], root)).stdout.trim()).toBe(
     "renamed merge",
@@ -478,6 +507,48 @@ test("creates branches and lightweight tags, cherry-picks, and manages stashes",
   const dropRef = (await repo.snapshot()).stashes[0]!.ref;
   await repo.dropStash(dropRef);
   expect((await repo.snapshot()).stashes).toHaveLength(0);
+});
+
+test("loads multiple stashes and shows their first-parent changes", async () => {
+  const root = await mkdtemp(join(tmpdir(), "tuig-stash-diff-test-"));
+  cleanup.push(root);
+  await runGit(["init", "-b", "main"], root);
+  await runGit(["config", "user.name", "Test User"], root);
+  await runGit(["config", "user.email", "test@example.com"], root);
+  await Bun.write(join(root, "file"), "base\n");
+  await runGit(["add", "file"], root);
+  await runGit(["commit", "-m", "base"], root);
+  const repo = await GitRepositoryService.open(root);
+
+  await Bun.write(join(root, "file"), "first\n");
+  await repo.stash("first stash");
+  await Bun.write(join(root, "file"), "second\n");
+  await Bun.write(join(root, "untracked.txt"), "untracked stash content\n");
+  await repo.stash("second stash", true);
+
+  const snapshot = await repo.snapshot();
+  expect(snapshot.stashes).toHaveLength(2);
+  expect(snapshot.stashes.map((stash) => stash.ref)).toEqual([
+    "stash@{0}",
+    "stash@{1}",
+  ]);
+  const stashSha = snapshot.stashes[0]!.sha;
+  expect(await repo.commitFiles(stashSha)).toMatchObject([
+    { path: "file", state: "modified" },
+    { path: "untracked.txt", state: "added" },
+  ]);
+  expect(await repo.diff({ commit: stashSha, path: "file" })).toContain(
+    "+second",
+  );
+  const untrackedPatch = await repo.diff({
+    commit: stashSha,
+    path: "untracked.txt",
+  });
+  expect(untrackedPatch).toContain("new file mode");
+  expect(untrackedPatch).toContain("+untracked stash content");
+  expect(await repo.diff({ commit: stashSha })).toContain(
+    "diff --git a/untracked.txt b/untracked.txt",
+  );
 });
 
 test("rejects empty or invalid tag names before creating a ref", async () => {
