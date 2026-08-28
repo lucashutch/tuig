@@ -49,6 +49,7 @@ export interface RuntimeDataContext {
     | "authorBadge"
     | "commitCoAuthors"
     | "commitCoAuthorProvider"
+    | "graphAvatars"
   >;
   snapshot?: RepositorySnapshot;
   snapshotRequest: number;
@@ -77,6 +78,10 @@ export interface RuntimeDataContext {
   avatarRequest: number;
   avatarAbort?: AbortController;
   avatarSupported: boolean;
+  /** Sha currently shown in each pooled graph avatar slot. */
+  graphAvatarShas: Array<string | undefined>;
+  /** Monotonic token per slot; stale loads must not paint a newer commit. */
+  graphAvatarTokens: number[];
   files(): ChangedFile[];
   selectedFile(): ChangedFile | undefined;
   ensureFileVisible(): void;
@@ -401,6 +406,90 @@ async function loadAuthorPhoto(
     ctx.widgets.authorBadge.visible = false;
   } catch {
     // The initials badge is the deliberate fallback for missing or offline avatars.
+  }
+}
+
+export interface GraphAvatarRequest {
+  /** Index into the pooled ImageRenderables. */
+  slot: number;
+  commit: Commit;
+  /** Position of the commit's graph dot, in history-pane coordinates. */
+  left: number;
+  top: number;
+}
+
+/**
+ * Point the pooled graph avatars at the commits currently on screen.
+ *
+ * Slots keep their commit until another commit claims them, so repainting
+ * without a scroll never re-downloads anything. Requests are dropped while a
+ * diff overlay covers the history pane, which hides every slot.
+ */
+export function updateGraphAvatars(
+  ctx: RuntimeDataContext,
+  requests: readonly GraphAvatarRequest[],
+) {
+  const slots = ctx.widgets.graphAvatars;
+  for (let slot = 0; slot < slots.length; slot++) {
+    const widget = slots[slot]!;
+    const request = requests[slot];
+    if (!request) {
+      if (ctx.graphAvatarShas[slot] !== undefined) {
+        ctx.graphAvatarShas[slot] = undefined;
+        ctx.graphAvatarTokens[slot] = (ctx.graphAvatarTokens[slot] ?? 0) + 1;
+      }
+      widget.visible = false;
+      widget.source = undefined;
+      continue;
+    }
+    widget.left = request.left;
+    widget.top = request.top;
+    if (ctx.graphAvatarShas[slot] === request.commit.sha) continue;
+    ctx.graphAvatarShas[slot] = request.commit.sha;
+    ctx.graphAvatarTokens[slot] = (ctx.graphAvatarTokens[slot] ?? 0) + 1;
+    widget.visible = false;
+    widget.source = undefined;
+    if (ctx.avatarSupported)
+      void loadGraphAvatar(
+        ctx,
+        slot,
+        request.commit,
+        ctx.graphAvatarTokens[slot]!,
+      );
+  }
+}
+
+async function loadGraphAvatar(
+  ctx: RuntimeDataContext,
+  slot: number,
+  commit: Commit,
+  token: number,
+) {
+  try {
+    const remote = await ctx.repository.remoteUrl?.();
+    const githubAvatar = await getGitHubCommitAvatar(
+      remote,
+      commit.sha,
+      commit.authorEmail,
+    );
+    let image = githubAvatar
+      ? await loadCachedAvatar(githubAvatar).catch(() => undefined)
+      : undefined;
+    const gravatar = getGravatarUrl(commit.authorEmail);
+    image ??= gravatar
+      ? await loadCachedAvatar(gravatar).catch(() => undefined)
+      : undefined;
+    if (!image || token !== ctx.graphAvatarTokens[slot]) {
+      image?.dispose();
+      return;
+    }
+    const widget = ctx.widgets.graphAvatars[slot]!;
+    widget.source = image;
+    // ImageRenderable retains its own reference to the native image.
+    image.dispose();
+    widget.visible = true;
+  } catch {
+    // The painted graph dot remains the fallback when avatars are unusable.
   }
 }
 

@@ -19,6 +19,7 @@ import {
   summariseDecorations,
 } from "./history.js";
 import { resolveMaterialIcon } from "./icon-theme.js";
+import type { GraphAvatarRequest } from "./runtime-data.js";
 import {
   SIDEBAR_SECTIONS,
   fileColor,
@@ -78,6 +79,9 @@ export interface RuntimePaintContext {
     { start: number; end: number; ref?: BranchRef }
   >;
   historyText: TextRenderable;
+  /** True while a diff overlay covers the history pane. */
+  commitDiffVisible: boolean;
+  updateGraphAvatars(requests: readonly GraphAvatarRequest[]): void;
   editingCommitSha?: string;
   composerSummary: InputRenderable;
   commitButton: TextRenderable;
@@ -175,11 +179,14 @@ export function paint(ctx: RuntimePaintContext) {
   paintFiles(ctx);
 }
 
+/** Physical terminal lines per commit row; the extra line enlarges the dot. */
+export const GRAPH_ROW_LINES = 2;
+
 export function paintHistory(ctx: RuntimePaintContext) {
   const s = ctx.snapshot;
   if (!s) return;
   const hasWorking = s.files.length > 0,
-    visible = Math.max(1, ctx.contentHeight - 3),
+    lines = Math.max(1, ctx.contentHeight - 3),
     total = ctx.graphRows.length + (hasWorking ? 1 : 0);
   const selectedDisplay =
     ctx.historySelection === "working" && hasWorking
@@ -188,11 +195,15 @@ export function paintHistory(ctx: RuntimePaintContext) {
   let start = ctx.historyStart;
   if (!ctx.historyViewportDetached) {
     if (selectedDisplay < start) start = selectedDisplay;
-    else if (selectedDisplay >= start + visible)
-      start = selectedDisplay - visible + 1;
+    else if (selectedDisplay >= start + visibleUnits(ctx, start))
+      start = selectedDisplay - visibleUnits(ctx, start) + 1;
   }
-  start = Math.max(0, Math.min(Math.max(0, total - visible), start));
+  start = Math.max(
+    0,
+    Math.min(Math.max(0, total - visibleUnits(ctx, start)), start),
+  );
   ctx.setHistoryStart(start);
+  const visible = visibleUnits(ctx, start);
   const chunks = [
     fg(ctx.focus === "history" ? oneDarkTheme.accent : oneDarkTheme.muted)(
       ` BRANCH / TAG          GRAPH  ${s.commits.length} COMMITS\n`,
@@ -215,31 +226,38 @@ export function paintHistory(ctx: RuntimePaintContext) {
       : 0;
   const thumb = (o: number) => o >= thumbStart && o < thumbStart + thumbSize,
     scroll = (o: number) => (thumb(o) ? "█" : "│");
-  for (let offset = 0; offset < visible; offset++) {
-    const displayIndex = start + offset;
-    if (displayIndex >= total) break;
-    if (hasWorking && displayIndex === 0) {
-      const selected = ctx.historySelection === "working",
-        rowBg = selected ? oneDarkTheme.selected : oneDarkTheme.panelRaised,
-        working = selected ? "▸ ● Working changes" : "  ● Working changes",
-        count = `  ${s.files.length} files`,
-        countWidth = Math.max(
-          Bun.stringWidth(count),
-          ctx.historyContentWidth - Bun.stringWidth(working) - 1,
-        );
-      chunks.push(
-        bg(rowBg)(fg(oneDarkTheme.warning)(working)),
-        bg(rowBg)(fg(oneDarkTheme.muted)(count.padEnd(countWidth))),
-        bg(rowBg)(
-          fg(thumb(offset) ? oneDarkTheme.accent : oneDarkTheme.border)(
-            `${scroll(offset)}\n`,
-          ),
-        ),
+  const avatarRequests: GraphAvatarRequest[] = [];
+  let line = 0;
+  // While the working row is on screen it still takes a single line; past it
+  // every commit owns GRAPH_ROW_LINES lines.
+  if (hasWorking && start === 0 && line < lines) {
+    const selected = ctx.historySelection === "working",
+      rowBg = selected ? oneDarkTheme.selected : oneDarkTheme.panelRaised,
+      working = selected ? "▸ ● Working changes" : "  ● Working changes",
+      count = `  ${s.files.length} files`,
+      countWidth = Math.max(
+        Bun.stringWidth(count),
+        ctx.historyContentWidth - Bun.stringWidth(working) - 1,
       );
-      continue;
-    }
-    const commitRow = displayIndex - (hasWorking ? 1 : 0),
+    chunks.push(
+      bg(rowBg)(fg(oneDarkTheme.warning)(working)),
+      bg(rowBg)(fg(oneDarkTheme.muted)(count.padEnd(countWidth))),
+      bg(rowBg)(
+        fg(thumb(0) ? oneDarkTheme.accent : oneDarkTheme.border)(
+          `${scroll(0)}\n`,
+        ),
+      ),
+    );
+    line++;
+  }
+  for (
+    let unit = Math.max(start, hasWorking && start === 0 ? 1 : 0);
+    unit < total && line < lines;
+    unit++
+  ) {
+    const commitRow = unit - (hasWorking ? 1 : 0),
       row = ctx.graphRows[commitRow]!,
+      offset = unit - start,
       selected =
         ctx.historySelection === "commit" && commitRow === ctx.commitIndex,
       summary = summariseDecorations(row.commit.decorations, s.branches);
@@ -292,6 +310,36 @@ export function paintHistory(ctx: RuntimePaintContext) {
         ),
       ),
     );
+    const dotLine = line;
+    line++;
+    // The second line keeps each lane's route running between dots, so the
+    // enlarged avatar has room without breaking the graph apart.
+    if (line < lines) {
+      const graphWidth = labelWidth + 2 + ctx.graphColumns * 2,
+        contentPad = Math.max(1, ctx.historyContentWidth - graphWidth - 1),
+        connectorPadding = Math.max(
+          0,
+          ctx.graphColumns - row.connectors.length,
+        );
+      chunks.push(
+        bg(rowBg)(fg(oneDarkTheme.muted)("  ".repeat(labelWidth + 2))),
+        ...row.connectors.map((c) => bg(rowBg)(fg(c.color)(c.symbol))),
+        bg(rowBg)(fg(oneDarkTheme.muted)("  ".repeat(connectorPadding))),
+        bg(rowBg)(fg(oneDarkTheme.muted)(" ".repeat(contentPad))),
+        bg(rowBg)(
+          fg(thumb(offset) ? oneDarkTheme.accent : oneDarkTheme.border)(
+            `${scroll(offset)}\n`,
+          ),
+        ),
+      );
+      line++;
+    }
+    avatarRequests.push({
+      slot: avatarRequests.length,
+      commit: row.commit,
+      left: 1 + labelWidth + 2 + row.lane * 2,
+      top: 2 + dotLine,
+    });
     const shaStart =
       labelWidth +
       2 +
@@ -309,6 +357,15 @@ export function paintHistory(ctx: RuntimePaintContext) {
       });
   }
   ctx.historyText.content = new StyledText(chunks);
+  ctx.updateGraphAvatars(ctx.commitDiffVisible ? [] : avatarRequests);
+}
+
+/** Commit rows that fit in the history viewport from a given scroll offset. */
+function visibleUnits(ctx: RuntimePaintContext, start: number): number {
+  const lines = Math.max(1, ctx.contentHeight - 3);
+  const reserved =
+    ctx.snapshot && ctx.snapshot.files.length > 0 && start === 0 ? 1 : 0;
+  return Math.max(1, Math.floor((lines - reserved) / GRAPH_ROW_LINES));
 }
 
 export function paintFiles(ctx: RuntimePaintContext) {
