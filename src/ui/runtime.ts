@@ -307,7 +307,7 @@ class Runtime {
   private commitCoAuthorsProviderVisible = false;
   private avatarRequest = 0;
   private avatarAbort?: AbortController;
-  private graphAvatarShas: Array<string | undefined> = [];
+  private graphAvatarKeys: Array<string | undefined> = [];
   private graphAvatarTokens: number[] = [];
   private preferredUnstagedHeight?: number;
   private preferredComposerHeight?: number;
@@ -979,7 +979,7 @@ class Runtime {
       set avatarAbort(value) {
         runtime.avatarAbort = value;
       },
-      graphAvatarShas: runtime.graphAvatarShas,
+      graphAvatarKeys: runtime.graphAvatarKeys,
       graphAvatarTokens: runtime.graphAvatarTokens,
       // OpenTUI's block protocol can render images even without Kitty or
       // Sixel, so keep photo loading enabled on ordinary terminals too. The

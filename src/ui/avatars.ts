@@ -31,6 +31,75 @@ export function getGravatarUrl(email: string): string | undefined {
   return `https://www.gravatar.com/avatar/${hash}?s=64&d=404`;
 }
 
+// Processed avatars are small, so the mask and ring stay cheap to recompute
+// while scrolling, and the cache keeps even that work off the paint path.
+const AVATAR_SIZE = 64;
+const circularCache = new Map<string, NativeImage>();
+
+function ringRgb(color: string): [number, number, number] | undefined {
+  const hex = color.trim().replace(/^#/, "");
+  if (!/^[0-9a-fA-F]{6}$/.test(hex)) return undefined;
+  return [
+    parseInt(hex.slice(0, 2), 16),
+    parseInt(hex.slice(2, 4), 16),
+    parseInt(hex.slice(4, 6), 16),
+  ];
+}
+
+/**
+ * Mask an avatar into a circle with an outline in the lane color.
+ *
+ * The result is a square RGBA image with transparent corners, so the branch
+ * line can pass behind the avatar the way desktop Git clients draw it. The
+ * ring sits inside the circle edge: an outline drawn outside would be cut
+ * off by the image bounds.
+ */
+export function circularAvatar(
+  image: NativeImage,
+  ringColor: string,
+  cacheKey: string,
+): NativeImage {
+  const cached = circularCache.get(cacheKey);
+  if (cached) return cached.clone();
+  const size = AVATAR_SIZE;
+  const resized = image.resize({ width: size, height: size });
+  const raw = resized.raw("rgba8");
+  const pixels = new Uint8Array(size * size * 4);
+  const stride = raw.stride || size * 4;
+  const ring = ringRgb(ringColor) ?? [136, 136, 136];
+  const center = (size - 1) / 2;
+  const outer = size / 2 - 1;
+  const inner = outer - Math.max(3, Math.round(size * 0.075));
+  for (let y = 0; y < size; y++) {
+    for (let x = 0; x < size; x++) {
+      const distance = Math.hypot(x - center, y - center);
+      const out = (y * size + x) * 4;
+      if (distance > outer) {
+        pixels[out + 3] = 0;
+        continue;
+      }
+      if (distance >= inner) {
+        pixels[out] = ring[0];
+        pixels[out + 1] = ring[1];
+        pixels[out + 2] = ring[2];
+        // Soften the ring's outer and inner edges with a one-pixel ramp.
+        pixels[out + 3] =
+          distance > outer - 1 ? Math.round(255 * (outer - distance)) : 255;
+        continue;
+      }
+      const source = y * stride + x * 4;
+      pixels[out] = raw.data[source]!;
+      pixels[out + 1] = raw.data[source + 1]!;
+      pixels[out + 2] = raw.data[source + 2]!;
+      pixels[out + 3] = raw.data[source + 3]!;
+    }
+  }
+  resized.dispose();
+  const masked = NativeImage.fromRgba(pixels, size, size);
+  circularCache.set(cacheKey, masked);
+  return masked.clone();
+}
+
 function avatarCachePath(source: string): string {
   const cacheHome = process.env.XDG_CACHE_HOME || join(homedir(), ".cache");
   const key = createHash("sha256").update(source).digest("hex");
