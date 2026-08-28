@@ -49,14 +49,19 @@ function ringRgb(color: string): [number, number, number] | undefined {
 /**
  * Mask an avatar into a circle with an outline in the lane color.
  *
- * The result is a square RGBA image with transparent corners, so the branch
- * line can pass behind the avatar the way desktop Git clients draw it. The
- * ring sits inside the circle edge: an outline drawn outside would be cut
- * off by the image bounds.
+ * `stretch` is the avatar box's pixel height over its pixel width; the mask
+ * is an ellipse with the inverse ratio, so the "fill" stretch that maps the
+ * square image onto the box restores a circle on screen. Corners are painted
+ * with the row background instead of left transparent: terminal image
+ * protocols are inconsistent about alpha, and an opaque corner that matches
+ * the row reads as blended either way. The ring sits inside the circle edge,
+ * because an outline drawn outside would be cut off by the image bounds.
  */
 export function circularAvatar(
   image: NativeImage,
   ringColor: string,
+  background: string,
+  stretch: number,
   cacheKey: string,
 ): NativeImage {
   const cached = circularCache.get(cacheKey);
@@ -67,27 +72,38 @@ export function circularAvatar(
   const pixels = new Uint8Array(size * size * 4);
   const stride = raw.stride || size * 4;
   const ring = ringRgb(ringColor) ?? [136, 136, 136];
+  const corner = ringRgb(background) ?? [0, 0, 0];
   const center = (size - 1) / 2;
   const outer = size / 2 - 1;
-  const inner = outer - Math.max(3, Math.round(size * 0.075));
+  // The box is `stretch` times taller than wide in pixels, so the on-screen
+  // circle maps to an ellipse that is relatively wider in image coordinates.
+  const ratio = Math.max(0.5, Math.min(2, stretch || 1));
+  const outerY = outer / ratio;
+  const ringThickness = Math.max(3, Math.round(size * 0.075));
   for (let y = 0; y < size; y++) {
     for (let x = 0; x < size; x++) {
-      const distance = Math.hypot(x - center, y - center);
+      const dx = (x - center) / outer;
+      const dy = (y - center) / outerY;
+      const distance = Math.hypot(dx, dy);
       const out = (y * size + x) * 4;
-      if (distance > outer) {
-        pixels[out + 3] = 0;
+      const source = y * stride + x * 4;
+      if (distance >= 1) {
+        // Opaque corners in the row background blend with the pane even in
+        // terminals that ignore image alpha.
+        pixels[out] = corner[0];
+        pixels[out + 1] = corner[1];
+        pixels[out + 2] = corner[2];
+        pixels[out + 3] = 255;
         continue;
       }
-      if (distance >= inner) {
+      if (distance >= 1 - ringThickness / outer) {
         pixels[out] = ring[0];
         pixels[out + 1] = ring[1];
         pixels[out + 2] = ring[2];
-        // Soften the ring's outer and inner edges with a one-pixel ramp.
-        pixels[out + 3] =
-          distance > outer - 1 ? Math.round(255 * (outer - distance)) : 255;
+        // Soften the ring's outer edge with a one-pixel ramp.
+        pixels[out + 3] = distance > 1 - 1 / outer ? 128 : 255;
         continue;
       }
-      const source = y * stride + x * 4;
       pixels[out] = raw.data[source]!;
       pixels[out + 1] = raw.data[source + 1]!;
       pixels[out + 2] = raw.data[source + 2]!;
