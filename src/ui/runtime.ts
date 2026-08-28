@@ -44,7 +44,9 @@ import {
   paintComposer as paintRuntimeComposer,
   paintFiles as paintRuntimeFiles,
   paintHistory as paintRuntimeHistory,
+  paintSidebar as paintRuntimeSidebar,
   type RuntimePaintContext,
+  type RuntimeSidebarPaintContext,
 } from "./runtime-paint.js";
 import { oneDarkTheme } from "./theme.js";
 import {
@@ -107,6 +109,7 @@ import {
   finishBranchFilter as finishRuntimeBranchFilter,
   resizeSidebar as resizeRuntimeSidebar,
   sidebarClick as handleSidebarClick,
+  cancelSidebarScroll as cancelRuntimeSidebarScroll,
   sidebarScroll as scrollRuntimeSidebar,
   startBranchFilter as startRuntimeBranchFilter,
   toggleSidebarSection as toggleRuntimeSidebarSection,
@@ -356,6 +359,23 @@ class Runtime {
     stashes: 0,
     worktrees: 0,
   };
+  private sidebarPendingScroll: Record<SidebarSection, number> = {
+    local: 0,
+    remote: 0,
+    submodules: 0,
+    stashes: 0,
+    worktrees: 0,
+  };
+  private sidebarScrollTimers: Record<
+    SidebarSection,
+    ReturnType<typeof setTimeout> | undefined
+  > = {
+    local: undefined,
+    remote: undefined,
+    submodules: undefined,
+    stashes: undefined,
+    worktrees: undefined,
+  };
   private detailsCollapsed = false;
   private branchFilter = "";
   private branchFilterActive = false;
@@ -557,6 +577,7 @@ class Runtime {
       },
     });
     this.branchFilterInput.on(InputRenderableEvents.INPUT, () => {
+      cancelRuntimeSidebarScroll(this.sidebarContext());
       this.branchFilter = this.branchFilterInput.value;
       this.sidebarStart.local = 0;
       this.sidebarStart.remote = 0;
@@ -1212,6 +1233,21 @@ class Runtime {
   private paint() {
     paintRuntime(this.paintContext());
   }
+  private sidebarPaintContext(): RuntimeSidebarPaintContext {
+    return {
+      snapshot: this.snapshot,
+      contentHeight: this.contentHeight,
+      sidebarPreferred: this.sidebarPreferred,
+      sidebarCollapsed: this.sidebarCollapsed,
+      sidebarStart: this.sidebarStart,
+      sidebarSections: this.sidebarSections,
+      sidebarPaneWidth: this.sidebarPaneWidth,
+      branchFilter: this.branchFilter,
+    };
+  }
+  private paintSidebar() {
+    paintRuntimeSidebar(this.sidebarPaintContext());
+  }
   private paintHistory() {
     paintRuntimeHistory(this.paintContext());
   }
@@ -1390,10 +1426,13 @@ class Runtime {
       },
       sidebarCollapsed: this.sidebarCollapsed,
       sidebarStart: this.sidebarStart,
+      sidebarPendingScroll: this.sidebarPendingScroll,
+      sidebarScrollTimers: this.sidebarScrollTimers,
       branchSelection: this.branchSelection,
       branchFilterInput: this.branchFilterInput,
       layout: () => this.layout(),
       paint: () => this.paint(),
+      paintSidebar: () => this.paintSidebar(),
       paintHints: () => this.paintHints(),
       persistLayoutPreferences: () => this.persistLayoutPreferences(),
       notify: (text) => this.notify(text),
@@ -1603,6 +1642,7 @@ class Runtime {
       if (this.refreshTimer) clearInterval(this.refreshTimer);
       if (this.remoteFetchTimer) clearInterval(this.remoteFetchTimer);
       if (this.scrollTimer) clearTimeout(this.scrollTimer);
+      cancelRuntimeSidebarScroll(this.sidebarContext());
       if (this.messageTimer) clearTimeout(this.messageTimer);
       this.dispose();
       await this.flushLayoutPreferences().catch(() => undefined);
