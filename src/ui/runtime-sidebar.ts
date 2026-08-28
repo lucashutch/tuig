@@ -14,6 +14,9 @@ import {
   type SidebarSection,
 } from "./runtime-presentation.js";
 
+/** One frame at 60fps: long enough to batch a wheel burst, short enough to feel instant. */
+export const SIDEBAR_SCROLL_INTERVAL_MS = 16;
+
 export interface RuntimeSidebarContext {
   snapshot?: RepositorySnapshot;
   contentHeight: number;
@@ -27,10 +30,17 @@ export interface RuntimeSidebarContext {
   sidebarPreferred: Record<SidebarSection, number | undefined>;
   sidebarCollapsed: Record<SidebarSection, boolean>;
   sidebarStart: Record<SidebarSection, number>;
+  /** Wheel rows waiting to be applied, one entry per section. */
+  sidebarPendingScroll: Record<SidebarSection, number>;
+  sidebarScrollTimers: Record<
+    SidebarSection,
+    ReturnType<typeof setTimeout> | undefined
+  >;
   branchSelection: Record<"local" | "remote", number>;
   branchFilterInput: InputRenderable;
   layout(): void;
   paint(): void;
+  paintSidebar(): void;
   paintHints(): void;
   persistLayoutPreferences(): void;
   notify(text: string): void;
@@ -146,6 +156,7 @@ export function activateFilteredBranch(context: RuntimeSidebarContext) {
 }
 
 export function cancelBranchFilter(context: RuntimeSidebarContext) {
+  cancelSidebarScroll(context);
   context.branchFilter = "";
   context.branchFilterInput.value = "";
   context.sidebarStart.local = 0;
@@ -159,16 +170,39 @@ export function toggleSidebarSection(
 ) {
   context.sidebarCollapsed[section] = !context.sidebarCollapsed[section];
   context.persistLayoutPreferences();
-  context.paint();
+  context.paintSidebar();
 }
 
+/** Rows a section can scroll past before its last row reaches the top. */
+function sidebarScrollLimit(
+  context: RuntimeSidebarContext,
+  section: SidebarSection,
+  contentHeight: number,
+): number {
+  const snapshot = context.snapshot;
+  if (!snapshot) return 0;
+  const rows = sidebarRows(
+    snapshot,
+    section,
+    context.sidebarPaneWidth,
+    context.branchFilter,
+  );
+  return Math.max(0, rows.length - contentHeight);
+}
+
+/**
+ * Batch wheel events per section before repainting.
+ *
+ * Terminals deliver a flick as a burst of separate scroll events, and each one
+ * used to force a full-screen repaint. Accumulating them over one frame turns
+ * the burst into a single sidebar repaint.
+ */
 export function sidebarScroll(
   context: RuntimeSidebarContext,
   y: number,
   delta: number,
 ) {
-  const snapshot = context.snapshot;
-  if (!snapshot) return;
+  if (!context.snapshot) return;
   const rects = layoutSidebarSections(
     context.contentHeight,
     context.sidebarPreferred,
@@ -180,20 +214,47 @@ export function sidebarScroll(
       y < rects[candidate].contentTop + rects[candidate].contentHeight,
   );
   if (!section || context.sidebarCollapsed[section]) return;
-  const rows = sidebarRows(
-    snapshot,
-    section,
-    context.sidebarPaneWidth,
-    context.branchFilter,
-  );
+  context.sidebarPendingScroll[section] += delta;
+  if (context.sidebarScrollTimers[section]) return;
+  context.sidebarScrollTimers[section] = setTimeout(() => {
+    const movement = context.sidebarPendingScroll[section];
+    context.sidebarPendingScroll[section] = 0;
+    context.sidebarScrollTimers[section] = undefined;
+    applySidebarScroll(context, section, movement);
+  }, SIDEBAR_SCROLL_INTERVAL_MS);
+}
+
+/** Move one section's viewport, clamped to its row count. */
+export function applySidebarScroll(
+  context: RuntimeSidebarContext,
+  section: SidebarSection,
+  delta: number,
+) {
+  if (!context.snapshot || delta === 0) return;
+  // Sizes can change while the batch waits, so measure at apply time.
+  const contentHeight = layoutSidebarSections(
+    context.contentHeight,
+    context.sidebarPreferred,
+    context.sidebarCollapsed,
+  )[section].contentHeight;
   context.sidebarStart[section] = Math.max(
     0,
     Math.min(
-      Math.max(0, rows.length - rects[section].contentHeight),
+      sidebarScrollLimit(context, section, contentHeight),
       context.sidebarStart[section] + delta,
     ),
   );
-  context.paint();
+  context.paintSidebar();
+}
+
+/** Drop queued wheel rows, for use when the sidebar contents change. */
+export function cancelSidebarScroll(context: RuntimeSidebarContext) {
+  for (const section of SIDEBAR_SECTIONS) {
+    const timer = context.sidebarScrollTimers[section];
+    if (timer) clearTimeout(timer);
+    context.sidebarScrollTimers[section] = undefined;
+    context.sidebarPendingScroll[section] = 0;
+  }
 }
 
 export function resizeSidebar(
@@ -214,5 +275,5 @@ export function resizeSidebar(
     y,
   );
   context.persistLayoutPreferences();
-  context.paint();
+  context.paintSidebar();
 }

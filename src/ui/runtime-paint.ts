@@ -47,7 +47,8 @@ type SidebarWidgets = ReturnType<
   typeof createRuntimeWidgets
 >["sidebarSections"];
 
-export interface RuntimePaintContext {
+/** The fields the sidebar boxes need, so they can repaint on their own. */
+export interface RuntimeSidebarPaintContext {
   snapshot?: RepositorySnapshot;
   contentHeight: number;
   sidebarPreferred: Record<SidebarSection, number | undefined>;
@@ -56,6 +57,9 @@ export interface RuntimePaintContext {
   sidebarSections: SidebarWidgets;
   sidebarPaneWidth: number;
   branchFilter: string;
+}
+
+export interface RuntimePaintContext extends RuntimeSidebarPaintContext {
   paintHeader(): void;
   paintToolbar(): void;
   layoutChanges(height: number): void;
@@ -104,6 +108,22 @@ export interface RuntimePaintContext {
 }
 
 export function paint(ctx: RuntimePaintContext) {
+  if (!ctx.snapshot) return;
+  paintSidebar(ctx);
+  ctx.paintHeader();
+  ctx.paintToolbar();
+  paintHistory(ctx);
+  paintFiles(ctx);
+}
+
+/**
+ * Repaint only the left-hand section boxes.
+ *
+ * Sidebar scrolling, collapsing and resizing change nothing in the graph,
+ * the file trees or the composer, so they call this instead of `paint` and
+ * skip rebuilding the whole screen on every wheel event.
+ */
+export function paintSidebar(ctx: RuntimeSidebarPaintContext) {
   const s = ctx.snapshot;
   if (!s) return;
   const rects = layoutSidebarSections(
@@ -187,10 +207,6 @@ export function paint(ctx: RuntimePaintContext) {
     widgets.dividerBar.content = `${"─".repeat(gripStart)}${"═".repeat(grip)}${"─".repeat(Math.max(0, width - gripStart - grip))}`;
     widgets.dividerBar.visible = showDivider;
   }
-  ctx.paintHeader();
-  ctx.paintToolbar();
-  paintHistory(ctx);
-  paintFiles(ctx);
 }
 
 export function paintHistory(ctx: RuntimePaintContext) {
