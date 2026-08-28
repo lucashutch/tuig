@@ -1,6 +1,6 @@
 {
   "name": "tuig",
-  "version": "0.1.6",
+  "version": "0.1.7",
   "description": "A mouse-first Git client for the terminal",
   "private": true,
   "license": "MIT",
