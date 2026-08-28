@@ -12,8 +12,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { getGravatarUrl } from "../../src/ui/avatars.js";
 import {
+  cancelAvatarWork,
   getGitHubCommitAvatar,
   getGitHubCommitUrl,
+  loadCachedAvatar,
 } from "../../src/ui/avatars.js";
 
 describe("Gravatar URLs", () => {
@@ -245,5 +247,24 @@ test("a commit with no linked account is remembered as a miss", async () => {
       ),
     ).toBeUndefined();
     expect((await readFile(path, "utf8")).trim()).toBe("none");
+  });
+});
+
+test("shutdown cancels an avatar request instead of waiting for its timeout", async () => {
+  await withIsolatedCache(async () => {
+    let aborted = false;
+    globalThis.fetch = ((_input: unknown, init?: { signal?: AbortSignal }) =>
+      new Promise((_resolve, reject) => {
+        init?.signal?.addEventListener("abort", () => {
+          aborted = true;
+          reject(new Error("aborted"));
+        });
+      })) as unknown as typeof fetch;
+    const load = loadCachedAvatar("https://example.com/never-answers.png");
+    // Let the request reach fetch before the interface exits.
+    await Bun.sleep(5);
+    cancelAvatarWork();
+    await expect(load).rejects.toThrow();
+    expect(aborted).toBe(true);
   });
 });

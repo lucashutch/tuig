@@ -18,6 +18,7 @@ import {
   getProviderAvatarUrl,
   loadCachedAvatar,
 } from "./avatars.js";
+import { DEFAULT_HISTORY_PAGE } from "../git/repository.js";
 import { debugLog } from "./debug-log.js";
 import {
   layoutGraphFrom,
@@ -84,6 +85,8 @@ export interface RuntimeDataContext {
   historyLimit: number;
   /** Guard so one page loads at a time. */
   loadingMoreCommits: boolean;
+  /** Consecutive failed page reads; paging stops once it hits the limit. */
+  historyPageFailures: number;
   branchHints: Map<string, string>;
   detailsPaneWidth: number;
   commitInfoValue: string;
@@ -219,7 +222,11 @@ function graphColumnsFor(rows: readonly GraphRow[]): number {
 }
 
 /** Commits added each time the viewport approaches the end of the graph. */
-export const HISTORY_PAGE = 250;
+export const HISTORY_PAGE = DEFAULT_HISTORY_PAGE;
+/** Consecutive failed page reads after which paging gives up for this run. */
+export const HISTORY_PAGE_FAILURE_LIMIT = 3;
+/** Re-reads a refresh will make while pages keep landing underneath it. */
+const HISTORY_REREAD_LIMIT = 2;
 /**
  * Distance from the last loaded row at which the next page is fetched. One
  * page is 250 rows, so the read starts while fifty rows are still unseen.
@@ -239,77 +246,83 @@ export const HISTORY_PREFETCH_ROWS = 50;
 export async function loadMoreCommits(ctx: RuntimeDataContext) {
   const readPage = ctx.repository.commitPage?.bind(ctx.repository);
   const base = ctx.snapshot;
-  if (!readPage || !base || base.commitsComplete || ctx.loadingMoreCommits)
+  if (
+    !readPage ||
+    !base ||
+    base.commitsComplete ||
+    ctx.loadingMoreCommits ||
+    ctx.historyPageFailures >= HISTORY_PAGE_FAILURE_LIMIT
+  )
     return;
   ctx.loadingMoreCommits = true;
   const loaded = base.commits.length;
-  const boundary = base.commits[loaded - 1]?.sha;
+  const last = base.commits[loaded - 1];
+  let appended = false;
   try {
-    const page = boundary
+    const page = last
       ? await readPage(HISTORY_PAGE + 1, loaded - 1)
       : await readPage(HISTORY_PAGE);
     // A refresh that landed first already replaced the history being extended.
     if (ctx.snapshot !== base) return;
-    const aligned = !boundary || page.commits[0]?.sha === boundary;
-    const fresh = boundary && aligned ? page.commits.slice(1) : page.commits;
-    if (aligned) {
-      ctx.historyLimit = loaded + fresh.length;
-      const commits = boundary ? [...base.commits, ...fresh] : fresh;
-      const snapshot: RepositorySnapshot = {
-        ...base,
-        commits,
-        // Nothing new despite an incomplete page: treat history as exhausted
-        // rather than asking again on the next paint.
-        commitsComplete: page.complete || fresh.length === 0,
-      };
-      const laidOut = layoutGraphFrom(
-        fresh,
-        oneDarkTheme.graph,
-        resolveHeadSha(base.branches, commits),
-        ctx.graphLayoutState,
-      );
-      ctx.graphRows = [...ctx.graphRows, ...laidOut.rows];
-      ctx.graphLayoutState = laidOut.state;
-      ctx.graphColumns = graphColumnsFor(ctx.graphRows);
-      ctx.branchHints = buildCommitBranchHints(commits, base.branches);
-      ctx.snapshot = snapshot;
-      ctx.snapshotSignature = snapshotSignature(snapshot);
-      debugLog(
-        "history",
-        `appended ${fresh.length} commits (${commits.length} loaded, complete=${snapshot.commitsComplete})`,
-      );
-      ctx.paintHistory();
+    ctx.historyPageFailures = 0;
+    // The overlapping commit must match on its parents too: an amend or a
+    // one-commit rebase above the boundary leaves the count, and therefore
+    // the commit at this position, unchanged while the rest has moved.
+    const overlap = last ? page.commits[0] : undefined;
+    const aligned =
+      !last ||
+      (overlap?.sha === last.sha &&
+        overlap.parents.join(" ") === last.parents.join(" "));
+    if (!aligned) {
+      // Refs moved underneath the walk. A full refresh is owed anyway: it
+      // re-reads the refs this page would otherwise lay out against, and it
+      // re-resolves the selected commit against the rebuilt list.
+      ctx.historyLimit += HISTORY_PAGE;
+      debugLog("history", `history diverged at ${loaded} commits; refreshing`);
+      await ctx.refresh();
       return;
     }
-    // The walk no longer lines up with what is on screen, so the loaded range
-    // is re-read as a whole and the lanes are rebuilt from the top.
-    const limit = ctx.historyLimit + HISTORY_PAGE;
-    const whole = await readPage(limit);
-    if (ctx.snapshot !== base) return;
-    ctx.historyLimit = limit;
+    const fresh = last ? page.commits.slice(1) : page.commits;
+    const commits = last ? [...base.commits, ...fresh] : fresh;
+    ctx.historyLimit = commits.length;
     const snapshot: RepositorySnapshot = {
       ...base,
-      commits: whole.commits,
-      commitsComplete: whole.complete,
+      commits,
+      // Nothing new despite an incomplete page: treat history as exhausted
+      // rather than asking again on the next paint.
+      commitsComplete: page.complete || fresh.length === 0,
     };
     const laidOut = layoutGraphFrom(
-      whole.commits,
+      fresh,
       oneDarkTheme.graph,
-      resolveHeadSha(base.branches, whole.commits),
+      resolveHeadSha(base.branches, commits),
+      ctx.graphLayoutState,
     );
-    ctx.graphRows = laidOut.rows;
+    ctx.graphRows = [...ctx.graphRows, ...laidOut.rows];
     ctx.graphLayoutState = laidOut.state;
     ctx.graphColumns = graphColumnsFor(ctx.graphRows);
-    ctx.branchHints = buildCommitBranchHints(whole.commits, base.branches);
+    // Both of these are rebuilt over the whole loaded range, so a page costs
+    // more the deeper the reader has scrolled. Measured at 55ms for the page
+    // that reaches 20000 commits, against 24ms for the first few.
+    ctx.branchHints = buildCommitBranchHints(commits, base.branches);
     ctx.snapshot = snapshot;
     ctx.snapshotSignature = snapshotSignature(snapshot);
-    ctx.paintHistory();
+    debugLog(
+      "history",
+      `appended ${fresh.length} commits (${commits.length} loaded, complete=${snapshot.commitsComplete})`,
+    );
+    appended = true;
   } catch (error) {
     // History already on screen stays usable, so a failed page is not fatal.
+    // Repeated failures stop the paint path spawning a git process per frame.
+    ctx.historyPageFailures++;
     debugLog("history", `loading history past ${loaded} commits failed`, error);
   } finally {
     ctx.loadingMoreCommits = false;
   }
+  // Painted outside the guard so a page that lands short of the viewport can
+  // immediately ask for the next one.
+  if (appended) ctx.paintHistory();
 }
 
 export async function refresh(ctx: RuntimeDataContext, message?: string) {
@@ -326,8 +339,20 @@ export async function refresh(ctx: RuntimeDataContext, message?: string) {
   const selectedPath = ctx.selectedFile()?.path;
   ctx.notify(message ?? "Refreshing…", "busy");
   try {
-    const snapshot = await ctx.repository.snapshot(ctx.historyLimit);
+    // A page can land while this read is in flight. Re-read at the deeper
+    // limit rather than replacing the snapshot with a shorter history, which
+    // would throw away the new rows and collapse the reader's scroll position.
+    let snapshot = await ctx.repository.snapshot(ctx.historyLimit);
+    for (
+      let attempt = 0;
+      attempt < HISTORY_REREAD_LIMIT &&
+      snapshot.commits.length < ctx.historyLimit &&
+      !snapshot.commitsComplete;
+      attempt++
+    )
+      snapshot = await ctx.repository.snapshot(ctx.historyLimit);
     if (request !== ctx.snapshotRequest || ctx.refreshPending) return;
+    ctx.historyPageFailures = 0;
     const signature = snapshotSignature(snapshot);
     // Keep the existing snapshot object: in-flight diff and commit-file loads
     // guard on its identity and would otherwise be discarded for no reason.

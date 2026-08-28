@@ -62,7 +62,7 @@ type Stub = RuntimeDataContext & {
 function stubContext(
   initial: RepositorySnapshot | undefined,
   reader: {
-    snapshot?: () => Promise<RepositorySnapshot>;
+    snapshot?: (limit?: number) => Promise<RepositorySnapshot>;
     workingStatus?: () => Promise<WorkingStatus>;
     commitPage?: (limit: number, skip?: number) => Promise<CommitPage>;
   },
@@ -75,9 +75,9 @@ function stubContext(
     pageRequests: [] as Array<[number, number]>,
     repository: {
       root: "/repo",
-      async snapshot() {
+      async snapshot(limit?: number) {
         context.snapshotReads++;
-        return reader.snapshot?.() ?? snapshot();
+        return reader.snapshot?.(limit) ?? snapshot();
       },
       workingStatus: reader.workingStatus,
       commitPage: reader.commitPage
@@ -93,6 +93,7 @@ function stubContext(
     snapshotRequest: 0,
     historyLimit: HISTORY_PAGE,
     loadingMoreCommits: false,
+    historyPageFailures: 0,
     graphRows: laidOut.rows,
     graphLayoutState: laidOut.state,
     graphColumns: 1,
@@ -326,21 +327,57 @@ describe("paged history", () => {
     expect(context.pageRequests).toEqual([[251, 249]]);
   });
 
-  test("relays out the graph when the earlier page no longer matches", async () => {
+  test("refreshes instead of appending when the walk no longer lines up", async () => {
     const all = history(600);
     const moved = [commit("new-tip", "c0"), ...all];
+    let refreshes = 0;
     const context = stubContext(
       snapshot({ commits: all.slice(0, 250), commitsComplete: false }),
+      { commitPage: pager(moved) },
+    );
+    context.refresh = async () => {
+      refreshes++;
+    };
+    await loadMoreCommits(context);
+    // Divergence means the refs the page would be laid out against are stale
+    // too, so the whole snapshot is re-read rather than patched here.
+    expect(refreshes).toBe(1);
+    expect(context.historyLimit).toBe(500);
+    expect(context.snapshot?.commits).toHaveLength(250);
+    expect(context.historyPaints).toBe(0);
+  });
+
+  test("treats an amended boundary commit as divergence", async () => {
+    const all = history(600);
+    // Same sha at the boundary, different parents: an amend above it would
+    // otherwise slip past a sha-only check.
+    const amended = all.map((entry, index) =>
+      index === 249 ? { ...entry, parents: ["rewritten"] } : entry,
+    );
+    let refreshes = 0;
+    const context = stubContext(
+      snapshot({ commits: all.slice(0, 250), commitsComplete: false }),
+      { commitPage: pager(amended) },
+    );
+    context.refresh = async () => {
+      refreshes++;
+    };
+    await loadMoreCommits(context);
+    expect(refreshes).toBe(1);
+  });
+
+  test("stops asking for pages after repeated failures", async () => {
+    const context = stubContext(
+      snapshot({ commits: history(250), commitsComplete: false }),
       {
-        commitPage: pager(moved),
+        commitPage: async () => {
+          throw new Error("git exploded");
+        },
       },
     );
-    await loadMoreCommits(context);
-    expect(context.snapshot?.commits[0]?.sha).toBe("new-tip");
-    expect(context.graphRows).toHaveLength(500);
-    expect(context.graphRows).toEqual(
-      layoutGraph(moved.slice(0, 500), oneDarkTheme.graph),
-    );
+    for (let attempt = 0; attempt < 5; attempt++)
+      await loadMoreCommits(context);
+    expect(context.pageRequests).toHaveLength(3);
   });
 
   test("discards a page that a refresh has already replaced", async () => {
@@ -378,4 +415,33 @@ describe("paged history", () => {
     expect(context.snapshot).toBe(loaded);
     expect(context.loadingMoreCommits).toBe(false);
   });
+});
+
+test("a refresh in flight does not throw away a page that landed under it", async () => {
+  const all = history(600);
+  let release: (() => void) | undefined;
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const base = snapshot({ commits: all.slice(0, 250), commitsComplete: false });
+  const context = stubContext(base, {
+    snapshot: async (limit = 250) => {
+      // The first read is slow, so a page lands while it is outstanding.
+      if (context.snapshotReads === 1) await gate;
+      return snapshot({
+        commits: all.slice(0, limit),
+        commitsComplete: limit >= all.length,
+      });
+    },
+    commitPage: pager(all),
+  });
+  const refreshing = refresh(context);
+  await loadMoreCommits(context);
+  expect(context.snapshot?.commits).toHaveLength(500);
+  release?.();
+  await refreshing;
+  // The refresh must re-read at the deeper limit rather than replacing the
+  // history with the 250 commits it originally asked for.
+  expect(context.historyLimit).toBe(500);
+  expect(context.snapshot?.commits).toHaveLength(500);
 });
