@@ -31,7 +31,7 @@ const refs = [
     remote: false,
   },
 ];
-const snapshot = { branch: "main", branches: refs };
+const snapshot = { branch: "main", branches: refs, root: "/repo" };
 
 describe("graph context menu", () => {
   test("offers commit actions when no branch was hit", () => {
@@ -83,6 +83,70 @@ describe("graph context menu", () => {
     ]);
     expect(menu.items[1]?.destructive).toBe(true);
     expect(menu.items[2]?.destructive).toBe(true);
+  });
+
+  test("offers worktree lock, unlock, remove, and copy path", () => {
+    const worktree = {
+      path: "/repo/feature",
+      sha: "e",
+      bare: false,
+      detached: false,
+    };
+    const menu = buildGraphMenu({ sha: worktree.sha, worktree }, snapshot);
+    expect(menu.title).toBe("feature");
+    expect(menu.items.map((item) => item.action)).toEqual([
+      "lock-worktree",
+      "remove-worktree",
+      "copy-path",
+    ]);
+    expect(menu.items[1]?.destructive).toBe(true);
+  });
+
+  test("switches the worktree menu to unlock when locked", () => {
+    const worktree = {
+      path: "/repo/feature",
+      sha: "e",
+      bare: false,
+      detached: false,
+      locked: "in use",
+    };
+    const menu = buildGraphMenu({ sha: worktree.sha, worktree }, snapshot);
+    expect(menu.items.map((item) => item.action)).toContain("unlock-worktree");
+    expect(menu.items.map((item) => item.action)).not.toContain(
+      "lock-worktree",
+    );
+  });
+
+  test("leaves the main checkout unremovable but copyable", () => {
+    const worktree = {
+      path: "/repo",
+      sha: "a",
+      bare: false,
+      detached: false,
+    };
+    const menu = buildGraphMenu({ sha: worktree.sha, worktree }, snapshot);
+    expect(menu.items.map((item) => item.action)).toEqual(["copy-path"]);
+  });
+
+  test("offers stage, discard, and copy path for an unstaged file", () => {
+    const file = { path: "src/app.ts", state: "modified" } as never;
+    const menu = buildGraphMenu({ sha: "", file, fileStaged: false }, snapshot);
+    expect(menu.title).toBe("src/app.ts");
+    expect(menu.items.map((item) => item.action)).toEqual([
+      "stage-file",
+      "discard-file",
+      "copy-path",
+    ]);
+    expect(menu.items[1]?.destructive).toBe(true);
+  });
+
+  test("offers unstage instead of stage for a staged file", () => {
+    const file = { path: "src/app.ts", state: "modified" } as never;
+    const menu = buildGraphMenu({ sha: "", file, fileStaged: true }, snapshot);
+    expect(menu.items.map((item) => item.action)).toEqual([
+      "unstage-file",
+      "copy-path",
+    ]);
   });
 
   test("allows deleting a branch that is not checked out", () => {

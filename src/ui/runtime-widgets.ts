@@ -98,7 +98,12 @@ export type RuntimeWidgetActions = {
   historyScroll(delta: number): void;
   historyClick(x: number, y: number, button: number): void;
   filesScroll(section: ChangeSection, delta: number): void;
-  filesClick(section: ChangeSection, y: number): void;
+  filesClick(
+    section: ChangeSection,
+    y: number,
+    button?: number,
+    x?: number,
+  ): void;
   toggleSection(section: ChangeSection): void;
   resizeChangeSplit(y: number): void;
   resizeComposer(y: number): void;
@@ -370,7 +375,7 @@ export function createRuntimeWidgets(
       content: "",
       onMouseScroll: (e) =>
         actions.filesScroll(section, e.scroll?.direction === "up" ? -3 : 3),
-      onMouseDown: (e) => actions.filesClick(section, e.y),
+      onMouseDown: (e) => actions.filesClick(section, e.y, e.button, e.x),
     });
   const makeFileLabel = (section: ChangeSection) =>
     new TextRenderable(renderer, {

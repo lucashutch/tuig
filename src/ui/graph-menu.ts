@@ -1,4 +1,10 @@
-import type { BranchRef, RepositorySnapshot, Stash } from "../git/types.js";
+import type {
+  BranchRef,
+  ChangedFile,
+  RepositorySnapshot,
+  Stash,
+  Worktree,
+} from "../git/types.js";
 import { displayBranchName, shortSha } from "./history.js";
 
 export type GraphMenuAction =
@@ -18,7 +24,14 @@ export type GraphMenuAction =
   /** Kept as an alias for callers built against the pre-Phase 2 menu. */
   | "delete-stash"
   | "copy-sha"
-  | "copy-branch";
+  | "copy-branch"
+  | "stage-file"
+  | "unstage-file"
+  | "discard-file"
+  | "copy-path"
+  | "remove-worktree"
+  | "lock-worktree"
+  | "unlock-worktree";
 
 export interface GraphMenuItem {
   label: string;
@@ -34,6 +47,10 @@ export interface GraphMenuTarget {
   sha: string;
   branch?: BranchRef;
   stash?: Stash;
+  worktree?: Worktree;
+  file?: ChangedFile;
+  /** Which changes list the file came from; drives stage vs unstage. */
+  fileStaged?: boolean;
 }
 
 /** A menu pane placed in terminal coordinates. */
@@ -54,11 +71,13 @@ const SUBMENU_MARKER = " ▸";
  */
 export function buildGraphMenu(
   target: GraphMenuTarget,
-  snapshot: Pick<RepositorySnapshot, "branch" | "branches">,
+  snapshot: Pick<RepositorySnapshot, "branch" | "branches" | "root">,
 ): { title: string; items: GraphMenuItem[] } {
   const current = snapshot.branch ?? "HEAD";
   const items: GraphMenuItem[] = [];
   const branch = target.branch;
+  if (target.worktree) return worktreeMenu(target.worktree, snapshot.root);
+  if (target.file) return fileMenu(target.file, target.fileStaged === true);
   if (target.stash) {
     return {
       title: `stash · ${shortSha(target.sha)}`,
@@ -119,6 +138,53 @@ export function buildGraphMenu(
       : shortSha(target.sha),
     items,
   };
+}
+
+/** Menu for a right-clicked worktree row. The main checkout cannot be removed. */
+function worktreeMenu(
+  worktree: Worktree,
+  root: string,
+): { title: string; items: GraphMenuItem[] } {
+  const name =
+    worktree.path.replace(/\/+$/, "").split("/").at(-1) ?? worktree.path;
+  const main = worktree.path.replace(/\/+$/, "") === root.replace(/\/+$/, "");
+  const items: GraphMenuItem[] = [];
+  if (!main)
+    items.push(
+      worktree.locked === undefined
+        ? { label: `Lock ${name}`, action: "lock-worktree" }
+        : {
+            label: `Unlock ${name}`,
+            action: "unlock-worktree",
+          },
+      {
+        label: `Remove ${name}`,
+        action: "remove-worktree",
+        destructive: true,
+      },
+    );
+  items.push({ label: "Copy path", action: "copy-path" });
+  return { title: name, items };
+}
+
+/** Menu for a right-clicked row in the staged or unstaged changes list. */
+function fileMenu(
+  file: ChangedFile,
+  staged: boolean,
+): { title: string; items: GraphMenuItem[] } {
+  const name = file.path.split("/").at(-1) ?? file.path;
+  const items: GraphMenuItem[] = staged
+    ? [{ label: `Unstage ${name}`, action: "unstage-file" }]
+    : [
+        { label: `Stage ${name}`, action: "stage-file" },
+        {
+          label: `Discard changes in ${name}`,
+          action: "discard-file",
+          destructive: true,
+        },
+      ];
+  items.push({ label: "Copy path", action: "copy-path" });
+  return { title: file.path, items };
 }
 
 function resetSubmenu(current: string, destination: string): GraphMenuItem {

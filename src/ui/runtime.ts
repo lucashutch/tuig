@@ -18,7 +18,6 @@ import type {
   ChangedFile,
   GitRepository,
   RepositorySnapshot,
-  Stash,
 } from "../git/types.js";
 import { type GraphRow } from "./graph.js";
 import {
@@ -28,7 +27,11 @@ import {
   resolveHeadSha,
   shortSha,
 } from "./history.js";
-import { buildGraphMenu, type GraphMenuItem } from "./graph-menu.js";
+import {
+  buildGraphMenu,
+  type GraphMenuItem,
+  type GraphMenuTarget,
+} from "./graph-menu.js";
 import { RuntimePopupController } from "./runtime-popup.js";
 import {
   layoutRuntime,
@@ -325,7 +328,8 @@ class Runtime {
       historyClick: (x, y, button) =>
         this.historyClick(x, y - PANE_TOP, button),
       filesScroll: (section, delta) => this.filesScroll(section, delta),
-      filesClick: (section, y) => this.filesClick(section, y - PANE_TOP),
+      filesClick: (section, y, button, x) =>
+        this.filesClick(section, y - PANE_TOP, button, x),
       toggleSection: (section) => this.toggleSection(section),
       resizeChangeSplit: (y) => this.resizeChangeSplit(y),
       resizeComposer: (y) => this.resizeComposer(y),
@@ -748,6 +752,8 @@ class Runtime {
       notify: (text) => this.notify(text),
       fail: (error) => this.fail(error),
       persistLayoutPreferences: () => this.persistLayoutPreferences(),
+      openFileMenu: (x, y, target) =>
+        this.openGraphMenu(x, y + PANE_TOP, target),
     };
   }
   private files(section: ChangeSection = this.mode): ChangedFile[] {
@@ -768,8 +774,13 @@ class Runtime {
   private filesScroll(section: ChangeSection, delta: number) {
     scrollRuntimeFiles(this.filesContext(), section, delta);
   }
-  private filesClick(section: ChangeSection, y: number) {
-    handleRuntimeFilesClick(this.filesContext(), section, y);
+  private filesClick(
+    section: ChangeSection,
+    y: number,
+    button?: number,
+    x?: number,
+  ) {
+    handleRuntimeFilesClick(this.filesContext(), section, y, button, x);
   }
   private selectedFile() {
     return selectedRuntimeFile(this.filesContext());
@@ -1206,11 +1217,7 @@ class Runtime {
   }
 
   /** Open the graph context menu at a terminal position. */
-  private openGraphMenu(
-    x: number,
-    y: number,
-    target: { sha: string; branch?: BranchRef; stash?: Stash },
-  ) {
+  private openGraphMenu(x: number, y: number, target: GraphMenuTarget) {
     if (!this.snapshot) return;
     if (this.branchFilterActive) this.finishBranchFilter();
     const built = buildGraphMenu(target, this.snapshot);

@@ -105,6 +105,8 @@ export interface GitRepository {
   unstage(paths: string[]): Promise<void>;
   applyPatch(patch: string, reverse?: boolean): Promise<void>;
   discardAll(): Promise<void>;
+  /** Restores the given paths in the working tree, dropping unstaged edits. */
+  discard(paths: string[]): Promise<void>;
   commit(message: string): Promise<void>;
   amendCommit(message: string): Promise<void>;
   rewordCommit(sha: string, message: string): Promise<void>;
@@ -139,4 +141,5 @@ export interface GitRepository {
     createBranch?: boolean,
   ): Promise<void>;
   removeWorktree(path: string, force?: boolean): Promise<void>;
+  lockWorktree(path: string, lock?: boolean, reason?: string): Promise<void>;
 }
