@@ -1,4 +1,4 @@
-import { NativeImage, StyledText, fg } from "@opentui/core";
+import { ImageRenderable, NativeImage, StyledText, fg } from "@opentui/core";
 import type {
   ChangedFile,
   Commit,
@@ -12,12 +12,13 @@ import {
 } from "./history.js";
 import {
   circularAvatar,
-  graphAvatarCanvas,
+  fallbackAvatar,
   getGitHubCommitAvatar,
   getGravatarUrl,
   getProviderAvatarUrl,
   loadCachedAvatar,
 } from "./avatars.js";
+import { debugLog } from "./debug-log.js";
 import { layoutGraph, type GraphRow } from "./graph.js";
 import {
   presentCommitMeta,
@@ -52,6 +53,7 @@ export interface RuntimeDataContext {
     | "commitCoAuthors"
     | "commitCoAuthorProvider"
     | "graphAvatars"
+    | "ensureGraphAvatarSlots"
   >;
   snapshot?: RepositorySnapshot;
   snapshotRequest: number;
@@ -84,6 +86,8 @@ export interface RuntimeDataContext {
   graphAvatarKeys: Array<string | undefined>;
   /** Monotonic token per slot; stale loads must not paint a newer commit. */
   graphAvatarTokens: number[];
+  /** In-flight load per slot, aborted when the slot changes commit or closes. */
+  graphAvatarAborts: Array<AbortController | undefined>;
   files(): ChangedFile[];
   selectedFile(): ChangedFile | undefined;
   ensureFileVisible(): void;
@@ -372,7 +376,8 @@ async function loadProviderAvatar(
     ctx.widgets.commitCoAuthorProvider.source = image;
     image.dispose();
     ctx.widgets.commitCoAuthorProvider.visible = true;
-  } catch {
+  } catch (error) {
+    debugLog("avatar", `co-author provider avatar failed for ${source}`, error);
     ctx.commitCoAuthorsProviderVisible = false;
     ctx.layout();
   }
@@ -406,8 +411,9 @@ async function loadAuthorPhoto(
     image.dispose();
     ctx.widgets.authorPhoto.visible = true;
     ctx.widgets.authorBadge.visible = false;
-  } catch {
+  } catch (error) {
     // The initials badge is the deliberate fallback for missing or offline avatars.
+    debugLog("avatar", `author photo failed for ${commit.sha}`, error);
   }
 }
 
@@ -429,8 +435,41 @@ export interface GraphAvatarRequest {
 const GRAPH_AVATAR_CACHE_SIZE = 256;
 const renderedGraphAvatars = new Map<string, NativeImage>();
 
-function graphAvatarKey(request: GraphAvatarRequest) {
-  return `${request.commit.sha}|${request.color}|${request.background}|${Number(request.continuesAbove)}${Number(request.continuesBelow)}`;
+/** Identity of a painted avatar: commit, lane color, row stripe, lane ends. */
+function graphAvatarKey(
+  identity: string,
+  request: Pick<
+    GraphAvatarRequest,
+    "color" | "background" | "continuesAbove" | "continuesBelow"
+  >,
+) {
+  return `${identity}|${request.color}|${request.background}|${Number(request.continuesAbove)}${Number(request.continuesBelow)}`;
+}
+
+function evictRenderedGraphAvatars() {
+  while (renderedGraphAvatars.size > GRAPH_AVATAR_CACHE_SIZE) {
+    const oldest = renderedGraphAvatars.entries().next().value as
+      | [string, NativeImage]
+      | undefined;
+    if (!oldest) break;
+    renderedGraphAvatars.delete(oldest[0]);
+    oldest[1].dispose();
+  }
+}
+
+/** Hand a widget its own reference so cache eviction cannot dispose it. */
+function showGraphAvatar(widget: ImageRenderable, image: NativeImage) {
+  const owned = image.clone();
+  widget.source = owned;
+  // ImageRenderable retains its own reference to the native image.
+  owned.dispose();
+  widget.visible = true;
+}
+
+function releaseSlot(ctx: RuntimeDataContext, slot: number) {
+  ctx.graphAvatarAborts[slot]?.abort();
+  ctx.graphAvatarAborts[slot] = undefined;
+  ctx.graphAvatarTokens[slot] = (ctx.graphAvatarTokens[slot] ?? 0) + 1;
 }
 
 /**
@@ -444,23 +483,36 @@ export function updateGraphAvatars(
   ctx: RuntimeDataContext,
   requests: readonly GraphAvatarRequest[],
 ) {
+  // Slots are viewport rows, so requests are dense and small. Indexing them
+  // into an array avoids allocating a Map on every paint.
+  const requestsBySlot: Array<GraphAvatarRequest | undefined> = [];
+  let highest = -1;
+  for (const request of requests) {
+    if (request.slot < 0) continue;
+    requestsBySlot[request.slot] = request;
+    if (request.slot > highest) highest = request.slot;
+  }
+  ctx.widgets.ensureGraphAvatarSlots(highest + 1);
   const slots = ctx.widgets.graphAvatars;
-  const requestsBySlot = new Map(
-    requests.map((request) => [request.slot, request]),
+  // Past the last request every slot is either already idle or being cleared,
+  // so walk only as far as the deepest slot that has ever been claimed.
+  const limit = Math.min(
+    slots.length,
+    Math.max(highest + 1, ctx.graphAvatarKeys.length),
   );
-  for (let slot = 0; slot < slots.length; slot++) {
-    const request = requestsBySlot.get(slot);
+  for (let slot = 0; slot < limit; slot++) {
+    const request = requestsBySlot[slot];
     const widget = slots[slot]!;
     if (!request) {
       if (ctx.graphAvatarKeys[slot] !== undefined) {
         ctx.graphAvatarKeys[slot] = undefined;
-        ctx.graphAvatarTokens[slot] = (ctx.graphAvatarTokens[slot] ?? 0) + 1;
+        releaseSlot(ctx, slot);
       }
       widget.visible = false;
       widget.source = undefined;
       continue;
     }
-    const key = graphAvatarKey(request);
+    const key = graphAvatarKey(request.commit.sha, request);
     // Keep each native image anchored to a viewport row. Moving an existing
     // terminal image placement can leave its pixels at the previous row in
     // Kitty and similar graphics protocols.
@@ -470,99 +522,99 @@ export function updateGraphAvatars(
     // its avatar reprocessed with the new lane color.
     if (ctx.graphAvatarKeys[slot] === key) continue;
     ctx.graphAvatarKeys[slot] = key;
-    ctx.graphAvatarTokens[slot] = (ctx.graphAvatarTokens[slot] ?? 0) + 1;
+    releaseSlot(ctx, slot);
     widget.visible = false;
     widget.source = undefined;
     const cached = renderedGraphAvatars.get(key);
     if (cached) {
       renderedGraphAvatars.delete(key);
       renderedGraphAvatars.set(key, cached);
-      widget.source = cached;
-      widget.visible = true;
+      showGraphAvatar(widget, cached);
       continue;
     }
-    if (ctx.avatarSupported)
-      void loadGraphAvatar(
-        ctx,
-        slot,
-        key,
-        request.commit,
-        request.color,
-        request.background,
-        request.continuesAbove,
-        request.continuesBelow,
-        ctx.graphAvatarTokens[slot]!,
-      );
+    if (!ctx.avatarSupported) continue;
+    const fallback = fallbackAvatar(
+      request.commit.authorEmail || request.commit.author || request.commit.sha,
+      {
+        ringColor: request.color,
+        background: request.background,
+        continuesAbove: request.continuesAbove,
+        continuesBelow: request.continuesBelow,
+      },
+    );
+    showGraphAvatar(widget, fallback);
+    fallback.dispose();
+    const abort = new AbortController();
+    ctx.graphAvatarAborts[slot] = abort;
+    void loadGraphAvatar(
+      ctx,
+      slot,
+      key,
+      request,
+      ctx.graphAvatarTokens[slot]!,
+      abort.signal,
+    );
   }
+}
+
+/** Cancel every in-flight graph avatar load, for teardown. */
+export function cancelGraphAvatars(ctx: RuntimeDataContext) {
+  for (let slot = 0; slot < ctx.graphAvatarAborts.length; slot++)
+    releaseSlot(ctx, slot);
 }
 
 async function loadGraphAvatar(
   ctx: RuntimeDataContext,
   slot: number,
   key: string,
-  commit: Commit,
-  ringColor: string,
-  background: string,
-  continuesAbove: boolean,
-  continuesBelow: boolean,
+  request: GraphAvatarRequest,
   token: number,
+  signal: AbortSignal,
 ) {
+  const { commit } = request;
+  const current = () =>
+    token === ctx.graphAvatarTokens[slot] && !signal.aborted;
   try {
     const remote = await graphRemoteUrl(ctx.repository);
-    if (token !== ctx.graphAvatarTokens[slot]) return;
+    if (!current()) return;
     const githubAvatar = await getGitHubCommitAvatar(
       remote,
       commit.sha,
       commit.authorEmail,
+      signal,
     );
-    if (token !== ctx.graphAvatarTokens[slot]) return;
+    if (!current()) return;
     let image = githubAvatar
-      ? await loadCachedAvatar(githubAvatar).catch(() => undefined)
+      ? await loadCachedAvatar(githubAvatar, signal).catch(() => undefined)
       : undefined;
     const gravatar = getGravatarUrl(commit.authorEmail);
     image ??= gravatar
-      ? await loadCachedAvatar(gravatar).catch(() => undefined)
+      ? await loadCachedAvatar(gravatar, signal).catch(() => undefined)
       : undefined;
-    if (!image || token !== ctx.graphAvatarTokens[slot]) {
+    if (!image || !current()) {
       image?.dispose();
       return;
     }
-    const widget = ctx.widgets.graphAvatars[slot]!;
-    // `contain` preserves the image's square pixel aspect ratio. Compensating
-    // with the reported terminal cell ratio made the shape vary between image
-    // placements in some terminal graphics protocols.
-    const stretch = 1;
-    const masked = circularAvatar(
-      image,
-      ringColor,
-      background,
-      stretch,
-      `${githubAvatar ?? gravatar}|${ringColor}|${background}|${Number(continuesAbove)}${Number(continuesBelow)}`,
-      continuesAbove,
-      continuesBelow,
-    );
-    const canvas = graphAvatarCanvas(masked, background);
-    masked.dispose();
+    const canvas = circularAvatar(image, {
+      ringColor: request.color,
+      background: request.background,
+      continuesAbove: request.continuesAbove,
+      continuesBelow: request.continuesBelow,
+      // Two commits by the same author in the same lane share one canvas, so
+      // the mask keys on the avatar rather than the commit.
+      cacheKey: graphAvatarKey(githubAvatar ?? gravatar ?? "", request),
+    });
     image.dispose();
-    if (token !== ctx.graphAvatarTokens[slot]) {
+    if (!current()) {
       canvas.dispose();
       return;
     }
-    renderedGraphAvatars.set(key, canvas.clone());
-    while (renderedGraphAvatars.size > GRAPH_AVATAR_CACHE_SIZE) {
-      const oldest = renderedGraphAvatars.entries().next().value as
-        | [string, NativeImage]
-        | undefined;
-      if (!oldest) break;
-      renderedGraphAvatars.delete(oldest[0]);
-      oldest[1].dispose();
-    }
-    widget.source = canvas;
-    // ImageRenderable retains its own reference to the native image.
-    canvas.dispose();
-    widget.visible = true;
-  } catch {
+    renderedGraphAvatars.set(key, canvas);
+    evictRenderedGraphAvatars();
+    showGraphAvatar(ctx.widgets.graphAvatars[slot]!, canvas);
+  } catch (error) {
     // The painted graph dot remains the fallback when avatars are unusable.
+    debugLog("graph-avatar", `slot ${slot} (${key}) failed`, error);
   }
 }
 
@@ -572,7 +624,13 @@ function graphRemoteUrl(repository: RuntimeDataContext["repository"]) {
   let remote = graphRemoteUrls.get(repository);
   if (!remote) {
     remote = repository.remoteUrl
-      ? repository.remoteUrl()
+      ? // A rejected promise must not stick: one failed `git remote` would
+        // otherwise disable avatars for the rest of the session.
+        repository.remoteUrl().catch((error: unknown) => {
+          graphRemoteUrls.delete(repository);
+          debugLog("graph-avatar", "remote lookup failed", error);
+          return undefined;
+        })
       : Promise.resolve(undefined);
     graphRemoteUrls.set(repository, remote);
   }
