@@ -20,6 +20,7 @@ import type {
   RepositorySnapshot,
 } from "../git/types.js";
 import { type GraphLayoutState, type GraphRow } from "./graph.js";
+import { clampGraphScroll } from "./graph-viewport.js";
 import {
   branchRefsForSection,
   clampBranchSelection,
@@ -222,6 +223,10 @@ class Runtime {
   private commitFiles: ChangedFile[] = [];
   private graphRows: GraphRow[] = [];
   private graphColumns = 1;
+  // Horizontal graph offset, in lanes, used once the graph is wider than the
+  // share of the history pane it is allowed to take.
+  private graphScroll = 0;
+  private graphVisibleColumns = 1;
   private branchHints = new Map<string, string>();
   private historyStart = 0;
   private historyViewportDetached = false;
@@ -403,7 +408,13 @@ class Runtime {
       sidebarToggle: (section) => this.toggleSidebarSection(section),
       sidebarScroll: (y, delta) => this.sidebarScroll(y - PANE_TOP, delta),
       sidebarResize: (section, y) => this.resizeSidebar(section, y),
-      historyScroll: (delta) => this.queueHistoryScroll(delta),
+      historyScroll: (delta, axis) => {
+        if (axis === "horizontal") {
+          this.scrollGraphColumns(delta);
+          return;
+        }
+        this.queueHistoryScroll(delta);
+      },
       historyClick: (x, y, button) =>
         this.historyClick(x, y - PANE_TOP, button),
       filesScroll: (section, delta) => this.filesScroll(section, delta),
@@ -1164,6 +1175,13 @@ class Runtime {
       detailsPaneWidth: this.detailsPaneWidth,
       graphRows: this.graphRows,
       graphColumns: this.graphColumns,
+      graphScroll: this.graphScroll,
+      setGraphScroll: (value) => {
+        this.graphScroll = value;
+      },
+      setGraphVisibleColumns: (value) => {
+        this.graphVisibleColumns = value;
+      },
       branchHints: this.branchHints,
       historySelection: this.historySelection,
       commitIndex: this.commitIndex,
@@ -1304,6 +1322,19 @@ class Runtime {
   }
   private queueHistoryScroll(delta: number) {
     queueRuntimeHistoryScroll(this.historyContext(), delta);
+  }
+  /** Pan the graph sideways; returns false when nothing is hidden. */
+  private scrollGraphColumns(delta: number): boolean {
+    const next = clampGraphScroll(
+      this.graphScroll + delta,
+      this.graphColumns,
+      this.graphVisibleColumns,
+    );
+    if (this.graphColumns <= this.graphVisibleColumns) return false;
+    if (next === this.graphScroll) return true;
+    this.graphScroll = next;
+    this.paintHistory();
+    return true;
   }
   private historyClick(x: number, y: number, button: number) {
     handleHistoryClick(this.historyContext(), x, y, button);
@@ -1652,8 +1683,13 @@ class Runtime {
       this.detailsCollapsed = !this.detailsCollapsed;
       return this.layout();
     }
-    if (key.name === "left") return this.moveFile(-1);
-    if (key.name === "right") return this.moveFile(1);
+    if (key.name === "left" || key.name === "right") {
+      const delta = key.name === "left" ? -1 : 1;
+      // In the history pane the arrows pan a graph that is too wide to fit;
+      // with nothing hidden they keep their file-navigation meaning.
+      if (this.focus === "history" && this.scrollGraphColumns(delta)) return;
+      return this.moveFile(delta);
+    }
     if (key.name === "r") return void this.refresh();
     if (key.name === "f")
       return void this.perform(
