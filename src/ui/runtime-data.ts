@@ -119,7 +119,7 @@ export interface RuntimeDataContext {
 /**
  * Fingerprint the parts of a snapshot the interface actually draws.
  *
- * A refresh that changes nothing is the common case: the sixty-second timer,
+ * A refresh that changes nothing is the common case: the ten-second timer,
  * and any mutation that turns out to be a no-op. Repainting anyway is not free
  * — it rebuilds every sidebar section and reassigns every graph avatar slot —
  * so an unchanged snapshot is dropped before it reaches the widgets. Commit

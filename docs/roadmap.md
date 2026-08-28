@@ -4,11 +4,10 @@ Tuig already has a compact colored commit graph with merge edges, branch labels,
 
 ## Finish the core workflow
 
-- Extend right-click menus from graph, branch, and stash rows to worktree and changed-file rows.
-- Add worktree lock/unlock action and per-file discard.
-- Serialize mutations, disable credential prompting, and allow cancelling remote operations.
+- Add worktree creation and switching. Lock, unlock, and removal are already available from worktree row menus.
+- Add more changed-file actions beyond staging, unstaging, copying the path, and discarding unstaged changes.
 - Add a hunk selector with next/previous navigation and selected-line patch construction.
-- Add conflict views, rename/binary-file handling, and larger integration coverage.
+- Add conflict views, improve rename and binary-file handling, and expand integration coverage.
 
 ## Graph and repository navigation
 

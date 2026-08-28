@@ -2,11 +2,11 @@
 
 **A mouse-first Git client for the terminal.**
 
-Tuig, pronounced like "twig", combines a visual branch graph with a fast terminal workflow. Browse history, inspect commits, review changed files, stage work, and commit without leaving your terminal.
+Tuig, pronounced "twig", combines a visual branch graph with a terminal Git workflow. Browse history, inspect diffs, stage changes, create commits, and manage branches without leaving your terminal.
 
 Tuig is built with TypeScript, Bun, OpenTUI, and the Git executable already installed on your system. It does not replace Git or hide it behind a custom repository implementation.
 
-> Tuig is an early MVP. The graph, diff viewer, changed-file tree, staging, commits, and core remote actions work today. The [roadmap](docs/roadmap.md) tracks the remaining branch, stash, worktree, and advanced hunk interactions.
+> Tuig is under active development. The core workflow is usable, but releases may still change interactions and configuration.
 
 ## What it looks like
 
@@ -28,16 +28,17 @@ The One Dark theme keeps Git status colors meaningful. Added lines stay green, r
 - A patched [Nerd Font](https://www.nerdfonts.com/) for Material file icons
 - A terminal with mouse reporting and true-color support
 
-## Install and run
+## Install
 
-Clone the repository, install dependencies, and link the command:
+Install the latest code from the default branch with Bun:
 
 ```sh
-git clone https://github.com/lucashutch/tuig.git
-cd tuig
-bun install
-bun link
+bun install -g git+https://github.com/lucashutch/tuig.git
 ```
+
+Tuig is not yet published to a package registry. The command above installs it directly from GitHub. Run `tuig update` later to switch to the latest tagged release.
+
+## Run
 
 Open a repository by path:
 
@@ -45,7 +46,7 @@ Open a repository by path:
 tuig ~/code/my-project
 ```
 
-The path is optional. Running `tuig` without one opens the current directory. Tuig is currently installed from source; it is not yet published to a package registry.
+The path is optional. Running `tuig` without one opens the current directory.
 
 Command-line options:
 
@@ -56,41 +57,7 @@ tuig -C ~/code/my-project    Open a repository without changing directories
 tuig update                  Install the latest Tuig release from Git
 ```
 
-Run `tuig update` from a Git-based installation. It finds the newest GitHub release tag, then runs Bun's global Git install command with that tag.
-
-To install the repository version globally with Bun:
-
-```sh
-bun install -g git+https://github.com/lucashutch/tuig.git
-```
-
-Run `tuig` from any directory after installation.
-
-This command installs the repository's default branch. To switch to the latest
-tagged release, run `tuig update`.
-
-For development without linking:
-
-```sh
-bun run start -- /path/to/repository
-```
-
-## Releases
-
-Release versions are managed from Git tags with Bun. From an up-to-date `main` checkout, run:
-
-```sh
-bun pm version patch
-git push origin main --follow-tags
-```
-
-Use `minor` or `major` instead of `patch` when appropriate. This updates `package.json`, creates the matching `vX.Y.Z` tag, and the GitHub Actions release workflow runs the full checks before creating the GitHub release.
-
-To synchronize `package.json` with an existing latest tag without creating another tag:
-
-```sh
-bun pm version from-git --no-git-tag-version
-```
+`tuig update` finds the newest GitHub release and reinstalls Tuig at that tag. See [CONTRIBUTING.md](CONTRIBUTING.md) for a development checkout and release instructions.
 
 ## Using Tuig
 
@@ -102,6 +69,7 @@ Tuig is designed for the mouse, with keyboard controls for common actions.
 | Move through history           | Wheel over graph             | `j` / `k`, arrow keys     |
 | Check out a branch             | Double-click its graph label |                           |
 | Open graph actions             | Right-click a row or label   |                           |
+| Filter branches                |                              | `/`                       |
 | Inspect a commit               | Click commit                 | `Enter`                   |
 | Return to working changes      |                              | `Esc`                     |
 | Select a file                  | Click file                   | Left / right arrows       |
@@ -123,13 +91,15 @@ Tuig is designed for the mouse, with keyboard controls for common actions.
 | Collapse left/right pane       | Click divider                | `[` / `]`                 |
 | Quit                           |                              | `q`                       |
 
-Clicking a short SHA copies it through OSC 52. Right-clicking the repository pane copies the current branch.
+Clicking a short SHA copies it through OSC 52. Right-click a branch, stash, worktree, changed file, or graph row for actions that apply to that item.
 
 Double-clicking a branch label in the graph switches to that branch. Double-clicking a remote-only label creates the matching local branch and tracks it; if a local branch of that name already exists and has diverged, Tuig asks before moving it onto the remote tip, because local-only commits are abandoned.
 
-Right-clicking a graph row opens a menu. On a branch label it offers checkout, rebase, reset (with a soft/mixed/hard submenu), copy branch name, and delete. On any row it offers a detached checkout of the commit, rebase onto it, reset to it, and copy commit SHA. Hard resets, branch deletion, and overwriting a local branch ask for confirmation first; `Esc` or a click outside closes the menu. Tuig refreshes automatically every 60 seconds; press `r` to refresh when you are not typing.
+Right-clicking a graph row opens a menu. On a branch label it offers checkout, rebase, reset (with a soft/mixed/hard submenu), copy branch name, and delete. On any row it offers a detached checkout of the commit, rebase onto it, reset to it, and copy commit SHA. Hard resets, branch deletion, and overwriting a local branch ask for confirmation first; `Esc` or a click outside closes the menu. Tuig refreshes automatically every 10 seconds; press `r` to refresh when you are not typing.
 
-Tuig fetches remote refs every five minutes by default. Set `remoteFetchIntervalMinutes` in `~/.config/tuig/layout.json` to change the interval. Use `0` to disable automatic fetching. The setting takes effect the next time Tuig starts.
+Tuig fetches and prunes remote refs every minute by default. This picks up new and deleted remote branches, including branches removed after a pull request is merged. Set `remoteFetchIntervalMinutes` in `~/.config/tuig/layout.json` to change the interval. Use `0` to disable automatic fetching. The setting takes effect the next time Tuig starts.
+
+Press `Esc` to cancel a fetch, pull, or push that is still running. Tuig prevents a second repository mutation from starting until the first one finishes.
 
 History rows show one ref label. When a commit carries more refs than fit, the extra count appears as `+N`, and tags are included rather than hidden. Branch labels use a laptop for local refs and a globe for remote refs. In the repository pane, `◉` marks the checked-out branch, `◆` marks a branch available locally and remotely, `○` marks a local branch, and `◌` marks a remote-only branch.
 
@@ -146,13 +116,13 @@ git submodule update --init --recursive
 
 This keeps submodule URLs and recorded commits aligned with the selected branch.
 
-## Project status
+## Current limitations
 
 Tuig is useful, but not finished. Current limitations include:
 
-- Stash creation, apply/pop/drop, branch creation, cherry-pick, and tag creation are available from the UI; worktree actions still need UI wiring.
-- Hunk mode currently applies the first hunk rather than presenting a full hunk picker.
-- Long-running Git commands do not yet expose cancellation.
+- Hunk mode applies the first hunk in the selected file rather than presenting a hunk picker.
+- Worktrees can be locked, unlocked, and removed from the UI, but creating one still requires Git.
+- Conflict-specific views and split diffs are not available yet.
 - Linux is the only supported platform for the first release.
 
 See the [roadmap](docs/roadmap.md) for planned work. Bugs and focused contributions are welcome. Start with [CONTRIBUTING.md](CONTRIBUTING.md).

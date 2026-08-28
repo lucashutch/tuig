@@ -80,7 +80,7 @@ Material icons require a patched Nerd Font. Make sure missing glyphs are not mis
 
 ## Releases
 
-Releases are created from `main` using Bun’s Git-tag-aware version command:
+Releases are created from `main` using Bun's Git-tag-aware version command:
 
 ```sh
 bun pm version patch

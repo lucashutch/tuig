@@ -139,7 +139,8 @@ export async function runTuig(repository: GitRepository): Promise<void> {
   await app.start();
 }
 
-const DEFAULT_REMOTE_FETCH_INTERVAL_MINUTES = 5;
+const DEFAULT_REMOTE_FETCH_INTERVAL_MINUTES = 1;
+const REFRESH_INTERVAL_MS = 10_000;
 
 export const BRAILLE_SPINNER_FRAMES = [
   "⠋",
@@ -603,7 +604,7 @@ class Runtime {
     this.layout();
     this.refreshTimer = setInterval(() => {
       if (!this.composing) void this.refresh("Auto-refreshing…");
-    }, 60_000);
+    }, REFRESH_INTERVAL_MS);
     if (this.remoteFetchIntervalMinutes > 0) {
       this.remoteFetchTimer = setInterval(() => {
         if (!this.composing && !this.busy)
