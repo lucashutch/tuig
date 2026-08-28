@@ -18,7 +18,6 @@ const githubAvatarCache = new Map<string, string>();
 const authorAvatarCache = new Map<string, string>();
 const decodedAvatarCache = new Map<string, NativeImage>();
 const pendingAvatarLoads = new Map<string, Promise<NativeImage>>();
-const pendingGitHubLookups = new Map<string, Promise<string | undefined>>();
 /** Sources that failed to load, with the time of the failure. */
 const failedAvatarSources = new Map<string, number>();
 
@@ -406,22 +405,19 @@ export async function getGitHubCommitAvatar(
     if (authorKey) authorAvatarCache.set(authorKey, diskCached.url);
     return diskCached.url;
   }
-  let lookup = pendingGitHubLookups.get(url);
-  if (!lookup) {
-    lookup = withGitHubSlot(() => resolveGitHubCommitAvatar(url)).finally(() =>
-      pendingGitHubLookups.delete(url),
-    );
-    pendingGitHubLookups.set(url, lookup);
-  }
-  const result = await abortable(lookup, signal);
-  if (result) {
-    githubAvatarCache.set(url, result);
-    if (authorKey) authorAvatarCache.set(authorKey, result);
-  }
-  await writeCachedAvatarSource(url, result ?? MISS_MARKER).catch(
-    () => undefined,
+  const result = await withGitHubSlot(
+    () => resolveGitHubCommitAvatar(url, signal),
+    signal,
   );
-  return result;
+  if (result.url) {
+    githubAvatarCache.set(url, result.url);
+    if (authorKey) authorAvatarCache.set(authorKey, result.url);
+  }
+  if (result.url || result.confirmedAbsent)
+    await writeCachedAvatarSource(url, result.url ?? MISS_MARKER).catch(
+      () => undefined,
+    );
+  return result.url;
 }
 
 /** Resolve with the shared lookup, or reject as soon as this caller aborts. */
@@ -440,9 +436,29 @@ function abortable<T>(promise: Promise<T>, signal?: AbortSignal): Promise<T> {
 let activeGitHubLookups = 0;
 const gitHubLookupQueue: Array<() => void> = [];
 
-async function withGitHubSlot<T>(run: () => Promise<T>): Promise<T> {
-  if (activeGitHubLookups >= GITHUB_LOOKUP_CONCURRENCY)
-    await new Promise<void>((resolve) => gitHubLookupQueue.push(resolve));
+async function withGitHubSlot<T>(
+  run: () => Promise<T>,
+  signal?: AbortSignal,
+): Promise<T> {
+  if (activeGitHubLookups >= GITHUB_LOOKUP_CONCURRENCY) {
+    let resume!: () => void;
+    const waiting = new Promise<void>((resolve) => {
+      resume = resolve;
+      gitHubLookupQueue.push(resolve);
+    });
+    try {
+      await abortable(waiting, signal);
+    } catch (error) {
+      const index = gitHubLookupQueue.indexOf(resume);
+      if (index >= 0) gitHubLookupQueue.splice(index, 1);
+      throw error;
+    }
+    if (signal?.aborted) {
+      gitHubLookupQueue.shift()?.();
+      signal.throwIfAborted();
+    }
+  }
+  signal?.throwIfAborted();
   activeGitHubLookups++;
   try {
     return await run();
@@ -452,9 +468,14 @@ async function withGitHubSlot<T>(run: () => Promise<T>): Promise<T> {
   }
 }
 
-async function resolveGitHubCommitAvatar(url: string, signal?: AbortSignal) {
+type GitHubAvatarLookup = { url?: string; confirmedAbsent: boolean };
+
+async function resolveGitHubCommitAvatar(
+  url: string,
+  signal?: AbortSignal,
+): Promise<GitHubAvatarLookup> {
   const fromCli = await resolveWithGitHubCli(url, signal);
-  if (fromCli) return fromCli;
+  if (fromCli) return { url: fromCli, confirmedAbsent: false };
   try {
     const response = await fetch(url, {
       headers: {
@@ -465,15 +486,18 @@ async function resolveGitHubCommitAvatar(url: string, signal?: AbortSignal) {
     });
     if (!response.ok) {
       debugLog("avatar", `github api ${response.status} for ${url}`);
-      return undefined;
+      return { confirmedAbsent: false };
     }
     const data = (await response.json()) as {
       author?: { avatar_url?: string } | null;
     };
-    return data.author?.avatar_url;
+    const avatar = data.author?.avatar_url;
+    return avatar
+      ? { url: avatar, confirmedAbsent: false }
+      : { confirmedAbsent: true };
   } catch (error) {
     debugLog("avatar", `github api failed for ${url}`, error);
-    return undefined;
+    return { confirmedAbsent: false };
   }
 }
 

@@ -192,15 +192,12 @@ export function paintHistory(ctx: RuntimePaintContext) {
   let start = ctx.historyStart;
   if (!ctx.historyViewportDetached) {
     if (selectedDisplay < start) start = selectedDisplay;
-    else if (selectedDisplay >= start + visibleUnits(ctx, start))
-      start = selectedDisplay - visibleUnits(ctx, start) + 1;
+    else if (selectedDisplay >= start + visibleUnits(ctx))
+      start = selectedDisplay - visibleUnits(ctx) + 1;
   }
-  start = Math.max(
-    0,
-    Math.min(Math.max(0, total - visibleUnits(ctx, start)), start),
-  );
+  start = Math.max(0, Math.min(Math.max(0, total - visibleUnits(ctx)), start));
   ctx.setHistoryStart(start);
-  const visible = visibleUnits(ctx, start);
+  const visible = visibleUnits(ctx);
   const chunks = [
     fg(ctx.focus === "history" ? oneDarkTheme.accent : oneDarkTheme.muted)(
       ` BRANCH / TAG          GRAPH  ${s.commits.length} COMMITS\n`,
@@ -322,7 +319,7 @@ export function paintHistory(ctx: RuntimePaintContext) {
       // The working-changes row adds one real text line at the top only while
       // the viewport is at offset zero. Account for it in the image layer as
       // well, otherwise every avatar is one row low after scrolling past it.
-      top: (hasWorking && start === 0 ? 2 : 1) + dotLine,
+      top: 2 + dotLine,
     });
     const shaStart =
       labelWidth +
@@ -345,11 +342,9 @@ export function paintHistory(ctx: RuntimePaintContext) {
 }
 
 /** Commit rows that fit in the history viewport from a given scroll offset. */
-function visibleUnits(ctx: RuntimePaintContext, start: number): number {
+function visibleUnits(ctx: RuntimePaintContext): number {
   const lines = Math.max(1, ctx.contentHeight - 3);
-  const reserved =
-    ctx.snapshot && ctx.snapshot.files.length > 0 && start === 0 ? 1 : 0;
-  return Math.max(1, lines - reserved);
+  return lines;
 }
 
 export function paintFiles(ctx: RuntimePaintContext) {

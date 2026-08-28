@@ -89,7 +89,7 @@ describe("graph avatar slots", () => {
   });
 
   test("a lane color change reprocesses the same commit", () => {
-    const { ctx } = context();
+    const { ctx } = context(true);
     updateGraphAvatars(ctx, [request(0, "a")]);
     const first = ctx.graphAvatarKeys[0];
     const moved = { ...request(0, "a"), color: "#c678dd" };
@@ -114,6 +114,16 @@ describe("graph avatar slots", () => {
     updateGraphAvatars(ctx, []);
     expect(widgets.every((widget) => !widget.visible)).toBe(true);
     expect(ctx.graphAvatarKeys.every((key) => key === undefined)).toBe(true);
+  });
+
+  test("retries a slot when image protocol detection becomes available", () => {
+    const { ctx, widgets } = context(false);
+    updateGraphAvatars(ctx, [request(0, "a")]);
+    expect(ctx.graphAvatarKeys[0]).toBeUndefined();
+    ctx.avatarSupported = true;
+    updateGraphAvatars(ctx, [request(0, "a")]);
+    expect(ctx.graphAvatarKeys[0]).toBeDefined();
+    expect(widgets[0]!.visible).toBe(true);
   });
 
   test("cancelGraphAvatars aborts every in-flight load", () => {
