@@ -22,7 +22,11 @@ function history(length: number): Commit[] {
   }));
 }
 
-type Painted = RuntimePaintContext & { requests: number; text: string };
+type Painted = RuntimePaintContext & {
+  requests: number;
+  text: string;
+  historyText: { visible: boolean };
+};
 
 /** A history pane of `viewport` rows scrolled to `historyStart`. */
 function paintContext(
@@ -63,6 +67,7 @@ function paintContext(
     historyShaHits: new Map(),
     historyLabelHits: new Map(),
     historyText: {
+      visible: true,
       set content(value: { chunks: Array<{ text: string }> }) {
         context.text = value.chunks.map((chunk) => chunk.text).join("");
       },
@@ -77,6 +82,21 @@ function paintContext(
 }
 
 describe("history prefetch", () => {
+  test("hides history text behind an open commit diff", () => {
+    const context = paintContext(history(10), {
+      complete: true,
+      historyStart: 0,
+      viewport: 40,
+    });
+    context.commitDiffVisible = true;
+    paintHistory(context);
+    expect(context.historyText.visible).toBe(false);
+
+    context.commitDiffVisible = false;
+    paintHistory(context);
+    expect(context.historyText.visible).toBe(true);
+  });
+
   test("asks for more history once the end is nearly in view", () => {
     const commits = history(250);
     // 40 rows visible ending at row 240, so ten rows remain below.
