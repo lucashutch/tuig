@@ -14,9 +14,15 @@ function solidImage(size: number, r: number, g: number, b: number) {
 }
 
 describe("circular avatars", () => {
-  test("masks corners and paints the ring in the lane color", () => {
+  test("masks corners into the row background and paints the ring", () => {
     const source = solidImage(32, 200, 100, 50);
-    const masked = circularAvatar(source, "#4b9cd3", "test-key");
+    const masked = circularAvatar(
+      source,
+      "#4b9cd3",
+      "#282c34",
+      4 / 3,
+      "test-key",
+    );
     const raw = masked.raw("rgba8");
     const stride = raw.stride || raw.width * 4;
     // NativeImage's raw readout returns rows bottom-up.
@@ -30,10 +36,12 @@ describe("circular avatars", () => {
         raw.data[out + 3]!,
       ];
     };
-    // Corners are outside the circle and fully transparent.
-    expect(at(0, 0)[3]).toBe(0);
-    // The ring band carries the lane color at full opacity.
-    const edge = at(16, 54);
+    // Corners carry the row background at full opacity, so avatars blend
+    // with the pane even in terminals that ignore image alpha.
+    expect(at(0, 0)).toEqual([0x28, 0x2c, 0x34, 255]);
+    // The ring band carries the lane color at full opacity. The mask is an
+    // ellipse, so the ring point is sampled on its vertical axis.
+    const edge = at(32, 11);
     expect(edge[3]).toBeGreaterThan(200);
     expect(edge[0]).toBe(0x4b);
     expect(edge[1]).toBe(0x9c);
@@ -46,11 +54,13 @@ describe("circular avatars", () => {
     source.dispose();
   });
 
-  test("falls back to a neutral ring for unparsable colors", () => {
+  test("falls back to a neutral ring and black corners for unparsable colors", () => {
     const source = solidImage(32, 1, 2, 3);
-    const masked = circularAvatar(source, "not-a-color", "fallback-key");
+    const masked = circularAvatar(source, "not-a-color", "also-bad", 1, "k2");
     const raw = masked.raw("rgba8");
     const stride = raw.stride || raw.width * 4;
+    const corner = raw.data[3]!;
+    expect(corner).toBe(255);
     const edge = raw.data[(raw.height - 1 - 54) * stride + 16 * 4 + 3]!;
     expect(edge).toBeGreaterThan(200);
     source.dispose();

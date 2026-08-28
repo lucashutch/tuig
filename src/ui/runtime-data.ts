@@ -416,6 +416,8 @@ export interface GraphAvatarRequest {
   commit: Commit;
   /** Lane color used for the avatar's outline ring. */
   color: string;
+  /** Row background the avatar's corners are painted with. */
+  background: string;
   /** Position of the commit's graph dot, in history-pane coordinates. */
   left: number;
   top: number;
@@ -449,7 +451,7 @@ export function updateGraphAvatars(
     widget.top = request.top;
     // The ring color is part of the identity: a commit that moved lanes gets
     // its avatar reprocessed with the new lane color.
-    const key = `${request.commit.sha}|${request.color}`;
+    const key = `${request.commit.sha}|${request.color}|${request.background}`;
     if (ctx.graphAvatarKeys[slot] === key) continue;
     ctx.graphAvatarKeys[slot] = key;
     ctx.graphAvatarTokens[slot] = (ctx.graphAvatarTokens[slot] ?? 0) + 1;
@@ -461,6 +463,7 @@ export function updateGraphAvatars(
         slot,
         request.commit,
         request.color,
+        request.background,
         ctx.graphAvatarTokens[slot]!,
       );
   }
@@ -471,6 +474,7 @@ async function loadGraphAvatar(
   slot: number,
   commit: Commit,
   ringColor: string,
+  background: string,
   token: number,
 ) {
   try {
@@ -491,17 +495,24 @@ async function loadGraphAvatar(
       image?.dispose();
       return;
     }
+    const widget = ctx.widgets.graphAvatars[slot]!;
+    // Terminal cells are roughly twice as tall as wide, so the avatar box
+    // (3 columns by 2 rows) is taller than it is wide in pixels. Masking an
+    // ellipse with the inverse ratio and letting "fill" stretch it back
+    // keeps the outline round on screen.
+    const stretch = (widget.height * widget.cellAspectRatio) / widget.width;
     const masked = circularAvatar(
       image,
       ringColor,
-      `${githubAvatar ?? gravatar}|${ringColor}`,
+      background,
+      stretch,
+      `${githubAvatar ?? gravatar}|${ringColor}|${background}|${Math.round(stretch * 100)}`,
     );
     image.dispose();
     if (token !== ctx.graphAvatarTokens[slot]) {
       masked.dispose();
       return;
     }
-    const widget = ctx.widgets.graphAvatars[slot]!;
     widget.source = masked;
     // ImageRenderable retains its own reference to the native image.
     masked.dispose();
