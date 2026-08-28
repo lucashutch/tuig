@@ -1,10 +1,11 @@
 import { describe, expect, test } from "bun:test";
-import type { BranchRef } from "../../src/git/types.js";
+import type { BranchRef, Commit } from "../../src/git/types.js";
 import {
   branchPresence,
   branchPresenceFromIndex,
   branchRefsForSection,
   buildBranchPresenceIndex,
+  buildCommitBranchHints,
   clampBranchSelection,
   filterBranchRefs,
   moveBranchSelection,
@@ -132,5 +133,102 @@ describe("branch presence index", () => {
       indexed("feature/nested/name"),
     );
     expect(branchPresence("unknown-remote/main", refs)).toBe("none");
+  });
+});
+
+describe("commit branch hints", () => {
+  const base = {
+    author: "A",
+    authorEmail: "a@b",
+    authoredAt: "2026-01-01",
+    committer: "C",
+    committerEmail: "c@d",
+    committedAt: "2026-01-01",
+    subject: "x",
+    body: "",
+    decorations: [] as string[],
+  };
+  const commit = (sha: string, parents: string[]): Commit => ({
+    ...base,
+    sha,
+    parents,
+  });
+  const ref = (
+    name: string,
+    sha: string,
+    extra: Partial<BranchRef> = {},
+  ): BranchRef => ({
+    name,
+    fullName: name.includes("/")
+      ? `refs/remotes/${name}`
+      : `refs/heads/${name}`,
+    sha,
+    current: false,
+    remote: name.includes("/"),
+    ...extra,
+  });
+  const chain = [
+    commit("a", ["b"]),
+    commit("b", ["c"]),
+    commit("c", ["d"]),
+    commit("d", []),
+  ];
+
+  test("labels an ancestor with the nearest ref, not a distant one", () => {
+    const hints = buildCommitBranchHints(chain, [
+      ref("far", "a"),
+      ref("near", "c"),
+    ]);
+    expect(hints.get("c")).toBe("↳ 󰌢 near");
+    expect(hints.get("d")).toBe("↳ 󰌢 near");
+    expect(hints.get("b")).toBe("↳ 󰌢 far");
+  });
+
+  test("prefers current over local over remote at the same distance", () => {
+    const tips = [
+      ref("origin/main", "a"),
+      ref("local", "a"),
+      ref("head", "a", { current: true }),
+    ];
+    expect(buildCommitBranchHints(chain, tips).get("b")).toBe("↳ 󰌢 head");
+    expect(buildCommitBranchHints(chain, tips.slice(0, 2)).get("b")).toBe(
+      "↳ 󰌢 local",
+    );
+    expect(buildCommitBranchHints(chain, tips.slice(0, 1)).get("b")).toBe(
+      "↳ 󰖟 main",
+    );
+  });
+
+  test("breaks a distance and priority tie by ref order", () => {
+    const hints = buildCommitBranchHints(chain, [
+      ref("first", "a"),
+      ref("second", "a"),
+    ]);
+    expect(hints.get("b")).toBe("↳ 󰌢 first");
+  });
+
+  test("walks both parents of a merge commit", () => {
+    const hints = buildCommitBranchHints(
+      [
+        commit("merge", ["left", "right"]),
+        commit("left", ["root"]),
+        commit("right", ["root"]),
+        commit("root", []),
+      ],
+      [ref("main", "merge", { current: true })],
+    );
+    expect(hints.get("left")).toBe("↳ 󰌢 main");
+    expect(hints.get("right")).toBe("↳ 󰌢 main");
+    expect(hints.get("root")).toBe("↳ 󰌢 main");
+  });
+
+  test("keeps a ref whose tip is outside the loaded commits", () => {
+    const hints = buildCommitBranchHints(chain, [ref("detached", "unloaded")]);
+    expect(hints.get("unloaded")).toBe("↳ 󰌢 detached");
+    expect(hints.has("a")).toBe(false);
+  });
+
+  test("returns nothing without refs", () => {
+    expect(buildCommitBranchHints(chain, []).size).toBe(0);
   });
 });

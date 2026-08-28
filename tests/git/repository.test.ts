@@ -546,3 +546,53 @@ test("history is ordered newest first across every ref", async () => {
     "first",
   ]);
 });
+
+test("history pages report whether older commits remain", async () => {
+  const root = await mkdtemp(join(tmpdir(), "tuig-test-"));
+  cleanup.push(root);
+  await runGit(["init", "-b", "main"], root);
+  await runGit(["config", "user.name", "Test User"], root);
+  await runGit(["config", "user.email", "test@example.com"], root);
+  const repo = await GitRepositoryService.open(root);
+  for (const name of ["one", "two", "three", "four"]) {
+    await Bun.write(join(root, `${name}.txt`), `${name}\n`);
+    await repo.stage([`${name}.txt`]);
+    await repo.commit(name);
+  }
+  const first = await repo.commitPage(2);
+  expect(first.commits.map((commit) => commit.subject)).toEqual([
+    "four",
+    "three",
+  ]);
+  expect(first.complete).toBe(false);
+  const second = await repo.commitPage(4);
+  expect(second.commits).toHaveLength(4);
+  expect(second.complete).toBe(true);
+  // A page larger than the history is still complete, without padding.
+  const third = await repo.commitPage(50);
+  expect(third.commits).toHaveLength(4);
+  expect(third.complete).toBe(true);
+  const snapshot = await repo.snapshot(2);
+  expect(snapshot.commits).toHaveLength(2);
+  expect(snapshot.commitsComplete).toBe(false);
+  // A skipped page continues the same walk, so the caller can append it to
+  // what it already holds after checking the overlapping commit.
+  const continued = await repo.commitPage(3, 1);
+  expect(continued.commits.map((commit) => commit.subject)).toEqual([
+    "three",
+    "two",
+    "one",
+  ]);
+  expect(continued.complete).toBe(true);
+  expect(continued.commits[0]?.sha).toBe(first.commits[1]?.sha);
+});
+
+test("an empty repository reports complete, empty history", async () => {
+  const root = await mkdtemp(join(tmpdir(), "tuig-test-"));
+  cleanup.push(root);
+  await runGit(["init", "-b", "main"], root);
+  const repo = await GitRepositoryService.open(root);
+  const page = await repo.commitPage(250);
+  expect(page.commits).toEqual([]);
+  expect(page.complete).toBe(true);
+});
