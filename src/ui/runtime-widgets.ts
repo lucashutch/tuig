@@ -23,8 +23,8 @@ import {
 
 export type ChangeSection = "unstaged" | "staged";
 
-/** Enough pooled avatars to cover any reasonable history viewport. */
-export const GRAPH_AVATAR_SLOTS = 48;
+/** Enough pooled avatars for tall terminals with one commit per row. */
+export const GRAPH_AVATAR_SLOTS = 256;
 
 /** Row the diff starts on inside the details pane. */
 export const COMMIT_DIFF_TOP = 2;
@@ -896,11 +896,10 @@ export function createRuntimeWidgets(
         id: `graph-avatar-${slot}`,
         left: 0,
         top: 0,
-        // Three columns by two rows: wide enough for a face, with the extra
-        // column left of the dot centering the lane line behind the avatar.
-        // "fill" stretches the pre-masked ellipse back into a circle.
+        // The source has matching 3:2 padding, so fill can center its circular
+        // 2-cell avatar on the middle cell without stretching it.
         width: 3,
-        height: 2,
+        height: 1,
         fit: "fill",
         protocol: "auto",
         visible: false,

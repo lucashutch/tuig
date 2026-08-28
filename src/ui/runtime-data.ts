@@ -12,6 +12,7 @@ import {
 } from "./history.js";
 import {
   circularAvatar,
+  graphAvatarCanvas,
   getGitHubCommitAvatar,
   getGravatarUrl,
   getProviderAvatarUrl,
@@ -411,7 +412,7 @@ async function loadAuthorPhoto(
 }
 
 export interface GraphAvatarRequest {
-  /** Index into the pooled ImageRenderables. */
+  /** Fixed widget slot. Separate banks avoid moving terminal image placements. */
   slot: number;
   commit: Commit;
   /** Lane color used for the avatar's outline ring. */
@@ -421,6 +422,15 @@ export interface GraphAvatarRequest {
   /** Position of the commit's graph dot, in history-pane coordinates. */
   left: number;
   top: number;
+  continuesAbove: boolean;
+  continuesBelow: boolean;
+}
+
+const GRAPH_AVATAR_CACHE_SIZE = 256;
+const renderedGraphAvatars = new Map<string, NativeImage>();
+
+function graphAvatarKey(request: GraphAvatarRequest) {
+  return `${request.commit.sha}|${request.color}|${request.background}|${Number(request.continuesAbove)}${Number(request.continuesBelow)}`;
 }
 
 /**
@@ -435,9 +445,12 @@ export function updateGraphAvatars(
   requests: readonly GraphAvatarRequest[],
 ) {
   const slots = ctx.widgets.graphAvatars;
+  const requestsBySlot = new Map(
+    requests.map((request) => [request.slot, request]),
+  );
   for (let slot = 0; slot < slots.length; slot++) {
+    const request = requestsBySlot.get(slot);
     const widget = slots[slot]!;
-    const request = requests[slot];
     if (!request) {
       if (ctx.graphAvatarKeys[slot] !== undefined) {
         ctx.graphAvatarKeys[slot] = undefined;
@@ -447,23 +460,37 @@ export function updateGraphAvatars(
       widget.source = undefined;
       continue;
     }
-    widget.left = request.left;
-    widget.top = request.top;
+    const key = graphAvatarKey(request);
+    // Keep each native image anchored to a viewport row. Moving an existing
+    // terminal image placement can leave its pixels at the previous row in
+    // Kitty and similar graphics protocols.
+    if (widget.left !== request.left) widget.left = request.left;
+    if (widget.top !== request.top) widget.top = request.top;
     // The ring color is part of the identity: a commit that moved lanes gets
     // its avatar reprocessed with the new lane color.
-    const key = `${request.commit.sha}|${request.color}|${request.background}`;
     if (ctx.graphAvatarKeys[slot] === key) continue;
     ctx.graphAvatarKeys[slot] = key;
     ctx.graphAvatarTokens[slot] = (ctx.graphAvatarTokens[slot] ?? 0) + 1;
     widget.visible = false;
     widget.source = undefined;
+    const cached = renderedGraphAvatars.get(key);
+    if (cached) {
+      renderedGraphAvatars.delete(key);
+      renderedGraphAvatars.set(key, cached);
+      widget.source = cached;
+      widget.visible = true;
+      continue;
+    }
     if (ctx.avatarSupported)
       void loadGraphAvatar(
         ctx,
         slot,
+        key,
         request.commit,
         request.color,
         request.background,
+        request.continuesAbove,
+        request.continuesBelow,
         ctx.graphAvatarTokens[slot]!,
       );
   }
@@ -472,18 +499,23 @@ export function updateGraphAvatars(
 async function loadGraphAvatar(
   ctx: RuntimeDataContext,
   slot: number,
+  key: string,
   commit: Commit,
   ringColor: string,
   background: string,
+  continuesAbove: boolean,
+  continuesBelow: boolean,
   token: number,
 ) {
   try {
-    const remote = await ctx.repository.remoteUrl?.();
+    const remote = await graphRemoteUrl(ctx.repository);
+    if (token !== ctx.graphAvatarTokens[slot]) return;
     const githubAvatar = await getGitHubCommitAvatar(
       remote,
       commit.sha,
       commit.authorEmail,
     );
+    if (token !== ctx.graphAvatarTokens[slot]) return;
     let image = githubAvatar
       ? await loadCachedAvatar(githubAvatar).catch(() => undefined)
       : undefined;
@@ -496,30 +528,55 @@ async function loadGraphAvatar(
       return;
     }
     const widget = ctx.widgets.graphAvatars[slot]!;
-    // Terminal cells are roughly twice as tall as wide, so the avatar box
-    // (3 columns by 2 rows) is taller than it is wide in pixels. Masking an
-    // ellipse with the inverse ratio and letting "fill" stretch it back
-    // keeps the outline round on screen.
-    const stretch = (widget.height * widget.cellAspectRatio) / widget.width;
+    // `contain` preserves the image's square pixel aspect ratio. Compensating
+    // with the reported terminal cell ratio made the shape vary between image
+    // placements in some terminal graphics protocols.
+    const stretch = 1;
     const masked = circularAvatar(
       image,
       ringColor,
       background,
       stretch,
-      `${githubAvatar ?? gravatar}|${ringColor}|${background}|${Math.round(stretch * 100)}`,
+      `${githubAvatar ?? gravatar}|${ringColor}|${background}|${Number(continuesAbove)}${Number(continuesBelow)}`,
+      continuesAbove,
+      continuesBelow,
     );
+    const canvas = graphAvatarCanvas(masked, background);
+    masked.dispose();
     image.dispose();
     if (token !== ctx.graphAvatarTokens[slot]) {
-      masked.dispose();
+      canvas.dispose();
       return;
     }
-    widget.source = masked;
+    renderedGraphAvatars.set(key, canvas.clone());
+    while (renderedGraphAvatars.size > GRAPH_AVATAR_CACHE_SIZE) {
+      const oldest = renderedGraphAvatars.entries().next().value as
+        | [string, NativeImage]
+        | undefined;
+      if (!oldest) break;
+      renderedGraphAvatars.delete(oldest[0]);
+      oldest[1].dispose();
+    }
+    widget.source = canvas;
     // ImageRenderable retains its own reference to the native image.
-    masked.dispose();
+    canvas.dispose();
     widget.visible = true;
   } catch {
     // The painted graph dot remains the fallback when avatars are unusable.
   }
+}
+
+const graphRemoteUrls = new WeakMap<object, Promise<string | undefined>>();
+
+function graphRemoteUrl(repository: RuntimeDataContext["repository"]) {
+  let remote = graphRemoteUrls.get(repository);
+  if (!remote) {
+    remote = repository.remoteUrl
+      ? repository.remoteUrl()
+      : Promise.resolve(undefined);
+    graphRemoteUrls.set(repository, remote);
+  }
+  return remote;
 }
 
 function setCommitMetaVisible(ctx: RuntimeDataContext, visible: boolean) {

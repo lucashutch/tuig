@@ -9,6 +9,8 @@ export interface GraphRow {
   lane: number;
   /** True for the commit HEAD currently points at. */
   head: boolean;
+  /** Whether this ancestry enters the commit from the row above. */
+  continuesAbove: boolean;
   cells: GraphCell[];
   connectors: GraphCell[];
   laneColors: string[];
@@ -90,6 +92,7 @@ export function layoutGraph(
       sha === commit.sha ? [index] : [],
     );
     let lane = incoming[0] ?? -1;
+    const continuesAbove = lane >= 0;
     if (lane < 0) {
       // An exhausted lane is removed immediately, so this append is also safe
       // reuse of its column (and preserves first-parent continuity otherwise).
@@ -194,6 +197,7 @@ export function layoutGraph(
       commit,
       lane,
       head: isHead,
+      continuesAbove,
       cells,
       connectors: makeCells(connectorTopology),
       laneColors: cells.map((cell) => cell.color),
