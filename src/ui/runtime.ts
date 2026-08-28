@@ -92,6 +92,7 @@ import {
   type GraphAvatarRequest,
   type RuntimeDataContext,
 } from "./runtime-data.js";
+import { cancelAvatarWork } from "./avatars.js";
 import {
   historyClick as handleHistoryClick,
   moveCommit as moveHistoryCommit,
@@ -157,6 +158,7 @@ class Runtime {
   private snapshotSignature?: string;
   private historyLimit = HISTORY_PAGE;
   private loadingMoreCommits = false;
+  private historyPageFailures = 0;
   private graphLayoutState?: GraphLayoutState;
   private commitIndex = 0;
   private historySelection: "working" | "commit" = "working";
@@ -858,6 +860,12 @@ class Runtime {
       set loadingMoreCommits(value) {
         runtime.loadingMoreCommits = value;
       },
+      get historyPageFailures() {
+        return runtime.historyPageFailures;
+      },
+      set historyPageFailures(value) {
+        runtime.historyPageFailures = value;
+      },
       get graphLayoutState() {
         return runtime.graphLayoutState;
       },
@@ -1472,6 +1480,13 @@ class Runtime {
     if (key.name === "q" || (key.ctrl && key.name === "c")) {
       this.avatarAbort?.abort();
       cancelRuntimeGraphAvatars(this.dataContext());
+      // Shared avatar requests outlive their callers by design, so exiting
+      // has to stop them explicitly or the process lingers until they time
+      // out.
+      cancelAvatarWork();
+      // A background fetch can run far longer than any avatar request, so it
+      // is cancelled rather than waited out.
+      this.mutationAbort?.abort();
       if (this.refreshTimer) clearInterval(this.refreshTimer);
       if (this.remoteFetchTimer) clearInterval(this.remoteFetchTimer);
       if (this.scrollTimer) clearTimeout(this.scrollTimer);
