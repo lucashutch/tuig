@@ -11,6 +11,7 @@ import {
   resolveHeadSha,
 } from "./history.js";
 import {
+  circularAvatar,
   getGitHubCommitAvatar,
   getGravatarUrl,
   getProviderAvatarUrl,
@@ -78,8 +79,8 @@ export interface RuntimeDataContext {
   avatarRequest: number;
   avatarAbort?: AbortController;
   avatarSupported: boolean;
-  /** Sha currently shown in each pooled graph avatar slot. */
-  graphAvatarShas: Array<string | undefined>;
+  /** Slot identity (sha plus ring color) currently loaded per slot. */
+  graphAvatarKeys: Array<string | undefined>;
   /** Monotonic token per slot; stale loads must not paint a newer commit. */
   graphAvatarTokens: number[];
   files(): ChangedFile[];
@@ -413,6 +414,8 @@ export interface GraphAvatarRequest {
   /** Index into the pooled ImageRenderables. */
   slot: number;
   commit: Commit;
+  /** Lane color used for the avatar's outline ring. */
+  color: string;
   /** Position of the commit's graph dot, in history-pane coordinates. */
   left: number;
   top: number;
@@ -434,8 +437,8 @@ export function updateGraphAvatars(
     const widget = slots[slot]!;
     const request = requests[slot];
     if (!request) {
-      if (ctx.graphAvatarShas[slot] !== undefined) {
-        ctx.graphAvatarShas[slot] = undefined;
+      if (ctx.graphAvatarKeys[slot] !== undefined) {
+        ctx.graphAvatarKeys[slot] = undefined;
         ctx.graphAvatarTokens[slot] = (ctx.graphAvatarTokens[slot] ?? 0) + 1;
       }
       widget.visible = false;
@@ -444,8 +447,11 @@ export function updateGraphAvatars(
     }
     widget.left = request.left;
     widget.top = request.top;
-    if (ctx.graphAvatarShas[slot] === request.commit.sha) continue;
-    ctx.graphAvatarShas[slot] = request.commit.sha;
+    // The ring color is part of the identity: a commit that moved lanes gets
+    // its avatar reprocessed with the new lane color.
+    const key = `${request.commit.sha}|${request.color}`;
+    if (ctx.graphAvatarKeys[slot] === key) continue;
+    ctx.graphAvatarKeys[slot] = key;
     ctx.graphAvatarTokens[slot] = (ctx.graphAvatarTokens[slot] ?? 0) + 1;
     widget.visible = false;
     widget.source = undefined;
@@ -454,6 +460,7 @@ export function updateGraphAvatars(
         ctx,
         slot,
         request.commit,
+        request.color,
         ctx.graphAvatarTokens[slot]!,
       );
   }
@@ -463,6 +470,7 @@ async function loadGraphAvatar(
   ctx: RuntimeDataContext,
   slot: number,
   commit: Commit,
+  ringColor: string,
   token: number,
 ) {
   try {
@@ -483,10 +491,20 @@ async function loadGraphAvatar(
       image?.dispose();
       return;
     }
-    const widget = ctx.widgets.graphAvatars[slot]!;
-    widget.source = image;
-    // ImageRenderable retains its own reference to the native image.
+    const masked = circularAvatar(
+      image,
+      ringColor,
+      `${githubAvatar ?? gravatar}|${ringColor}`,
+    );
     image.dispose();
+    if (token !== ctx.graphAvatarTokens[slot]) {
+      masked.dispose();
+      return;
+    }
+    const widget = ctx.widgets.graphAvatars[slot]!;
+    widget.source = masked;
+    // ImageRenderable retains its own reference to the native image.
+    masked.dispose();
     widget.visible = true;
   } catch {
     // The painted graph dot remains the fallback when avatars are unusable.
