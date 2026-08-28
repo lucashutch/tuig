@@ -110,29 +110,33 @@ export const parsePorcelainStatus = parseStatus;
 export const parseForEachRef = parseRefs;
 export const parseStructuredLog = parseLog;
 export function parseStashes(data: string): Stash[] {
-  return data
-    .split("\0")
-    .filter(Boolean)
-    .map((x) => {
-      // Subjects are free-form and may themselves contain tabs. Only the
-      // first three separators belong to the machine-readable fields.
-      const fields: string[] = [];
-      let rest = x;
-      for (let i = 0; i < 3; i++) {
-        const separator = rest.indexOf("\t");
-        if (separator < 0) break;
-        fields.push(rest.slice(0, separator));
-        rest = rest.slice(separator + 1);
-      }
-      const [ref, sha, at] = fields;
-      const subject = rest;
-      return {
-        ref: ref ?? "",
-        sha: sha ?? "",
-        createdAt: at ?? "",
-        subject: subject ?? "",
-      };
-    });
+  return (
+    data
+      // `stash list` appends the requested NUL terminator to its normal newline
+      // record separator, so records are commonly separated by `\0\n`.
+      .split(/[\0\n]+/)
+      .filter(Boolean)
+      .map((x) => {
+        // Subjects are free-form and may themselves contain tabs. Only the
+        // first three separators belong to the machine-readable fields.
+        const fields: string[] = [];
+        let rest = x;
+        for (let i = 0; i < 3; i++) {
+          const separator = rest.indexOf("\t");
+          if (separator < 0) break;
+          fields.push(rest.slice(0, separator));
+          rest = rest.slice(separator + 1);
+        }
+        const [ref, sha, at] = fields;
+        const subject = rest;
+        return {
+          ref: ref ?? "",
+          sha: sha ?? "",
+          createdAt: at ?? "",
+          subject: subject ?? "",
+        };
+      })
+  );
 }
 export function parseNameStatus(data: string): ChangedFile[] {
   const parts = data.split("\0");

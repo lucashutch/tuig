@@ -140,6 +140,60 @@ export async function runTuig(repository: GitRepository): Promise<void> {
 
 const DEFAULT_REMOTE_FETCH_INTERVAL_MINUTES = 5;
 
+export const BRAILLE_SPINNER_FRAMES = [
+  "⠋",
+  "⠙",
+  "⠹",
+  "⠸",
+  "⠼",
+  "⠴",
+  "⠦",
+  "⠧",
+  "⠇",
+  "⠏",
+] as const;
+export const BRAILLE_SPINNER_INTERVAL_MS = 100;
+
+export interface BrailleSpinnerScheduler {
+  schedule(callback: () => void, intervalMs: number): unknown;
+  cancel(handle: unknown): void;
+}
+
+const defaultBrailleSpinnerScheduler: BrailleSpinnerScheduler = {
+  schedule: (callback, intervalMs) => setInterval(callback, intervalMs),
+  cancel: (handle) => clearInterval(handle as ReturnType<typeof setInterval>),
+};
+
+/**
+ * Small, restartable spinner used by transient busy notifications. Keeping
+ * the timer behind this helper makes its lifecycle explicit and testable.
+ */
+export function createBrailleSpinner(
+  render: (frame: string) => void,
+  scheduler: BrailleSpinnerScheduler = defaultBrailleSpinnerScheduler,
+) {
+  let handle: unknown;
+  let frame = 0;
+  return {
+    start() {
+      if (handle !== undefined) return;
+      frame = 0;
+      render(BRAILLE_SPINNER_FRAMES[frame]!);
+      handle = scheduler.schedule(() => {
+        frame = (frame + 1) % BRAILLE_SPINNER_FRAMES.length;
+        render(BRAILLE_SPINNER_FRAMES[frame]!);
+      }, BRAILLE_SPINNER_INTERVAL_MS);
+    },
+    stop() {
+      if (handle !== undefined) {
+        scheduler.cancel(handle);
+        handle = undefined;
+      }
+      frame = 0;
+    },
+  };
+}
+
 /** Window in which a second click on the same graph row counts as a double. */
 const DOUBLE_CLICK_MS = 400;
 
@@ -206,10 +260,15 @@ class Runtime {
   private focus: "history" | "changes" = "history";
   private syncedAt?: number;
   private messageTimer?: ReturnType<typeof setTimeout>;
+  private busySpinnerText = "";
+  private readonly busySpinner = createBrailleSpinner((frame) =>
+    this.renderBusyNotification(frame),
+  );
   // Reading `content` back off a renderable returns a StyledText, so the
   // message text is tracked here for width and layout maths.
   private messageText = "";
   private busy = false;
+  private disposed = false;
   private refreshPending = false;
   private pendingRefreshMessage?: string;
   private readonly header: TextRenderable;
@@ -503,7 +562,7 @@ class Runtime {
     this.renderer.root.add(this.branchFilterInput);
     this.renderer.root.add(this.promptInput);
     this.renderer.on(CliRenderEvents.SELECTION, this.copyCompletedSelection);
-    this.renderer.once(CliRenderEvents.DESTROY, this.removeSelectionListener);
+    this.renderer.once(CliRenderEvents.DESTROY, this.dispose);
   }
 
   async start() {
@@ -604,20 +663,23 @@ class Runtime {
    * overwrite, remain the resting state of the row.
    */
   private notify(text: string, tone: "info" | "error" | "busy" = "info") {
+    if (this.disposed) return;
     if (this.messageTimer) clearTimeout(this.messageTimer);
     this.messageTimer = undefined;
+    if (tone === "busy") {
+      this.stopBusySpinner();
+      this.busySpinnerText = text;
+      this.busySpinner.start();
+      return;
+    }
+    this.stopBusySpinner();
     const limit = Math.max(20, Math.floor(this.renderer.terminalWidth / 2));
-    this.messageText = clipColumns(tone === "busy" ? `⠿ ${text}` : text, limit);
+    this.messageText = clipColumns(text, limit);
     this.message.content = this.messageText;
     this.message.fg =
-      tone === "error"
-        ? oneDarkTheme.deleted
-        : tone === "busy"
-          ? oneDarkTheme.accentSoft
-          : oneDarkTheme.muted;
+      tone === "error" ? oneDarkTheme.deleted : oneDarkTheme.muted;
     this.positionMessage();
     this.paintHints();
-    if (tone === "busy") return;
     this.messageTimer = setTimeout(() => {
       this.messageText = "";
       this.message.content = "";
@@ -626,6 +688,25 @@ class Runtime {
       this.paintHints();
     }, 6000);
   }
+  private renderBusyNotification(frame: string) {
+    const limit = Math.max(20, Math.floor(this.renderer.terminalWidth / 2));
+    this.messageText = clipColumns(`${frame} ${this.busySpinnerText}`, limit);
+    this.message.content = this.messageText;
+    this.message.fg = oneDarkTheme.accentSoft;
+    this.positionMessage();
+    this.paintHints();
+  }
+  private stopBusySpinner() {
+    this.busySpinner.stop();
+    this.busySpinnerText = "";
+  }
+  private readonly dispose = () => {
+    this.disposed = true;
+    this.removeSelectionListener();
+    this.stopBusySpinner();
+    if (this.messageTimer) clearTimeout(this.messageTimer);
+    this.messageTimer = undefined;
+  };
   private fail(error: unknown) {
     this.notify(
       error instanceof Error ? error.message : String(error),
@@ -1491,6 +1572,7 @@ class Runtime {
       if (this.remoteFetchTimer) clearInterval(this.remoteFetchTimer);
       if (this.scrollTimer) clearTimeout(this.scrollTimer);
       if (this.messageTimer) clearTimeout(this.messageTimer);
+      this.dispose();
       await this.flushLayoutPreferences().catch(() => undefined);
       return this.renderer.destroy();
     }

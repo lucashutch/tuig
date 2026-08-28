@@ -1,5 +1,10 @@
+import { MouseButton } from "@opentui/core";
 import { describe, expect, test } from "bun:test";
-import { commitRowAtLine } from "../../src/ui/runtime-history.js";
+import {
+  commitRowAtLine,
+  historyClick,
+  type RuntimeHistoryContext,
+} from "../../src/ui/runtime-history.js";
 
 describe("graph row hit testing", () => {
   test("maps each graph line to one commit", () => {
@@ -29,5 +34,63 @@ describe("graph row hit testing", () => {
   test("rejects clicks above the body", () => {
     expect(commitRowAtLine(-1, 0, false)).toBe(-1);
     expect(commitRowAtLine(-2, 0, true)).toBe(-1);
+  });
+
+  test("passes a stash target for clicks away from its label", () => {
+    const stash = {
+      ref: "stash@{0}",
+      sha: "stash-sha",
+      createdAt: "now",
+      subject: "work in progress",
+    };
+    const commit = {
+      sha: stash.sha,
+      parents: [],
+      author: "author",
+      authorEmail: "author@example.com",
+      authoredAt: "now",
+      committer: "committer",
+      committerEmail: "committer@example.com",
+      committedAt: "now",
+      subject: stash.subject,
+      decorations: [],
+    };
+    let target: unknown;
+    const context = {
+      snapshot: {
+        files: [],
+        commits: [commit],
+        stashes: [stash],
+      },
+      graphRows: [],
+      historyStart: 0,
+      historySelection: "commit",
+      commitIndex: 0,
+      historyContentLeft: 10,
+      contentHeight: 20,
+      pendingScroll: 0,
+      historyViewportDetached: false,
+      historyShaHits: new Map(),
+      historyLabelHits: new Map([[0, { start: 0, end: 4 }]]),
+      paneTop: 0,
+      doubleClickMs: 300,
+      commitDiffVisible: false,
+      mode: "unstaged",
+      setFocus: () => {},
+      paintHistory: () => {},
+      paint: () => {},
+      closeDiff: () => {},
+      openCommit: () => {},
+      openGraphMenu: (_x: number, _y: number, menuTarget: unknown) => {
+        target = menuTarget;
+      },
+      checkoutBranch: () => {},
+      notify: () => {},
+      renderer: undefined,
+    } as unknown as RuntimeHistoryContext;
+
+    historyClick(context, 25, 2, MouseButton.RIGHT);
+
+    expect(target).toEqual({ sha: stash.sha, branch: undefined, stash });
   });
 });

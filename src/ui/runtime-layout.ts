@@ -305,10 +305,8 @@ export function layoutChanges(context: RuntimeLayoutContext, height: number) {
     // The commit file tree stays in the RHS picker while its selected diff
     // is drawn over the history pane. Working-tree diffs have no commit
     // picker, so clear these widgets in that mode instead.
-    if (context.view !== "commit") {
-      context.unstagedLabel.visible = false;
-      context.unstagedText.visible = false;
-    }
+    context.unstagedLabel.visible = context.view === "commit";
+    context.unstagedText.visible = context.view === "commit";
     context.amendButton.visible = false;
     return;
   }
@@ -336,6 +334,10 @@ export function layoutChanges(context: RuntimeLayoutContext, height: number) {
   ])
     widget.visible = !commitView && !editing;
   if (commitView && !editing) {
+    // These widgets are also used for the commit file picker. Restore them
+    // explicitly because a preceding working-tree diff hides them.
+    context.unstagedLabel.visible = true;
+    context.unstagedText.visible = true;
     context.unstagedLabel.top = context.commitFilesTop;
     context.unstagedText.top = context.commitFilesTop + 1;
     context.unstagedText.height = context.sectionViewport("unstaged");
