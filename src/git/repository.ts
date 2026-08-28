@@ -46,23 +46,57 @@ export class GitCommandError extends Error {
   }
 }
 
+/** Raised when a caller aborted a running Git command. */
+export class GitCommandAbortedError extends Error {
+  constructor(public readonly args: string[]) {
+    super(`git ${args.join(" ")}: cancelled`);
+    this.name = "GitCommandAbortedError";
+  }
+}
+
+/**
+ * The TUI cannot answer prompts printed to its terminal, so credential
+ * requests are disabled outright: Git fails fast with a clear error instead
+ * of blocking the whole interface on an invisible prompt.
+ */
+const NON_INTERACTIVE_ENV: Record<string, string> = {
+  GIT_TERMINAL_PROMPT: "0",
+  GIT_ASKPASS: "",
+};
+
 export async function runGit(
   args: string[],
   cwd?: string,
   env?: Record<string, string | undefined>,
+  signal?: AbortSignal,
 ): Promise<CommandResult> {
   const p = Bun.spawn(["git", ...args], {
     cwd,
-    env: env ? { ...process.env, ...env } : undefined,
+    env: {
+      ...process.env,
+      ...(env ?? {}),
+      // The non-interactive defaults win unless the caller overrode the key.
+      ...Object.fromEntries(
+        Object.entries(NON_INTERACTIVE_ENV).filter(
+          ([key]) => !(env && key in env),
+        ),
+      ),
+    },
     stdout: "pipe",
     stderr: "pipe",
   });
+  if (signal) {
+    const abort = () => p.kill();
+    if (signal.aborted) p.kill();
+    else signal.addEventListener("abort", abort, { once: true });
+  }
   const [stdout, stderr, exitCode] = await Promise.all([
     new Response(p.stdout).text(),
     new Response(p.stderr).text(),
     p.exited,
   ]);
   const result = { stdout, stderr, exitCode };
+  if (signal?.aborted) throw new GitCommandAbortedError(args);
   if (exitCode) throw new GitCommandError(args, result);
   return result;
 }
@@ -76,8 +110,8 @@ export class GitRepositoryService implements GitRepository {
     const r = await runGit(["rev-parse", "--show-toplevel"], path);
     return new GitRepositoryService(r.stdout.trim());
   }
-  private async git(args: string[]) {
-    return runGit(args, this.root);
+  private async git(args: string[], signal?: AbortSignal) {
+    return runGit(args, this.root, undefined, signal);
   }
   async remoteUrl() {
     return (
@@ -376,16 +410,16 @@ export class GitRepositoryService implements GitRepository {
   async deleteBranch(n: string, f = false, remote = false) {
     await this.git(["branch", ...(remote ? ["-r"] : []), f ? "-D" : "-d", n]);
   }
-  async fetch(r?: string) {
+  async fetch(r?: string, signal?: AbortSignal) {
     // Remove remote-tracking refs that disappeared from the remote. Without
     // pruning, the sidebar and graph keep showing branches deleted upstream.
-    await this.git(["fetch", "--prune", ...(r ? [r] : [])]);
+    await this.git(["fetch", "--prune", ...(r ? [r] : [])], signal);
   }
-  async pull(rebase = false) {
-    await this.git(["pull", ...(rebase ? ["--rebase"] : [])]);
+  async pull(rebase = false, signal?: AbortSignal) {
+    await this.git(["pull", ...(rebase ? ["--rebase"] : [])], signal);
   }
-  async push(r?: string, s = false) {
-    await this.git(["push", ...(s ? ["-u"] : []), ...(r ? [r] : [])]);
+  async push(r?: string, s = false, signal?: AbortSignal) {
+    await this.git(["push", ...(s ? ["-u"] : []), ...(r ? [r] : [])], signal);
   }
   async stash(m?: string, i = false) {
     await this.git([
