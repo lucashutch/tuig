@@ -128,9 +128,13 @@ export interface GitRepository {
     checkout?: boolean,
   ): Promise<void>;
   deleteBranch(name: string, force?: boolean, remote?: boolean): Promise<void>;
-  fetch(remote?: string): Promise<void>;
-  pull(rebase?: boolean): Promise<void>;
-  push(remote?: string, setUpstream?: boolean): Promise<void>;
+  fetch(remote?: string, signal?: AbortSignal): Promise<void>;
+  pull(rebase?: boolean, signal?: AbortSignal): Promise<void>;
+  push(
+    remote?: string,
+    setUpstream?: boolean,
+    signal?: AbortSignal,
+  ): Promise<void>;
   stash(message?: string, includeUntracked?: boolean): Promise<void>;
   applyStash(ref: string, pop?: boolean): Promise<void>;
   popStash(ref: string): Promise<void>;

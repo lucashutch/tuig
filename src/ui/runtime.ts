@@ -105,6 +105,7 @@ import {
   type RuntimeSidebarContext,
 } from "./runtime-sidebar.js";
 import {
+  cancelActiveMutation,
   checkoutBranch as checkoutRuntimeBranch,
   commit as commitRuntime,
   discardAll as discardAllRuntime,
@@ -172,6 +173,8 @@ class Runtime {
     staged: 0,
   };
   private discardArmed = false;
+  private mutationBusy?: string;
+  private mutationAbort?: AbortController;
   private diffRequest = 0;
   private commitFilesRequest = 0;
   private snapshotRequest = 0;
@@ -1391,6 +1394,8 @@ class Runtime {
     if (this.composing && key.name !== "escape") return;
     if (key.name === "escape") {
       if (this.popupController.isOpen) return this.closePopup();
+      if (this.mutationAbort)
+        return void cancelActiveMutation(this.commandsContext());
       if (this.branchFilterActive) return this.cancelBranchFilter();
       // A failed reword can leave the editor blurred; edit mode itself still
       // owns Escape so its saved working draft is never stranded.
@@ -1493,13 +1498,21 @@ class Runtime {
     if (key.name === "f")
       return void this.perform(
         "Fetching…",
-        () => this.repository.fetch(),
+        (signal) => this.repository.fetch(undefined, signal),
         true,
       );
     if (key.name === "l")
-      return void this.perform("Pulling…", () => this.repository.pull(), true);
+      return void this.perform(
+        "Pulling…",
+        (signal) => this.repository.pull(false, signal),
+        true,
+      );
     if (key.name === "p")
-      return void this.perform("Pushing…", () => this.repository.push(), true);
+      return void this.perform(
+        "Pushing…",
+        (signal) => this.repository.push(undefined, false, signal),
+        true,
+      );
     if (key.name === "s" && this.selectedFile())
       return void this.perform("Staging…", () =>
         this.repository.stage([this.selectedFile()!.path]),
@@ -1563,6 +1576,18 @@ class Runtime {
       set discardArmed(value) {
         runtime.discardArmed = value;
       },
+      get busy() {
+        return runtime.mutationBusy;
+      },
+      set busy(value) {
+        runtime.mutationBusy = value;
+      },
+      get mutationAbort() {
+        return runtime.mutationAbort;
+      },
+      set mutationAbort(value) {
+        runtime.mutationAbort = value;
+      },
       get namePrompt() {
         return runtime.namePrompt;
       },
@@ -1611,7 +1636,11 @@ class Runtime {
       fail: (error) => this.fail(error),
     };
   }
-  private perform(label: string, action: () => Promise<void>, remote = false) {
+  private perform(
+    label: string,
+    action: (signal?: AbortSignal) => Promise<void>,
+    remote = false,
+  ) {
     return performRuntime(this.commandsContext(), label, action, remote);
   }
   private commit() {
