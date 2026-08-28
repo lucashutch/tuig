@@ -54,6 +54,8 @@ export interface RuntimeCommandsContext {
   selectedFile(): ChangedFile | undefined;
   copy(text: string): boolean;
   refresh(message?: string): Promise<void>;
+  /** Refresh path for mutations that cannot have changed history. */
+  refreshWorkingStatus(message?: string): Promise<void>;
   paintComposer(): void;
   notify(text: string, tone?: "info" | "error" | "busy"): void;
   fail(error: unknown): void;
@@ -69,6 +71,8 @@ export async function perform(
   label: string,
   action: (signal?: AbortSignal) => Promise<void>,
   remote = false,
+  // Index-only work leaves history alone, so it can skip the history walk.
+  scope: "history" | "working" = "history",
 ) {
   if (context.busy !== undefined)
     return context.notify(`${context.busy} is still running`, "error");
@@ -79,7 +83,9 @@ export async function perform(
   try {
     await action(abort?.signal);
     if (remote) context.syncedAt = Date.now();
-    await context.refresh();
+    await (scope === "working"
+      ? context.refreshWorkingStatus()
+      : context.refresh());
   } catch (error) {
     if (error instanceof Error && error.name === "GitCommandAbortedError")
       context.notify(`Cancelled ${label.toLowerCase()}`);
@@ -278,6 +284,8 @@ export async function runMenuAction(
         staging
           ? context.repository.stage([file.path])
           : context.repository.unstage([file.path]),
+      false,
+      "working",
     );
   }
   if (action === "discard-file") {
@@ -291,6 +299,8 @@ export async function runMenuAction(
         destructive: true,
       },
       () =>
+        // Discarding can restore a submodule to its recorded commit, which
+        // the working-tree fast path does not re-read.
         perform(context, `Discarding ${file.path}…`, () =>
           context.repository.discard([file.path]),
         ),
@@ -495,13 +505,23 @@ function restoreEditReturnState(context: RuntimeCommandsContext) {
 export async function stageAll(context: RuntimeCommandsContext) {
   const paths = context.files("unstaged").map((file) => file.path);
   if (!paths.length) return context.notify("Nothing to stage");
-  await perform(context, "Staging all…", () => context.repository.stage(paths));
+  await perform(
+    context,
+    "Staging all…",
+    () => context.repository.stage(paths),
+    false,
+    "working",
+  );
 }
 export async function unstageAll(context: RuntimeCommandsContext) {
   const paths = context.files("staged").map((file) => file.path);
   if (!paths.length) return context.notify("Nothing to unstage");
-  await perform(context, "Unstaging all…", () =>
-    context.repository.unstage(paths),
+  await perform(
+    context,
+    "Unstaging all…",
+    () => context.repository.unstage(paths),
+    false,
+    "working",
   );
 }
 export async function discardAll(context: RuntimeCommandsContext) {
@@ -518,6 +538,8 @@ export async function discardAll(context: RuntimeCommandsContext) {
     );
   }
   context.discardArmed = false;
+  // `git clean -fd` and a worktree restore can both change submodule state,
+  // so this takes the full refresh rather than the working-tree fast path.
   await perform(context, "Discarding…", () => context.repository.discardAll());
 }
 export async function stageFirstHunk(context: RuntimeCommandsContext) {
@@ -532,7 +554,7 @@ export async function stageFirstHunk(context: RuntimeCommandsContext) {
     const hunk = splitPatchHunks(patch)[0];
     if (!hunk) return context.notify("No applicable hunk", "error");
     await context.repository.applyPatch(hunk.patch, context.mode === "staged");
-    await context.refresh("Applied hunk");
+    await context.refreshWorkingStatus("Applied hunk");
   } catch (error) {
     context.fail(error);
   }

@@ -4,6 +4,7 @@ import type {
   RepositorySnapshot,
   CommandResult,
   ResetMode,
+  WorkingStatus,
 } from "./types";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -123,7 +124,15 @@ export class GitRepositoryService implements GitRepository {
   async snapshot(limit = 1000): Promise<RepositorySnapshot> {
     const [st, refs, log, stash, wt, sm, submoduleConfig, head] =
       await Promise.all([
-        this.git(["status", "--porcelain=v2", "--branch", "-z"]),
+        // Polling must not take the index lock: the auto-refresh would
+        // otherwise collide with a Git command the user is running elsewhere.
+        this.git([
+          "--no-optional-locks",
+          "status",
+          "--porcelain=v2",
+          "--branch",
+          "-z",
+        ]),
         this.git([
           "for-each-ref",
           // %(HEAD) marks the checked-out local branch.  Explicitly emit the
@@ -137,7 +146,13 @@ export class GitRepositoryService implements GitRepository {
           "log",
           "-z",
           "--all",
-          "--date-order",
+          // Git's default walk is already newest-first by commit date.
+          // `--date-order` only adds the guarantee that no parent is emitted
+          // before its children, and buying it costs a walk of the entire
+          // history: on a 145k-commit repository that is 910ms of a 950ms
+          // snapshot, against 10ms without it, for identical output. The graph
+          // layout opens a fresh lane for a commit it has not seen yet, so a
+          // clock-skewed parent degrades to an extra lane rather than a fault.
           `-${limit}`,
           "--format=%H%x1f%P%x1f%an%x1f%ae%x1f%aI%x1f%cn%x1f%ce%x1f%cI%x1f%s%x1f%D%x1f%b%x1e",
         ]).catch(() => ({ stdout: "", stderr: "", exitCode: 0 })),
@@ -188,6 +203,28 @@ export class GitRepositoryService implements GitRepository {
         parseSubmoduleNames(submoduleConfig.stdout),
       ),
       commits: parseLog(log.stdout),
+    };
+  }
+  /**
+   * Re-read only the working tree and branch tracking state.
+   *
+   * Staging a file cannot change history, so the index mutations refresh
+   * through this instead of paying for the full snapshot's history walk.
+   */
+  async workingStatus(): Promise<WorkingStatus> {
+    const st = await this.git([
+      "--no-optional-locks",
+      "status",
+      "--porcelain=v2",
+      "--branch",
+      "-z",
+    ]);
+    const tracking = parseTracking(st.stdout);
+    return {
+      upstream: tracking.upstream,
+      ahead: tracking.ahead,
+      behind: tracking.behind,
+      files: parseStatus(st.stdout),
     };
   }
   async diff(r: DiffRequest) {

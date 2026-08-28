@@ -83,6 +83,7 @@ import {
   openCommit as openRuntimeCommit,
   openWorkingDiff as openRuntimeWorkingDiff,
   refresh as refreshRuntimeData,
+  refreshWorkingStatus as refreshRuntimeWorkingStatus,
   showCommitMeta as showRuntimeCommitMeta,
   cancelGraphAvatars as cancelRuntimeGraphAvatars,
   updateGraphAvatars as updateRuntimeGraphAvatars,
@@ -151,6 +152,7 @@ class Runtime {
     this.renderer.off(CliRenderEvents.SELECTION, this.copyCompletedSelection);
   };
   private snapshot?: RepositorySnapshot;
+  private snapshotSignature?: string;
   private commitIndex = 0;
   private historySelection: "working" | "commit" = "working";
   private fileIndex = 0;
@@ -803,6 +805,11 @@ class Runtime {
     return refreshRuntimeData(this.dataContext(), message);
   }
 
+  /** Refresh after a change that cannot have touched history. */
+  private refreshWorkingStatus(message?: string) {
+    return refreshRuntimeWorkingStatus(this.dataContext(), message);
+  }
+
   private dataContext(): RuntimeDataContext {
     // Accessors keep async data operations attached to the live runtime state.
     // eslint-disable-next-line @typescript-eslint/no-this-alias
@@ -833,6 +840,12 @@ class Runtime {
       },
       set snapshot(value) {
         runtime.snapshot = value;
+      },
+      get snapshotSignature() {
+        return runtime.snapshotSignature;
+      },
+      set snapshotSignature(value) {
+        runtime.snapshotSignature = value;
       },
       get snapshotRequest() {
         return runtime.snapshotRequest;
@@ -1537,12 +1550,18 @@ class Runtime {
         true,
       );
     if (key.name === "s" && this.selectedFile())
-      return void this.perform("Staging…", () =>
-        this.repository.stage([this.selectedFile()!.path]),
+      return void this.perform(
+        "Staging…",
+        () => this.repository.stage([this.selectedFile()!.path]),
+        false,
+        "working",
       );
     if (key.name === "u" && this.selectedFile())
-      return void this.perform("Unstaging…", () =>
-        this.repository.unstage([this.selectedFile()!.path]),
+      return void this.perform(
+        "Unstaging…",
+        () => this.repository.unstage([this.selectedFile()!.path]),
+        false,
+        "working",
       );
     if (key.name === "h" && this.selectedFile())
       return void this.stageFirstHunk();
@@ -1654,6 +1673,7 @@ class Runtime {
       selectedFile: () => this.selectedFile(),
       copy: (text) => this.renderer.copyToClipboardOSC52(text),
       refresh: (message) => this.refresh(message),
+      refreshWorkingStatus: (message) => this.refreshWorkingStatus(message),
       paintComposer: () => this.paintComposer(),
       notify: (text, tone) => this.notify(text, tone),
       fail: (error) => this.fail(error),
@@ -1663,8 +1683,9 @@ class Runtime {
     label: string,
     action: (signal?: AbortSignal) => Promise<void>,
     remote = false,
+    scope: "history" | "working" = "history",
   ) {
-    return performRuntime(this.commandsContext(), label, action, remote);
+    return performRuntime(this.commandsContext(), label, action, remote, scope);
   }
   private commit() {
     return commitRuntime(this.commandsContext());

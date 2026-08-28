@@ -56,6 +56,8 @@ export interface RuntimeDataContext {
     | "ensureGraphAvatarSlots"
   >;
   snapshot?: RepositorySnapshot;
+  /** Fingerprint of the painted snapshot, used to skip unchanged refreshes. */
+  snapshotSignature?: string;
   snapshotRequest: number;
   diffRequest: number;
   commitFilesRequest: number;
@@ -100,6 +102,103 @@ export interface RuntimeDataContext {
   refresh(message?: string): Promise<void>;
 }
 
+/**
+ * Fingerprint the parts of a snapshot the interface actually draws.
+ *
+ * A refresh that changes nothing is the common case: the sixty-second timer,
+ * and any mutation that turns out to be a no-op. Repainting anyway is not free
+ * — it rebuilds every sidebar section and reassigns every graph avatar slot —
+ * so an unchanged snapshot is dropped before it reaches the widgets. Commit
+ * bodies and timestamps are excluded because a commit's content cannot change
+ * without its object name changing.
+ */
+export function snapshotSignature(snapshot: RepositorySnapshot): string {
+  const parts: string[] = [
+    snapshot.root,
+    snapshot.branch ?? "",
+    snapshot.upstream ?? "",
+    `${snapshot.ahead}/${snapshot.behind}`,
+  ];
+  for (const file of snapshot.files)
+    parts.push(
+      `f${file.path}\u0000${file.originalPath ?? ""}\u0000${file.state}${Number(file.staged)}${Number(file.unstaged)}`,
+    );
+  for (const branch of snapshot.branches)
+    parts.push(
+      `b${branch.fullName}\u0000${branch.sha}${Number(branch.current)}${Number(branch.remote)}\u0000${branch.upstream ?? ""}`,
+    );
+  for (const commit of snapshot.commits)
+    parts.push(`c${commit.sha}\u0000${commit.decorations.join(",")}`);
+  for (const stash of snapshot.stashes)
+    parts.push(`s${stash.ref}\u0000${stash.sha}\u0000${stash.subject}`);
+  for (const worktree of snapshot.worktrees)
+    parts.push(
+      `w${worktree.path}\u0000${worktree.sha}\u0000${worktree.locked ?? ""}\u0000${worktree.prunable ?? ""}`,
+    );
+  for (const submodule of snapshot.submodules)
+    parts.push(`m${submodule.path}${submodule.sha}${submodule.state}`);
+  return parts.join("\u0001");
+}
+
+/**
+ * Re-read only the working tree.
+ *
+ * Staging, unstaging, and discarding cannot change history, so they avoid the
+ * snapshot's history walk, which dominates refresh time on large repositories.
+ * Implementations without the fast path fall back to a full refresh.
+ */
+export async function refreshWorkingStatus(
+  ctx: RuntimeDataContext,
+  message?: string,
+) {
+  const readStatus = ctx.repository.workingStatus?.bind(ctx.repository);
+  if (!readStatus || !ctx.snapshot) return refresh(ctx, message);
+  if (ctx.busy) {
+    ctx.refreshPending = true;
+    ctx.pendingRefreshMessage = message ?? ctx.pendingRefreshMessage;
+    return;
+  }
+  ctx.busy = true;
+  const request = ++ctx.snapshotRequest;
+  const base = ctx.snapshot;
+  const selectedPath = ctx.selectedFile()?.path;
+  ctx.notify(message ?? "Refreshing…", "busy");
+  try {
+    const status = await readStatus();
+    if (request !== ctx.snapshotRequest || ctx.refreshPending) return;
+    if (ctx.snapshot !== base) return;
+    const next: RepositorySnapshot = { ...base, ...status };
+    const signature = snapshotSignature(next);
+    if (signature === ctx.snapshotSignature) {
+      ctx.notify("");
+      return;
+    }
+    ctx.snapshotSignature = signature;
+    ctx.snapshot = next;
+    // History is untouched, so the graph layout and branch hints still apply.
+    const fileAt = selectedPath
+      ? ctx.files().findIndex((file) => file.path === selectedPath)
+      : -1;
+    ctx.fileIndex =
+      fileAt >= 0
+        ? fileAt
+        : Math.min(ctx.fileIndex, Math.max(0, ctx.files().length - 1));
+    ctx.ensureFileVisible();
+    ctx.paint();
+    ctx.notify("");
+  } catch (error) {
+    ctx.fail(error);
+  } finally {
+    ctx.busy = false;
+    if (ctx.refreshPending) {
+      const trailing = ctx.pendingRefreshMessage;
+      ctx.refreshPending = false;
+      ctx.pendingRefreshMessage = undefined;
+      void ctx.refresh(trailing);
+    }
+  }
+}
+
 export async function refresh(ctx: RuntimeDataContext, message?: string) {
   if (ctx.busy) {
     ctx.refreshPending = true;
@@ -108,8 +207,6 @@ export async function refresh(ctx: RuntimeDataContext, message?: string) {
   }
   ctx.busy = true;
   const request = ++ctx.snapshotRequest;
-  ++ctx.diffRequest;
-  ++ctx.commitFilesRequest;
   const preserveCommitDiff =
     ctx.view === "commit" && ctx.widgets.commitDiff.visible;
   const selectedSha = ctx.snapshot?.commits[ctx.commitIndex]?.sha;
@@ -118,6 +215,19 @@ export async function refresh(ctx: RuntimeDataContext, message?: string) {
   try {
     const snapshot = await ctx.repository.snapshot(1000);
     if (request !== ctx.snapshotRequest || ctx.refreshPending) return;
+    const signature = snapshotSignature(snapshot);
+    // Keep the existing snapshot object: in-flight diff and commit-file loads
+    // guard on its identity and would otherwise be discarded for no reason.
+    if (ctx.snapshot && signature === ctx.snapshotSignature) {
+      ctx.notify("");
+      return;
+    }
+    ctx.snapshotSignature = signature;
+    // Replacing the snapshot invalidates every load that guards on its
+    // identity, so the in-flight diff and commit files are dropped here rather
+    // than before the unchanged-snapshot check above.
+    ++ctx.diffRequest;
+    ++ctx.commitFilesRequest;
     ctx.snapshot = snapshot;
     ctx.graphRows = layoutGraph(
       snapshot.commits,

@@ -90,21 +90,30 @@ export function formatCommitAuthor(
   return `${authorAvatar(author, email)} ${formatRelativeTime(authoredAt, now)}`;
 }
 
-/** Filter local or remote refs by a case-insensitive substring query. */
-export function filterBranchRefs(
-  refs: readonly BranchRef[],
-  query: string,
-): BranchRef[] {
+/**
+ * Build the predicate behind `filterBranchRefs`.
+ *
+ * Callers that already walk the refs use this to avoid materialising an
+ * intermediate filtered array per paint.
+ */
+export function branchRefFilter(query: string): (ref: BranchRef) => boolean {
   const needle = query.trim().toLocaleLowerCase();
-  if (!needle) return [...refs];
-  return refs.filter((ref) =>
+  if (!needle) return () => true;
+  return (ref) =>
     [
       ref.name,
       ref.fullName,
       displayBranchName(ref.name),
       displayBranchName(ref.fullName),
-    ].some((value) => value.toLocaleLowerCase().includes(needle)),
-  );
+    ].some((value) => value.toLocaleLowerCase().includes(needle));
+}
+
+/** Filter local or remote refs by a case-insensitive substring query. */
+export function filterBranchRefs(
+  refs: readonly BranchRef[],
+  query: string,
+): BranchRef[] {
+  return refs.filter(branchRefFilter(query));
 }
 
 export type BranchSection = "local" | "remote";
@@ -179,58 +188,106 @@ export function displayBranchName(name: string): string {
     .replace(/^origin\//, "");
 }
 
+/**
+ * Constant-time lookup tables for `branchPresence`.
+ *
+ * Presence used to rescan every ref (and re-normalise its name) for each row,
+ * which is quadratic on repositories with thousands of branches.  Building the
+ * sets once per ref array keeps the sidebar paint linear.
+ */
+export type BranchPresenceIndex = {
+  readonly localNames: ReadonlySet<string>;
+  readonly remoteNames: ReadonlySet<string>;
+  readonly remoteNameSuffixes: ReadonlySet<string>;
+  readonly remotePrefixes: ReadonlySet<string>;
+};
+
+function stripRefPrefixes(name: string): string {
+  return name.replace(/^refs\/heads\//, "").replace(/^refs\/remotes\//, "");
+}
+
+export function buildBranchPresenceIndex(
+  refs: readonly BranchRef[],
+): BranchPresenceIndex {
+  const localNames = new Set<string>();
+  const remoteNames = new Set<string>();
+  const remoteNameSuffixes = new Set<string>();
+  const remotePrefixes = new Set<string>();
+  for (const ref of refs) {
+    if (!ref.remote) {
+      localNames.add(ref.name);
+      localNames.add(ref.fullName);
+      if (ref.fullName.startsWith("refs/heads/"))
+        localNames.add(ref.fullName.slice("refs/heads/".length));
+      continue;
+    }
+    const remoteName = stripRefPrefixes(ref.name);
+    remoteNames.add(remoteName);
+    // `endsWith("/" + name)` matches any suffix that starts after a slash.
+    for (
+      let slash = remoteName.indexOf("/");
+      slash >= 0;
+      slash = remoteName.indexOf("/", slash + 1)
+    )
+      remoteNameSuffixes.add(remoteName.slice(slash + 1));
+    const separator = remoteName.indexOf("/");
+    if (separator > 0) remotePrefixes.add(remoteName.slice(0, separator));
+  }
+  return { localNames, remoteNames, remoteNameSuffixes, remotePrefixes };
+}
+
+const presenceIndexCache = new WeakMap<object, BranchPresenceIndex>();
+
+/**
+ * The presence index for a ref array, built once and reused.
+ *
+ * Snapshots replace `branches` rather than mutating it, so an entry stays
+ * valid for the life of the snapshot and repeated paints pay nothing.
+ */
+export function presenceIndexFor(
+  refs: readonly BranchRef[],
+): BranchPresenceIndex {
+  const cached = presenceIndexCache.get(refs);
+  if (cached) return cached;
+  const index = buildBranchPresenceIndex(refs);
+  presenceIndexCache.set(refs, index);
+  return index;
+}
+
 /** Determine whether a branch name is represented locally, remotely, or both. */
 export function branchPresence(
   nameOrRef: string | BranchRef,
   refs: readonly BranchRef[],
 ): BranchPresence {
+  return branchPresenceFromIndex(nameOrRef, presenceIndexFor(refs));
+}
+
+/** `branchPresence` against a prebuilt index, for row loops. */
+export function branchPresenceFromIndex(
+  nameOrRef: string | BranchRef,
+  index: BranchPresenceIndex,
+): BranchPresence {
   const rawName = typeof nameOrRef === "string" ? nameOrRef : nameOrRef.name;
-  const normalisedName = rawName
-    .replace(/^refs\/heads\//, "")
-    .replace(/^refs\/remotes\//, "");
+  const normalisedName = stripRefPrefixes(rawName);
   // A string can be either a short local name or a decorated remote name
   // (for example `origin/main`).  BranchRef already tells us which case it
   // is, so only strip a remote prefix for remote refs and string labels.
-  const names = new Set([normalisedName]);
   const separator = normalisedName.indexOf("/");
   const remotePrefix =
     separator > 0 ? normalisedName.slice(0, separator) : undefined;
   const isKnownRemoteName =
     rawName.startsWith("refs/remotes/") ||
-    (remotePrefix !== undefined &&
-      refs.some(
-        (ref) =>
-          ref.remote &&
-          ref.name
-            .replace(/^refs\/heads\//, "")
-            .replace(/^refs\/remotes\//, "")
-            .startsWith(`${remotePrefix}/`),
-      ));
-  if (
-    (typeof nameOrRef !== "string" && nameOrRef.remote) ||
-    (typeof nameOrRef === "string" && isKnownRemoteName)
-  ) {
-    if (separator > 0) names.add(normalisedName.slice(separator + 1));
-  }
-  const local = refs.some(
-    (ref) =>
-      !ref.remote &&
-      [...names].some(
-        (name) =>
-          ref.name === name ||
-          ref.fullName === name ||
-          ref.fullName === `refs/heads/${name}`,
-      ),
+    (remotePrefix !== undefined && index.remotePrefixes.has(remotePrefix));
+  const treatAsRemote =
+    typeof nameOrRef === "string" ? isKnownRemoteName : nameOrRef.remote;
+  const names =
+    treatAsRemote && separator > 0
+      ? [normalisedName, normalisedName.slice(separator + 1)]
+      : [normalisedName];
+  const local = names.some((name) => index.localNames.has(name));
+  const remote = names.some(
+    (name) => index.remoteNames.has(name) || index.remoteNameSuffixes.has(name),
   );
-  const remote = refs.some((ref) => {
-    if (!ref.remote) return false;
-    const remoteName = ref.name
-      .replace(/^refs\/heads\//, "")
-      .replace(/^refs\/remotes\//, "");
-    return [...names].some(
-      (name) => remoteName === name || remoteName.endsWith(`/${name}`),
-    );
-  });
   return local && remote
     ? "both"
     : local
