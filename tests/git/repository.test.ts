@@ -36,6 +36,42 @@ describe("porcelain parsers", () => {
       body: "body\x1fwith separator",
     });
   });
+  test("shares one string for an identity repeated across commits", () => {
+    const record = (sha: string) =>
+      `${sha}\x1f\x1fAuthor\x1fauthor@example.com\x1f2020-01-01T00:00:00+00:00\x1fAuthor\x1fauthor@example.com\x1f2020-01-01T00:00:00+00:00\x1fsubject\x1f\x1f\x1e`;
+    const [first, second] = parseLog(record("a") + record("b"));
+    // Identity, not equality: thousands of commits share a handful of authors,
+    // and one string each is the difference this is here to hold.
+    expect(first!.author).toBe(second!.author);
+    expect(first!.authorEmail).toBe(second!.authorEmail);
+    expect(first!.author).toBe("Author");
+  });
+
+  test("shares one empty array across commits with no parents or refs", () => {
+    const root =
+      "sha\x1f\x1fA\x1fa@b\x1f2020-01-01\x1fA\x1fa@b\x1f2020-01-01\x1fsubject\x1f\x1f\x1e";
+    const [one, two] = parseLog(root + root.replace("sha", "shb"));
+    expect(one!.parents).toEqual([]);
+    expect(one!.parents).toBe(two!.parents);
+    expect(one!.decorations).toBe(two!.decorations);
+  });
+
+  test("does not pin the log chunk a commit was parsed from", () => {
+    // JSC slices are views onto the string they came from, so a field held
+    // without copying keeps its whole page of log text alive. The margin here
+    // is roughly a thousandfold, so the threshold can stay loose.
+    const bulk = "b".repeat(2_000_000);
+    const kept: string[] = [];
+    for (let i = 0; i < 10; i++) {
+      const chunk = `sha${i}\x1f\x1fA\x1fa@b\x1f2020-01-01\x1fA\x1fa@b\x1f2020-01-01\x1fsubject ${bulk}\x1f\x1f\x1e`;
+      kept.push(parseLog(chunk)[0]!.sha);
+    }
+    Bun.gc(true);
+    expect(kept).toHaveLength(10);
+    // Ten 2MB chunks would be 20MB if the shas pinned them.
+    expect(process.memoryUsage().heapUsed).toBeLessThan(10_000_000);
+  });
+
   test("keeps spaces in ordinary and unmerged paths", () => {
     const ordinary =
       "1 .M N... 100644 100644 100644 abcdef0 abcdef0 path with spaces.txt\0";
