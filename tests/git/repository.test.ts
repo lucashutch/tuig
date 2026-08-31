@@ -58,18 +58,23 @@ describe("porcelain parsers", () => {
 
   test("does not pin the log chunk a commit was parsed from", () => {
     // JSC slices are views onto the string they came from, so a field held
-    // without copying keeps its whole page of log text alive. The margin here
-    // is roughly a thousandfold, so the threshold can stay loose.
+    // without copying keeps its whole page of log text alive. Ten 2MB chunks
+    // would retain 20MB if the shas pinned them, against nothing if they do
+    // not, so the growth is measured rather than the absolute heap: the rest
+    // of the suite shares this process and its own footprint is not fixed.
     const bulk = "b".repeat(2_000_000);
+    Bun.gc(true);
+    const before = process.memoryUsage().heapUsed;
     const kept: string[] = [];
     for (let i = 0; i < 10; i++) {
       const chunk = `sha${i}\x1f\x1fA\x1fa@b\x1f2020-01-01\x1fA\x1fa@b\x1f2020-01-01\x1fsubject ${bulk}\x1f\x1f\x1e`;
       kept.push(parseLog(chunk)[0]!.sha);
     }
     Bun.gc(true);
+    const grew = process.memoryUsage().heapUsed - before;
     expect(kept).toHaveLength(10);
-    // Ten 2MB chunks would be 20MB if the shas pinned them.
-    expect(process.memoryUsage().heapUsed).toBeLessThan(10_000_000);
+    expect(kept[0]).toBe("sha0");
+    expect(grew).toBeLessThan(8_000_000);
   });
 
   test("keeps spaces in ordinary and unmerged paths", () => {
