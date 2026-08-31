@@ -28,7 +28,7 @@ export interface BranchRef {
 
 export interface Commit {
   sha: string;
-  parents: string[];
+  parents: readonly string[];
   author: string;
   authorEmail: string;
   authoredAt: string;
@@ -37,7 +37,7 @@ export interface Commit {
   committedAt: string;
   subject: string;
   body?: string;
-  decorations: string[];
+  decorations: readonly string[];
 }
 
 export type ResetMode = "soft" | "mixed" | "hard";
