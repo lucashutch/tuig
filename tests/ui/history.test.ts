@@ -5,7 +5,10 @@ import {
   branchPresenceFromIndex,
   branchRefsForSection,
   buildBranchPresenceIndex,
+  branchHints,
   buildCommitBranchHints,
+  emptyBranchHintIndex,
+  extendCommitBranchHints,
   clampBranchSelection,
   filterBranchRefs,
   moveBranchSelection,
@@ -136,37 +139,35 @@ describe("branch presence index", () => {
   });
 });
 
+const base = {
+  author: "A",
+  authorEmail: "a@b",
+  authoredAt: "2026-01-01",
+  committer: "C",
+  committerEmail: "c@d",
+  committedAt: "2026-01-01",
+  subject: "x",
+  body: "",
+  decorations: [] as string[],
+};
+const commit = (sha: string, parents: string[]): Commit => ({
+  ...base,
+  sha,
+  parents,
+});
+const ref = (
+  name: string,
+  sha: string,
+  extra: Partial<BranchRef> = {},
+): BranchRef => ({
+  name,
+  fullName: name.includes("/") ? `refs/remotes/${name}` : `refs/heads/${name}`,
+  sha,
+  current: false,
+  remote: name.includes("/"),
+  ...extra,
+});
 describe("commit branch hints", () => {
-  const base = {
-    author: "A",
-    authorEmail: "a@b",
-    authoredAt: "2026-01-01",
-    committer: "C",
-    committerEmail: "c@d",
-    committedAt: "2026-01-01",
-    subject: "x",
-    body: "",
-    decorations: [] as string[],
-  };
-  const commit = (sha: string, parents: string[]): Commit => ({
-    ...base,
-    sha,
-    parents,
-  });
-  const ref = (
-    name: string,
-    sha: string,
-    extra: Partial<BranchRef> = {},
-  ): BranchRef => ({
-    name,
-    fullName: name.includes("/")
-      ? `refs/remotes/${name}`
-      : `refs/heads/${name}`,
-    sha,
-    current: false,
-    remote: name.includes("/"),
-    ...extra,
-  });
   const chain = [
     commit("a", ["b"]),
     commit("b", ["c"]),
@@ -230,5 +231,89 @@ describe("commit branch hints", () => {
 
   test("returns nothing without refs", () => {
     expect(buildCommitBranchHints(chain, []).size).toBe(0);
+  });
+});
+
+describe("incremental branch hints", () => {
+  /** Deterministic pseudo-random source, so a failure is reproducible. */
+  function random(seed: number) {
+    let state = seed;
+    return () =>
+      (state = (state * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff;
+  }
+
+  /** A random newest-first DAG, with merges and refs at arbitrary depths. */
+  function randomHistory(next: () => number) {
+    const size = 5 + Math.floor(next() * 60);
+    const commits: Commit[] = [];
+    for (let index = 0; index < size; index++) {
+      const parents: string[] = [];
+      const count = next() < 0.2 ? 2 : 1;
+      for (let n = 0; n < count; n++) {
+        const at = index + 1 + Math.floor(next() * 6);
+        if (at < size && !parents.includes(`c${at}`)) parents.push(`c${at}`);
+      }
+      commits.push(commit(`c${index}`, parents));
+    }
+    const refs: BranchRef[] = [];
+    const refCount = 1 + Math.floor(next() * 5);
+    for (let n = 0; n < refCount; n++)
+      refs.push({
+        ...ref(`r${n}`, `c${Math.floor(next() * size)}`),
+        current: n === 0 && next() < 0.5,
+        remote: next() < 0.4,
+      });
+    return { commits, refs, page: 1 + Math.floor(next() * 10) };
+  }
+
+  test("paging in reaches the same hints as one whole-history pass", () => {
+    const next = random(1);
+    for (let trial = 0; trial < 200; trial++) {
+      const { commits, refs, page } = randomHistory(next);
+      let index = emptyBranchHintIndex();
+      for (let at = 0; at < commits.length; at += page)
+        index = extendCommitBranchHints(
+          index,
+          commits.slice(at, at + page),
+          refs,
+        );
+      expect([...branchHints(index)].sort()).toEqual(
+        [...buildCommitBranchHints(commits, refs)].sort(),
+      );
+    }
+  });
+
+  test("a later page can shorten a hint already assigned", () => {
+    // "near" points at a commit that pages in late, which git can do when
+    // commit dates disagree with topology. Until it lands, the only route to
+    // c is the long one from "far".
+    const refs = [ref("far", "a"), ref("near", "t")];
+    let index = extendCommitBranchHints(
+      emptyBranchHintIndex(),
+      [commit("a", ["b"]), commit("b", ["c"]), commit("c", [])],
+      refs,
+    );
+    expect(branchHints(index).get("c")).toBe("↳ 󰌢 far");
+    index = extendCommitBranchHints(index, [commit("t", ["c"])], refs);
+    expect(branchHints(index).get("c")).toBe("↳ 󰌢 near");
+  });
+
+  test("restarts against every commit loaded, not just the new page", () => {
+    // The restart must keep the commits it already has. Searching a graph
+    // holding only the page it was handed would drop hints already on screen.
+    let index = extendCommitBranchHints(
+      emptyBranchHintIndex(),
+      [commit("a", ["b"]), commit("b", ["d"])],
+      [ref("old", "a")],
+    );
+    index = extendCommitBranchHints(
+      index,
+      [commit("d", [])],
+      [ref("new", "a")],
+    );
+    const hints = branchHints(index);
+    expect(hints.get("a")).toBe("↳ 󰌢 new");
+    expect(hints.get("b")).toBe("↳ 󰌢 new");
+    expect(hints.get("d")).toBe("↳ 󰌢 new");
   });
 });

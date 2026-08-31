@@ -10,6 +10,7 @@ import {
   type RuntimeDataContext,
 } from "../../src/ui/runtime-data.js";
 import { layoutGraph, layoutGraphFrom } from "../../src/ui/graph.js";
+import { emptyBranchHintIndex } from "../../src/ui/history.js";
 import { oneDarkTheme } from "../../src/ui/theme.js";
 
 function snapshot(
@@ -98,6 +99,7 @@ function stubContext(
     graphLayoutState: laidOut.state,
     graphColumns: 1,
     branchHints: new Map<string, string>(),
+    branchHintIndex: emptyBranchHintIndex(),
     diffRequest: 0,
     commitFilesRequest: 0,
     busy: false,
