@@ -344,60 +344,164 @@ export function formatBranchDecoration(
   return `${icons} ${displayName}`;
 }
 
-/** Branch context for commits that are ancestors rather than branch tips. */
+interface HintCandidate {
+  hops: number;
+  priority: number;
+  order: number;
+  ref: BranchRef;
+}
+
+/** Nearest wins, then the more important ref, then the earlier ref. */
+function better(a: HintCandidate, b: HintCandidate | undefined): boolean {
+  if (!b) return true;
+  if (a.hops !== b.hops) return a.hops < b.hops;
+  if (a.priority !== b.priority) return a.priority < b.priority;
+  return a.order < b.order;
+}
+
+/**
+ * Resumable state for the branch-hint search.
+ *
+ * History is loaded a page at a time, so the search keeps running out of
+ * commits before it runs out of graph. Rebuilding it per page costs a pass
+ * over everything loaded so far, which is what made a deep scroll quadratic.
+ * This state lets the search stop at the loaded boundary and resume there when
+ * the next page arrives.
+ */
+export interface BranchHintIndex {
+  /** Parents by sha, for every commit loaded so far. */
+  readonly parents: Map<string, readonly string[]>;
+  /** Best known candidate per sha. Revised when a nearer path appears. */
+  readonly best: Map<string, HintCandidate>;
+  /** Candidates waiting to be expanded, bucketed by hop count. */
+  readonly pending: Map<number, Map<string, HintCandidate>>;
+  /** Candidates whose commit is not loaded yet. */
+  readonly deferred: Map<string, HintCandidate>;
+  /** Rendered hints, kept in step with `best` so a page never rebuilds them. */
+  readonly hints: Map<string, string>;
+  /** Refs the search was seeded from, so a ref change can restart it. */
+  seed?: string;
+}
+
+export function emptyBranchHintIndex(): BranchHintIndex {
+  return {
+    parents: new Map(),
+    best: new Map(),
+    pending: new Map(),
+    deferred: new Map(),
+    hints: new Map(),
+  };
+}
+
+/** Identity of a ref set, so a changed set restarts the search. */
+const seedOf = (refs: readonly BranchRef[]) =>
+  refs
+    .map(
+      (ref) =>
+        `${ref.name}\u0000${ref.sha}\u0000${Number(ref.current)}${Number(ref.remote)}`,
+    )
+    .join("\u0001");
+
+/**
+ * Fold `commits` into `index`, resuming the search where it last stopped.
+ *
+ * A page can reveal a ref tip, and therefore a much shorter route to commits
+ * already labelled, so a commit's label is provisional: it is revised whenever
+ * a nearer path turns up. The result therefore matches a search over the whole
+ * loaded history, while the work stays proportional to what changed.
+ */
+export function extendCommitBranchHints(
+  index: BranchHintIndex,
+  commits: readonly Commit[],
+  refs: readonly BranchRef[],
+): BranchHintIndex {
+  const seed = seedOf(refs);
+  // Refs move under the search on fetch, checkout and commit. What they
+  // produced is no longer trustworthy, so start over rather than blend two ref
+  // sets into one map.
+  const target = index.seed === seed ? index : emptyBranchHintIndex();
+  const restarted = target !== index;
+  target.seed = seed;
+  // Only the labels depend on the refs. The commits already loaded carry over,
+  // or a restart would search a graph holding just the page it was handed.
+  if (restarted)
+    for (const [sha, parents] of index.parents)
+      target.parents.set(sha, parents);
+  for (const commit of commits) target.parents.set(commit.sha, commit.parents);
+
+  const consider = (sha: string, candidate: HintCandidate) => {
+    if (!better(candidate, target.best.get(sha))) return;
+    let level = target.pending.get(candidate.hops);
+    if (!level) target.pending.set(candidate.hops, (level = new Map()));
+    if (better(candidate, level.get(sha))) level.set(sha, candidate);
+  };
+
+  if (restarted)
+    refs.forEach((ref, order) => {
+      consider(ref.sha, {
+        hops: 0,
+        priority: ref.current ? 0 : ref.remote ? 2 : 1,
+        order,
+        ref,
+      });
+    });
+
+  // Anything parked on a missing commit is retried: this page may hold exactly
+  // the commit it was waiting for.
+  for (const [sha, held] of target.deferred) {
+    const parents = target.parents.get(sha);
+    if (!parents) continue;
+    target.deferred.delete(sha);
+    // The commit itself is already settled, so resume at its parents.
+    for (const parent of parents)
+      consider(parent, { ...held, hops: held.hops + 1 });
+  }
+
+  // Lowest hop count first, so a commit is normally settled once; a candidate
+  // that is already beaten is dropped instead of expanded.
+  while (target.pending.size > 0) {
+    let hops = Infinity;
+    for (const level of target.pending.keys()) hops = Math.min(hops, level);
+    const level = target.pending.get(hops)!;
+    target.pending.delete(hops);
+    for (const [sha, candidate] of level) {
+      if (!better(candidate, target.best.get(sha))) continue;
+      target.best.set(sha, candidate);
+      target.hints.set(sha, hintFor(candidate.ref));
+      const parents = target.parents.get(sha);
+      // Not loaded yet: hold the candidate so the search can carry on into
+      // this commit's ancestry once a later page supplies it.
+      if (!parents) {
+        target.deferred.set(sha, candidate);
+        continue;
+      }
+      for (const parent of parents)
+        consider(parent, { ...candidate, hops: hops + 1 });
+    }
+  }
+  return target;
+}
+
+const hintFor = (ref: BranchRef) =>
+  `↳ ${ref.remote ? REMOTE_BRANCH_ICON : LAPTOP_BRANCH_ICON} ${displayBranchName(ref.name)}`;
+
+/** Rendered hints for every commit the search has labelled. */
+export function branchHints(index: BranchHintIndex): Map<string, string> {
+  return index.hints;
+}
+
+/**
+ * Branch context for commits that are ancestors rather than branch tips.
+ *
+ * Paging uses `extendCommitBranchHints` instead. This whole-history form is
+ * kept as the oracle the incremental search is tested against.
+ */
 export function buildCommitBranchHints(
   commits: readonly Commit[],
   refs: readonly BranchRef[],
 ): Map<string, string> {
-  const commitsBySha = new Map(commits.map((commit) => [commit.sha, commit]));
-  const best = new Map<string, BranchRef>();
-  // One multi-source walk, level by level, settles every commit at its
-  // smallest hop distance and expands it once; walking per ref re-walks shared
-  // history once per ref, which dominates on repositories with many refs.
-  let frontier = new Map<
-    string,
-    { priority: number; order: number; ref: BranchRef }
-  >();
-  const consider = (
-    into: Map<string, { priority: number; order: number; ref: BranchRef }>,
-    sha: string,
-    candidate: { priority: number; order: number; ref: BranchRef },
-  ) => {
-    if (best.has(sha)) return;
-    const previous = into.get(sha);
-    if (
-      !previous ||
-      candidate.priority < previous.priority ||
-      (candidate.priority === previous.priority &&
-        candidate.order < previous.order)
-    )
-      into.set(sha, candidate);
-  };
-  refs.forEach((ref, order) => {
-    consider(frontier, ref.sha, {
-      priority: ref.current ? 0 : ref.remote ? 2 : 1,
-      order,
-      ref,
-    });
-  });
-  while (frontier.size > 0) {
-    const next = new Map<
-      string,
-      { priority: number; order: number; ref: BranchRef }
-    >();
-    for (const [sha, candidate] of frontier) best.set(sha, candidate.ref);
-    for (const [sha, candidate] of frontier) {
-      const commit = commitsBySha.get(sha);
-      for (const parent of commit?.parents ?? [])
-        consider(next, parent, candidate);
-    }
-    frontier = next;
-  }
-  return new Map(
-    [...best].map(([sha, ref]) => [
-      sha,
-      `↳ ${ref.remote ? REMOTE_BRANCH_ICON : LAPTOP_BRANCH_ICON} ${displayBranchName(ref.name)}`,
-    ]),
+  return branchHints(
+    extendCommitBranchHints(emptyBranchHintIndex(), commits, refs),
   );
 }
 

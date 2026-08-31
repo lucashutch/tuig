@@ -24,6 +24,7 @@ import { clampGraphScroll } from "./graph-viewport.js";
 import {
   branchRefsForSection,
   clampBranchSelection,
+  emptyBranchHintIndex,
   moveBranchSelection,
   resolveHeadSha,
   shortSha,
@@ -232,6 +233,7 @@ class Runtime {
   private graphScroll = 0;
   private graphVisibleColumns = 1;
   private branchHints = new Map<string, string>();
+  private branchHintIndex = emptyBranchHintIndex();
   private historyStart = 0;
   private historyViewportDetached = false;
   private historyContentWidth = 1;
@@ -1093,6 +1095,12 @@ class Runtime {
       },
       set branchHints(value) {
         runtime.branchHints = value;
+      },
+      get branchHintIndex() {
+        return runtime.branchHintIndex;
+      },
+      set branchHintIndex(value) {
+        runtime.branchHintIndex = value;
       },
       get detailsPaneWidth() {
         return runtime.detailsPaneWidth;

@@ -7,8 +7,11 @@ import type {
 } from "../git/types.js";
 import {
   authorAvatar,
-  buildCommitBranchHints,
+  branchHints,
+  emptyBranchHintIndex,
+  extendCommitBranchHints,
   resolveHeadSha,
+  type BranchHintIndex,
 } from "./history.js";
 import {
   circularAvatar,
@@ -88,6 +91,8 @@ export interface RuntimeDataContext {
   /** Consecutive failed page reads; paging stops once it hits the limit. */
   historyPageFailures: number;
   branchHints: Map<string, string>;
+  /** Resumable branch-hint search, so a page is not a whole-history rebuild. */
+  branchHintIndex: BranchHintIndex;
   detailsPaneWidth: number;
   commitInfoValue: string;
   commitHeaderValue: string;
@@ -214,8 +219,7 @@ export async function refreshWorkingStatus(
 }
 
 /** Widest row, so every graph row is padded to one column count. */
-function graphColumnsFor(rows: readonly GraphRow[]): number {
-  let columns = 1;
+function graphColumnsFor(rows: readonly GraphRow[], columns = 1): number {
   for (const row of rows)
     columns = Math.max(columns, row.cellCount, row.connectorCount);
   return columns;
@@ -283,7 +287,13 @@ export async function loadMoreCommits(ctx: RuntimeDataContext) {
       return;
     }
     const fresh = last ? page.commits.slice(1) : page.commits;
-    const commits = last ? [...base.commits, ...fresh] : fresh;
+    // Appended in place rather than copied. At a hundred thousand loaded
+    // commits, a per-page copy of the whole list is most of the garbage this
+    // path makes, and it costs far more than the page being added. Paging owns
+    // this array: the snapshot it came from is rebuilt by every refresh, and
+    // the alignment check above has already run, so nothing else is reading it.
+    const { commits } = base;
+    commits.push(...fresh);
     ctx.historyLimit = commits.length;
     const snapshot: RepositorySnapshot = {
       ...base,
@@ -298,13 +308,17 @@ export async function loadMoreCommits(ctx: RuntimeDataContext) {
       resolveHeadSha(base.branches, commits),
       ctx.graphLayoutState,
     );
-    ctx.graphRows = [...ctx.graphRows, ...laidOut.rows];
+    ctx.graphRows.push(...laidOut.rows);
+    // Widened against the new rows alone: the width already covers the rest,
+    // and rescanning every loaded row would put the per-page cost back.
+    ctx.graphColumns = graphColumnsFor(laidOut.rows, ctx.graphColumns);
     ctx.graphLayoutState = laidOut.state;
-    ctx.graphColumns = graphColumnsFor(ctx.graphRows);
-    // Both of these are rebuilt over the whole loaded range, so a page costs
-    // more the deeper the reader has scrolled. Measured at 55ms for the page
-    // that reaches 20000 commits, against 24ms for the first few.
-    ctx.branchHints = buildCommitBranchHints(commits, base.branches);
+    ctx.branchHintIndex = extendCommitBranchHints(
+      ctx.branchHintIndex,
+      fresh,
+      base.branches,
+    );
+    ctx.branchHints = branchHints(ctx.branchHintIndex);
     ctx.snapshot = snapshot;
     ctx.snapshotSignature = snapshotSignature(snapshot);
     debugLog(
@@ -374,10 +388,12 @@ export async function refresh(ctx: RuntimeDataContext, message?: string) {
     );
     ctx.graphRows = laidOut.rows;
     ctx.graphLayoutState = laidOut.state;
-    ctx.branchHints = buildCommitBranchHints(
+    ctx.branchHintIndex = extendCommitBranchHints(
+      emptyBranchHintIndex(),
       snapshot.commits,
       snapshot.branches,
     );
+    ctx.branchHints = branchHints(ctx.branchHintIndex);
     ctx.graphColumns = graphColumnsFor(ctx.graphRows);
     const commitAt = selectedSha
       ? snapshot.commits.findIndex((commit) => commit.sha === selectedSha)
