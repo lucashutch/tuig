@@ -658,6 +658,59 @@ test("history pages report whether older commits remain", async () => {
   expect(continued.commits[0]?.sha).toBe(first.commits[1]?.sha);
 });
 
+test("sequential pages continue one walk and match skipped reads", async () => {
+  const root = await mkdtemp(join(tmpdir(), "tuig-test-"));
+  cleanup.push(root);
+  await runGit(["init", "-b", "main"], root);
+  await runGit(["config", "user.name", "Test User"], root);
+  await runGit(["config", "user.email", "test@example.com"], root);
+  const repo = await GitRepositoryService.open(root);
+  for (let i = 0; i < 12; i++) {
+    await Bun.write(join(root, `f${i}.txt`), `${i}\n`);
+    await repo.stage([`f${i}.txt`]);
+    await repo.commit(`c${i}`);
+  }
+  const all = (await repo.commitPage(50)).commits;
+  expect(all).toHaveLength(12);
+  // Page forward the way the history view does, overlapping by one commit.
+  const paged: string[] = [];
+  let loaded = 0;
+  for (;;) {
+    const page = await repo.commitPage(3, Math.max(0, loaded - 1));
+    const fresh = loaded ? page.commits.slice(1) : page.commits;
+    paged.push(...fresh.map((commit) => commit.sha));
+    loaded += fresh.length;
+    if (page.complete) break;
+  }
+  expect(paged).toEqual(all.map((commit) => commit.sha));
+  // A backwards jump the open walk cannot reach still reads the right page.
+  const back = await repo.commitPage(2, 1);
+  expect(back.commits.map((commit) => commit.sha)).toEqual([
+    all[1]!.sha,
+    all[2]!.sha,
+  ]);
+  expect(back.complete).toBe(false);
+  // Bodies survive chunked parsing, so a page is not just SHAs.
+  expect(all[0]!.subject).toBe("c11");
+  // Refreshing restarts the walk against the new tip.
+  await Bun.write(join(root, "extra.txt"), "extra\n");
+  await repo.stage(["extra.txt"]);
+  await repo.commit("extra");
+  const snapshot = await repo.snapshot(4);
+  expect(snapshot.commits[0]?.subject).toBe("extra");
+  const next = await repo.commitPage(4, 3);
+  expect(next.commits[0]?.sha).toBe(snapshot.commits[3]?.sha);
+  expect(next.commits.map((commit) => commit.subject)).toEqual([
+    "c9",
+    "c8",
+    "c7",
+    "c6",
+  ]);
+  repo.dispose();
+  // Disposing only ends the walk; later pages still read correctly.
+  expect((await repo.commitPage(2)).commits[0]?.subject).toBe("extra");
+});
+
 test("an empty repository reports complete, empty history", async () => {
   const root = await mkdtemp(join(tmpdir(), "tuig-test-"));
   cleanup.push(root);
@@ -666,4 +719,7 @@ test("an empty repository reports complete, empty history", async () => {
   const page = await repo.commitPage(250);
   expect(page.commits).toEqual([]);
   expect(page.complete).toBe(true);
+  // Repeated reads of an empty walk stay empty rather than restarting badly.
+  expect(await repo.commitPage(10, 5)).toEqual({ commits: [], complete: true });
+  repo.dispose();
 });
