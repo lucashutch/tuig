@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { Commit, RepositorySnapshot } from "../../src/git/types.js";
-import { layoutGraph } from "../../src/ui/graph.js";
+import { layoutGraph, packGraphRow } from "../../src/ui/graph.js";
 import {
   paintHistory,
   type RuntimePaintContext,
@@ -170,13 +170,20 @@ describe("history prefetch", () => {
 /** Give every row `columns` lanes, as a repository with many branches would. */
 function widen(context: Painted, columns: number) {
   context.graphColumns = columns;
-  for (const row of context.graphRows) {
-    row.cells = Array.from({ length: columns }, (_, index) => ({
+  context.graphRows = context.graphRows.map((row) => {
+    const cells = Array.from({ length: columns }, (_, index) => ({
       symbol: index === row.lane ? "● " : "│ ",
       color: "#ffffff",
     }));
-    row.laneColors = row.cells.map((cell) => cell.color);
-  }
+    return packGraphRow({
+      commit: row.commit,
+      lane: row.lane,
+      head: row.head,
+      continuesAbove: row.continuesAbove,
+      cells,
+      connectors: cells,
+    });
+  });
 }
 
 describe("wide graphs", () => {

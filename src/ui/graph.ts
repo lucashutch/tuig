@@ -11,9 +11,115 @@ export interface GraphRow {
   head: boolean;
   /** Whether this ancestry enters the commit from the row above. */
   continuesAbove: boolean;
-  cells: GraphCell[];
-  connectors: GraphCell[];
-  laneColors: string[];
+  readonly cells: GraphCell[];
+  readonly connectors: GraphCell[];
+  readonly laneColors: string[];
+  /** Lane count without materialising `cells`. */
+  readonly cellCount: number;
+  /** Lane count without materialising `connectors`. */
+  readonly connectorCount: number;
+  /** One lane's color without materialising `cells`. */
+  colorAt(lane: number): string | undefined;
+}
+
+// Every cell is two symbol characters plus one character holding an index into
+// a palette shared by the whole layout.  A 100k-commit repository keeps tens of
+// thousands of these rows alive, where an array of `{symbol, color}` objects
+// cost 4.4kB per row against roughly 0.4kB packed; the arrays are rebuilt on
+// access because only the ~50 painted rows ever ask for them.
+const CELL_WIDTH = 3;
+
+class PackedGraphRow implements GraphRow {
+  constructor(
+    readonly commit: Commit,
+    readonly lane: number,
+    readonly head: boolean,
+    readonly continuesAbove: boolean,
+    private readonly palette: readonly string[],
+    private readonly cellData: string,
+    private readonly connectorData: string,
+  ) {}
+
+  private unpack(data: string): GraphCell[] {
+    const cells: GraphCell[] = [];
+    for (let at = 0; at < data.length; at += CELL_WIDTH)
+      cells.push({
+        symbol: data.slice(at, at + 2),
+        color: this.palette[data.charCodeAt(at + 2)] ?? FALLBACK_COLOR,
+      });
+    return cells;
+  }
+
+  get cells(): GraphCell[] {
+    return this.unpack(this.cellData);
+  }
+  get connectors(): GraphCell[] {
+    return this.unpack(this.connectorData);
+  }
+  get laneColors(): string[] {
+    const colors: string[] = [];
+    for (let at = 2; at < this.cellData.length; at += CELL_WIDTH)
+      colors.push(this.palette[this.cellData.charCodeAt(at)] ?? FALLBACK_COLOR);
+    return colors;
+  }
+  get cellCount(): number {
+    return this.cellData.length / CELL_WIDTH;
+  }
+  get connectorCount(): number {
+    return this.connectorData.length / CELL_WIDTH;
+  }
+  colorAt(lane: number): string | undefined {
+    const at = lane * CELL_WIDTH + 2;
+    if (lane < 0 || at >= this.cellData.length) return undefined;
+    return this.palette[this.cellData.charCodeAt(at)] ?? FALLBACK_COLOR;
+  }
+}
+
+const FALLBACK_COLOR = "#888888";
+
+/** Interns colors so a row stores an index rather than a string per cell. */
+class Palette {
+  readonly colors: string[] = [];
+  private readonly indices = new Map<string, number>();
+  index(color: string): number {
+    const known = this.indices.get(color);
+    if (known !== undefined) return known;
+    const next = this.colors.length;
+    this.colors.push(color);
+    this.indices.set(color, next);
+    return next;
+  }
+}
+
+function pack(cells: readonly GraphCell[], palette: Palette): string {
+  const parts: string[] = [];
+  for (const cell of cells)
+    parts.push(cell.symbol, String.fromCharCode(palette.index(cell.color)));
+  return parts.join("");
+}
+
+/**
+ * Builds a row in the packed representation.  Tests and any future producer of
+ * synthetic rows go through here rather than assigning the cell arrays.
+ */
+export function packGraphRow(row: {
+  commit: Commit;
+  lane: number;
+  head: boolean;
+  continuesAbove: boolean;
+  cells: readonly GraphCell[];
+  connectors: readonly GraphCell[];
+}): GraphRow {
+  const palette = new Palette();
+  return new PackedGraphRow(
+    row.commit,
+    row.lane,
+    row.head,
+    row.continuesAbove,
+    palette.colors,
+    pack(row.cells, palette),
+    pack(row.connectors, palette),
+  );
 }
 
 // A graph character is chosen only after routes have been described.  Keeping
@@ -115,7 +221,11 @@ export function layoutGraphFrom(
   const activeColors: string[] = [...state.activeColors];
   let nextColor = state.nextColor;
   const color = () =>
-    colors[nextColor++ % Math.max(1, colors.length)] ?? "#888888";
+    colors[nextColor++ % Math.max(1, colors.length)] ?? FALLBACK_COLOR;
+  // One palette serves every row of the call, seeded in theme order so a log
+  // folded in two pages packs identically to the same log folded in one.
+  const palette = new Palette();
+  for (const entry of [...colors, FALLBACK_COLOR]) palette.index(entry);
 
   const rows = commits.map((commit) => {
     let incoming = active.flatMap((sha, index) =>
@@ -210,28 +320,27 @@ export function layoutGraphFrom(
       }
     }
 
-    const makeCells = (topology: Topology[], useBefore = false) =>
-      topology.map(
-        (node, column): GraphCell => ({
-          symbol: symbol(node),
-          color:
-            (column === lane && useBefore
-              ? beforeColors[column]
-              : useBefore
-                ? beforeColors[column]
-                : activeColors[column]) ?? "#888888",
-        }),
-      );
-    const cells = makeCells(cellTopology, true);
-    return {
+    const packCells = (topology: Topology[], useBefore = false) => {
+      // Joined rather than appended: repeated `+=` leaves a rope holding every
+      // fragment alive, which costs more than the objects being replaced.
+      const parts: string[] = [];
+      for (const [column, node] of topology.entries()) {
+        const cellColor =
+          (useBefore ? beforeColors[column] : activeColors[column]) ??
+          FALLBACK_COLOR;
+        parts.push(symbol(node), String.fromCharCode(palette.index(cellColor)));
+      }
+      return parts.join("");
+    };
+    return new PackedGraphRow(
       commit,
       lane,
-      head: isHead,
+      isHead,
       continuesAbove,
-      cells,
-      connectors: makeCells(connectorTopology),
-      laneColors: cells.map((cell) => cell.color),
-    };
+      palette.colors,
+      packCells(cellTopology, true),
+      packCells(connectorTopology),
+    );
   });
 
   return { rows, state: { active, activeColors, nextColor } };

@@ -217,7 +217,7 @@ export async function refreshWorkingStatus(
 function graphColumnsFor(rows: readonly GraphRow[]): number {
   let columns = 1;
   for (const row of rows)
-    columns = Math.max(columns, row.cells.length, row.connectors.length);
+    columns = Math.max(columns, row.cellCount, row.connectorCount);
   return columns;
 }
 
