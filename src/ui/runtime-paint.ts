@@ -310,7 +310,7 @@ export function paintHistory(ctx: RuntimePaintContext) {
       labelText = label
         ? fitColumns(` ${label} `, labelWidth)
         : "".padEnd(labelWidth),
-      graphColor = row.cells[row.lane]?.color ?? oneDarkTheme.accent;
+      graphColor = row.colorAt(row.lane) ?? oneDarkTheme.accent;
     const rowBg = selected
         ? oneDarkTheme.selected
         : backgrounds[commitRow % 2]!,
@@ -364,7 +364,7 @@ export function paintHistory(ctx: RuntimePaintContext) {
         // never moves their terminal placement vertically.
         slot: dotLine,
         commit: row.commit,
-        color: row.cells[row.lane]?.color ?? oneDarkTheme.accent,
+        color: row.colorAt(row.lane) ?? oneDarkTheme.accent,
         background: rowBg,
         continuesAbove: row.continuesAbove,
         continuesBelow: row.commit.parents.length > 0,
