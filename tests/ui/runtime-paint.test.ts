@@ -1,6 +1,14 @@
 import { describe, expect, test } from "bun:test";
-import type { Commit, RepositorySnapshot } from "../../src/git/types.js";
-import { layoutGraph, packGraphRow } from "../../src/ui/graph.js";
+import type {
+  ChangedFile,
+  Commit,
+  RepositorySnapshot,
+} from "../../src/git/types.js";
+import {
+  layoutGraph,
+  packGraphRow,
+  type GraphRow,
+} from "../../src/ui/graph.js";
 import {
   paintHistory,
   type RuntimePaintContext,
@@ -23,6 +31,7 @@ function history(length: number): Commit[] {
 }
 
 type Painted = RuntimePaintContext & {
+  rows: GraphRow[];
   graphVisibleColumns: number;
   requests: number;
   text: string;
@@ -32,14 +41,19 @@ type Painted = RuntimePaintContext & {
 /** A history pane of `viewport` rows scrolled to `historyStart`. */
 function paintContext(
   commits: Commit[],
-  options: { complete: boolean; historyStart: number; viewport: number },
+  options: {
+    complete: boolean;
+    historyStart: number;
+    viewport: number;
+    files?: ChangedFile[];
+  },
 ): Painted {
   const snapshot = {
     root: "/repo",
     branch: "main",
     ahead: 0,
     behind: 0,
-    files: [],
+    files: options.files ?? [],
     branches: [],
     stashes: [],
     worktrees: [],
@@ -54,7 +68,15 @@ function paintContext(
     // paintHistory reserves three rows of chrome.
     contentHeight: options.viewport + 3,
     focus: "history",
-    graphRows: layoutGraph(commits, oneDarkTheme.graph),
+    // The runtime replays these from lane checkpoints; a stub can just hold
+    // them, since what is painted is the window it hands back.
+    rows: layoutGraph(commits, oneDarkTheme.graph) as GraphRow[],
+    get graphRowCount() {
+      return context.rows.length;
+    },
+    graphRowsAt(from: number, count: number): readonly GraphRow[] {
+      return context.rows.slice(from, from + count);
+    },
     graphColumns: 1,
     graphScroll: 0,
     setGraphScroll(value: number) {
@@ -170,7 +192,7 @@ describe("history prefetch", () => {
 /** Give every row `columns` lanes, as a repository with many branches would. */
 function widen(context: Painted, columns: number) {
   context.graphColumns = columns;
-  context.graphRows = context.graphRows.map((row) => {
+  context.rows = context.rows.map((row) => {
     const cells = Array.from({ length: columns }, (_, index) => ({
       symbol: index === row.lane ? "● " : "│ ",
       color: "#ffffff",
@@ -219,5 +241,45 @@ describe("wide graphs", () => {
     const graph = context.text.split("\n")[1]!.slice(24, 24 + 16 * 2);
     expect(graph).toContain("◂ ");
     expect(graph).not.toContain("▸");
+  });
+});
+
+describe("the working row and the graph window", () => {
+  const working: ChangedFile[] = [
+    { path: "a.txt", state: "modified", staged: false, unstaged: true },
+  ];
+
+  test("paints the commits below a working row scrolled off the top", () => {
+    // The working row shifts every commit down one line, so the window the
+    // paint asks for starts one behind the first unit on screen. Scrolled
+    // past it, that offset is the only thing keeping the rows aligned.
+    const context = paintContext(history(40), {
+      complete: true,
+      historyStart: 12,
+      viewport: 6,
+      files: working,
+    });
+    paintHistory(context);
+    expect(context.text).not.toContain("Working changes");
+    // Unit 12 is commit 11, since the working row is unit 0.
+    expect(context.text).toContain("commit 11");
+    expect(context.text).toContain("commit 16");
+    expect(context.text).not.toContain("commit 10");
+    expect(context.text).not.toContain("commit 17");
+  });
+
+  test("paints the working row above the first commit", () => {
+    const context = paintContext(history(40), {
+      complete: true,
+      historyStart: 0,
+      viewport: 6,
+      files: working,
+    });
+    paintHistory(context);
+    const lines = context.text.split("\n");
+    expect(lines[1]).toContain("Working changes");
+    expect(lines[2]).toContain("commit 0");
+    expect(context.text).toContain("commit 4");
+    expect(context.text).not.toContain("commit 5");
   });
 });

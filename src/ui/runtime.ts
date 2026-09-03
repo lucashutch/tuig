@@ -19,7 +19,12 @@ import type {
   GitRepository,
   RepositorySnapshot,
 } from "../git/types.js";
-import { type GraphLayoutState, type GraphRow } from "./graph.js";
+import { type GraphRow } from "./graph.js";
+import {
+  emptyGraphIndex,
+  graphWindow,
+  type GraphIndex,
+} from "./graph-index.js";
 import { clampGraphScroll } from "./graph-viewport.js";
 import {
   branchRefsForSection,
@@ -219,15 +224,14 @@ class Runtime {
   private historyLimit = HISTORY_PAGE;
   private loadingMoreCommits = false;
   private historyPageFailures = 0;
-  private graphLayoutState?: GraphLayoutState;
   private commitIndex = 0;
   private historySelection: "working" | "commit" = "working";
   private fileIndex = 0;
   private mode: ChangeSection = "unstaged";
   private view: "history" | "commit" | "working" = "history";
   private commitFiles: ChangedFile[] = [];
-  private graphRows: GraphRow[] = [];
-  private graphColumns = 1;
+  private graphIndex: GraphIndex = emptyGraphIndex();
+
   // Horizontal graph offset, in lanes, used once the graph is wider than the
   // share of the history pane it is allowed to take.
   private graphScroll = 0;
@@ -982,12 +986,6 @@ class Runtime {
       set historyPageFailures(value) {
         runtime.historyPageFailures = value;
       },
-      get graphLayoutState() {
-        return runtime.graphLayoutState;
-      },
-      set graphLayoutState(value) {
-        runtime.graphLayoutState = value;
-      },
       get snapshotSignature() {
         return runtime.snapshotSignature;
       },
@@ -1078,17 +1076,11 @@ class Runtime {
       set commitFiles(value) {
         runtime.commitFiles = value;
       },
-      get graphRows() {
-        return runtime.graphRows;
+      get graphIndex() {
+        return runtime.graphIndex;
       },
-      set graphRows(value) {
-        runtime.graphRows = value;
-      },
-      get graphColumns() {
-        return runtime.graphColumns;
-      },
-      set graphColumns(value) {
-        runtime.graphColumns = value;
+      set graphIndex(value) {
+        runtime.graphIndex = value;
       },
       get branchHints() {
         return runtime.branchHints;
@@ -1203,8 +1195,9 @@ class Runtime {
       selectedFile: () => this.selectedFile(),
       expandedFiles: this.expandedFiles,
       detailsPaneWidth: this.detailsPaneWidth,
-      graphRows: this.graphRows,
-      graphColumns: this.graphColumns,
+      graphRowCount: this.graphIndex.length,
+      graphRowsAt: (from, count) => this.graphRowsAt(from, count),
+      graphColumns: this.graphIndex.columns,
       graphScroll: this.graphScroll,
       setGraphScroll: (value) => {
         this.graphScroll = value;
@@ -1281,7 +1274,11 @@ class Runtime {
       get snapshot() {
         return runtime.snapshot;
       },
-      graphRows: this.graphRows,
+      get graphRowCount() {
+        // A getter, not a snapshot: a page can land while a queued scroll
+        // still holds this context, and it would clamp against a stale count.
+        return runtime.graphIndex.length;
+      },
       get commitIndex() {
         return runtime.commitIndex;
       },
@@ -1365,6 +1362,23 @@ class Runtime {
     )
       void this.openCommit();
   }
+  /**
+   * Rows for a visible range, replayed from the nearest lane checkpoint.
+   *
+   * Held rows cost about 750 bytes a commit, so the graph is stored as lane
+   * state every few hundred rows and the window is rebuilt when it is painted.
+   */
+  private graphRowsAt(from: number, count: number): readonly GraphRow[] {
+    const commits = this.snapshot?.commits;
+    if (!commits) return [];
+    return graphWindow(
+      this.graphIndex,
+      commits,
+      oneDarkTheme.graph,
+      from,
+      count,
+    );
+  }
   private queueHistoryScroll(delta: number) {
     queueRuntimeHistoryScroll(this.historyContext(), delta);
   }
@@ -1372,10 +1386,10 @@ class Runtime {
   private scrollGraphColumns(delta: number): boolean {
     const next = clampGraphScroll(
       this.graphScroll + delta,
-      this.graphColumns,
+      this.graphIndex.columns,
       this.graphVisibleColumns,
     );
-    if (this.graphColumns <= this.graphVisibleColumns) return false;
+    if (this.graphIndex.columns <= this.graphVisibleColumns) return false;
     if (next === this.graphScroll) return true;
     this.graphScroll = next;
     this.paintHistory();
