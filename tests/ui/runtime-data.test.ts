@@ -9,7 +9,12 @@ import {
   snapshotSignature,
   type RuntimeDataContext,
 } from "../../src/ui/runtime-data.js";
-import { layoutGraph, layoutGraphFrom } from "../../src/ui/graph.js";
+import { layoutGraph } from "../../src/ui/graph.js";
+import {
+  emptyGraphIndex,
+  extendGraphIndex,
+  graphWindow,
+} from "../../src/ui/graph-index.js";
 import { emptyBranchHintIndex } from "../../src/ui/history.js";
 import { oneDarkTheme } from "../../src/ui/theme.js";
 
@@ -68,7 +73,8 @@ function stubContext(
     commitPage?: (limit: number, skip?: number) => Promise<CommitPage>;
   },
 ): Stub {
-  const laidOut = layoutGraphFrom(initial?.commits ?? [], oneDarkTheme.graph);
+  const graphIndex = emptyGraphIndex();
+  extendGraphIndex(graphIndex, initial?.commits ?? [], oneDarkTheme.graph);
   const context = {
     paints: 0,
     snapshotReads: 0,
@@ -95,9 +101,7 @@ function stubContext(
     historyLimit: HISTORY_PAGE,
     loadingMoreCommits: false,
     historyPageFailures: 0,
-    graphRows: laidOut.rows,
-    graphLayoutState: laidOut.state,
-    graphColumns: 1,
+    graphIndex,
     branchHints: new Map<string, string>(),
     branchHintIndex: emptyBranchHintIndex(),
     diffRequest: 0,
@@ -272,19 +276,25 @@ describe("paged history", () => {
       commitsComplete: false,
     });
     const context = stubContext(loaded, { commitPage: pager(all) });
-    const before = context.graphRows.length;
+    const before = context.graphIndex.length;
     await loadMoreCommits(context);
     // The boundary commit is re-read so the two walks can be compared.
     expect(context.pageRequests).toEqual([[251, 249]]);
     expect(context.snapshot?.commits).toHaveLength(500);
     expect(context.snapshot?.commitsComplete).toBe(false);
-    expect(context.graphRows).toHaveLength(before + 250);
+    expect(context.graphIndex.length).toBe(before + 250);
     expect(context.historyPaints).toBe(1);
-    // The appended rows must match a layout of the whole list, so resuming
-    // the fold cannot drift from a full refresh.
-    expect(context.graphRows).toEqual(
-      layoutGraph(all.slice(0, 500), oneDarkTheme.graph),
-    );
+    // Replaying the extended index must match a layout of the whole list, so
+    // resuming the fold cannot drift from a full refresh.
+    expect(
+      graphWindow(
+        context.graphIndex,
+        context.snapshot!.commits,
+        oneDarkTheme.graph,
+        0,
+        500,
+      ),
+    ).toEqual(layoutGraph(all.slice(0, 500), oneDarkTheme.graph));
   });
 
   test("marks history complete on the last page", async () => {

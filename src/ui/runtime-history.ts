@@ -1,11 +1,10 @@
 import { MouseButton, type CliRenderer } from "@opentui/core";
 import type { BranchRef, RepositorySnapshot, Stash } from "../git/types.js";
-import type { GraphRow } from "./graph.js";
 import { shortSha } from "./history.js";
 
 export interface RuntimeHistoryContext {
   snapshot?: RepositorySnapshot;
-  graphRows: GraphRow[];
+  graphRowCount: number;
   commitIndex: number;
   historySelection: "working" | "commit";
   historyStart: number;
@@ -85,7 +84,7 @@ export function scrollHistoryViewport(
   const hasWorking = context.snapshot.files.length > 0;
   const lines = Math.max(1, context.contentHeight - 3);
   const total =
-    context.graphRows.length + (context.snapshot.files.length > 0 ? 1 : 0);
+    context.graphRowCount + (context.snapshot.files.length > 0 ? 1 : 0);
   const reserved = hasWorking && context.historyStart === 0 ? 1 : 0;
   const visible = Math.max(1, lines - reserved);
   context.historyViewportDetached = true;

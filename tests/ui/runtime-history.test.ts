@@ -62,7 +62,7 @@ describe("graph row hit testing", () => {
         commits: [commit],
         stashes: [stash],
       },
-      graphRows: [],
+      graphRowCount: 1,
       historyStart: 0,
       historySelection: "commit",
       commitIndex: 0,

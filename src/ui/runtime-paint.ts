@@ -77,7 +77,9 @@ export interface RuntimePaintContext extends RuntimeSidebarPaintContext {
   selectedFile(): ChangedFile | undefined;
   expandedFiles: Set<string>;
   detailsPaneWidth: number;
-  graphRows: GraphRow[];
+  /** Rows are replayed from lane checkpoints rather than held per commit. */
+  graphRowCount: number;
+  graphRowsAt(from: number, count: number): readonly GraphRow[];
   graphColumns: number;
   graphScroll: number;
   setGraphScroll(value: number): void;
@@ -214,7 +216,7 @@ export function paintHistory(ctx: RuntimePaintContext) {
   if (!s) return;
   const hasWorking = s.files.length > 0,
     lines = Math.max(1, ctx.contentHeight - 3),
-    total = ctx.graphRows.length + (hasWorking ? 1 : 0);
+    total = ctx.graphRowCount + (hasWorking ? 1 : 0);
   const selectedDisplay =
     ctx.historySelection === "working" && hasWorking
       ? 0
@@ -288,13 +290,14 @@ export function paintHistory(ctx: RuntimePaintContext) {
     );
     line++;
   }
-  for (
-    let unit = Math.max(start, hasWorking && start === 0 ? 1 : 0);
-    unit < total && line < lines;
-    unit++
-  ) {
+  const firstUnit = Math.max(start, hasWorking && start === 0 ? 1 : 0);
+  // One replay covers the whole screenful; asking per row would repeat the
+  // walk from the preceding checkpoint on every line.
+  const windowFrom = Math.max(0, firstUnit - (hasWorking ? 1 : 0)),
+    rows = ctx.graphRowsAt(windowFrom, lines - line + 1);
+  for (let unit = firstUnit; unit < total && line < lines; unit++) {
     const commitRow = unit - (hasWorking ? 1 : 0),
-      row = ctx.graphRows[commitRow]!,
+      row = rows[commitRow - windowFrom]!,
       offset = unit - start,
       selected =
         ctx.historySelection === "commit" && commitRow === ctx.commitIndex,

@@ -24,10 +24,10 @@ import {
 import { DEFAULT_HISTORY_PAGE } from "../git/repository.js";
 import { debugLog } from "./debug-log.js";
 import {
-  layoutGraphFrom,
-  type GraphLayoutState,
-  type GraphRow,
-} from "./graph.js";
+  emptyGraphIndex,
+  extendGraphIndex,
+  type GraphIndex,
+} from "./graph-index.js";
 import {
   presentCommitMeta,
   parseCoAuthors,
@@ -80,10 +80,8 @@ export interface RuntimeDataContext {
   fileIndex: number;
   fileStart: number;
   commitFiles: ChangedFile[];
-  graphRows: GraphRow[];
-  /** Lane state after the last laid-out row, so a new page resumes the fold. */
-  graphLayoutState?: GraphLayoutState;
-  graphColumns: number;
+  /** Lane layout for the loaded history, replayed per paint rather than held. */
+  graphIndex: GraphIndex;
   /** Commits currently asked of Git. Grows as the viewport nears the end. */
   historyLimit: number;
   /** Guard so one page loads at a time. */
@@ -218,13 +216,6 @@ export async function refreshWorkingStatus(
   }
 }
 
-/** Widest row, so every graph row is padded to one column count. */
-function graphColumnsFor(rows: readonly GraphRow[], columns = 1): number {
-  for (const row of rows)
-    columns = Math.max(columns, row.cellCount, row.connectorCount);
-  return columns;
-}
-
 /** Commits added each time the viewport approaches the end of the graph. */
 export const HISTORY_PAGE = DEFAULT_HISTORY_PAGE;
 /** Consecutive failed page reads after which paging gives up for this run. */
@@ -302,17 +293,12 @@ export async function loadMoreCommits(ctx: RuntimeDataContext) {
       // rather than asking again on the next paint.
       commitsComplete: page.complete || fresh.length === 0,
     };
-    const laidOut = layoutGraphFrom(
-      fresh,
+    extendGraphIndex(
+      ctx.graphIndex,
+      commits,
       oneDarkTheme.graph,
       resolveHeadSha(base.branches, commits),
-      ctx.graphLayoutState,
     );
-    ctx.graphRows.push(...laidOut.rows);
-    // Widened against the new rows alone: the width already covers the rest,
-    // and rescanning every loaded row would put the per-page cost back.
-    ctx.graphColumns = graphColumnsFor(laidOut.rows, ctx.graphColumns);
-    ctx.graphLayoutState = laidOut.state;
     ctx.branchHintIndex = extendCommitBranchHints(
       ctx.branchHintIndex,
       fresh,
@@ -381,20 +367,19 @@ export async function refresh(ctx: RuntimeDataContext, message?: string) {
     ++ctx.diffRequest;
     ++ctx.commitFilesRequest;
     ctx.snapshot = snapshot;
-    const laidOut = layoutGraphFrom(
+    ctx.graphIndex = emptyGraphIndex();
+    extendGraphIndex(
+      ctx.graphIndex,
       snapshot.commits,
       oneDarkTheme.graph,
       resolveHeadSha(snapshot.branches, snapshot.commits),
     );
-    ctx.graphRows = laidOut.rows;
-    ctx.graphLayoutState = laidOut.state;
     ctx.branchHintIndex = extendCommitBranchHints(
       emptyBranchHintIndex(),
       snapshot.commits,
       snapshot.branches,
     );
     ctx.branchHints = branchHints(ctx.branchHintIndex);
-    ctx.graphColumns = graphColumnsFor(ctx.graphRows);
     const commitAt = selectedSha
       ? snapshot.commits.findIndex((commit) => commit.sha === selectedSha)
       : -1;
