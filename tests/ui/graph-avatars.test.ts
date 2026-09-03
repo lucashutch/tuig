@@ -133,4 +133,48 @@ describe("graph avatar slots", () => {
     cancelGraphAvatars(ctx);
     expect(aborts.every((abort) => abort?.signal.aborted)).toBe(true);
   });
+
+  test("never blanks a slot that already has an image", async () => {
+    // ImageRenderable decodes a new source asynchronously and keeps showing
+    // the old image until it is ready, but assigning `undefined` drops it at
+    // once. A slot is a viewport row, so scrolling one line rekeys every slot;
+    // clearing first would blank every avatar on screen for a frame.
+    const { ctx, widgets } = context(true);
+    const shown = new Map<number, unknown>();
+    const track = (slot: number) => {
+      const widget = widgets[slot]! as FakeWidget & { image?: unknown };
+      Object.defineProperty(widget, "source", {
+        configurable: true,
+        get: () => shown.get(slot),
+        set: (value: unknown) => {
+          if (value === undefined) widget.image = undefined;
+          else queueMicrotask(() => (widget.image = value));
+          shown.set(slot, value);
+        },
+      });
+    };
+    const rows = ["a", "b", "c", "d", "e"];
+    updateGraphAvatars(
+      ctx,
+      rows.map((sha, slot) => request(slot, sha)),
+    );
+    for (let slot = 0; slot < rows.length; slot++) track(slot);
+    // Re-key every slot so the tracked setter sees the assignment.
+    updateGraphAvatars(
+      ctx,
+      rows.map((sha, slot) => request(slot, `${sha}-seed`)),
+    );
+    await Promise.resolve();
+    const withImage = widgets.filter(
+      (w) => (w as FakeWidget & { image?: unknown }).image !== undefined,
+    );
+    expect(withImage).toHaveLength(rows.length);
+    // One line of scroll: every slot takes the commit from the slot below.
+    updateGraphAvatars(
+      ctx,
+      ["f", "a", "b", "c", "d"].map((sha, slot) => request(slot, sha)),
+    );
+    for (const widget of widgets)
+      expect((widget as FakeWidget & { image?: unknown }).image).toBeDefined();
+  });
 });

@@ -793,8 +793,11 @@ export function updateGraphAvatars(
     if (ctx.graphAvatarKeys[slot] === key) continue;
     ctx.graphAvatarKeys[slot] = key;
     releaseSlot(ctx, slot);
-    widget.visible = false;
-    widget.source = undefined;
+    // Deliberately not cleared first. A slot is a viewport row, so scrolling a
+    // single line hands every slot a different commit, and clearing would drop
+    // each widget's image for as long as the replacement takes to decode.
+    // ImageRenderable keeps showing the old image until the new one is ready,
+    // so assigning straight over the top swaps them without a blank frame.
     const cached = renderedGraphAvatars.get(key);
     if (cached) {
       renderedGraphAvatars.delete(key);
