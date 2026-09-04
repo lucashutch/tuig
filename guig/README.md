@@ -17,6 +17,23 @@ cd guig
 bun install
 ```
 
+## Run
+
+Open a repository in the native app with a single command (from the tuig
+checkout). The launcher rebuilds when sources changed and opens the window
+directly, no second terminal needed:
+
+```sh
+bun run guig -- /path/to/repo
+```
+
+(`./` opens the current directory. Pass `--rebuild` to force a rebuild.)
+For a bare `guig` command anywhere, add an alias:
+
+```sh
+alias guig="bun /path/to/tuig/guig/bin/guig.ts"
+```
+
 ## Develop
 
 Start the Vite dev server (renders with mock data in a plain browser):
