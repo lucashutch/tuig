@@ -9,4 +9,6 @@ export default defineConfig({
   build: {
     outDir: "dist/frontend",
   },
+  // Relative asset URLs so the bundle also loads from file:// in Electron.
+  base: "./",
 });
