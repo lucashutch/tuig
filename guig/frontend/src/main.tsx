@@ -1,15 +1,13 @@
 import React from "react";
 import { createRoot } from "react-dom/client";
+import { App } from "./App.js";
+import "./theme.css";
 
 const root = document.getElementById("root");
 if (root) {
   createRoot(root).render(
     <React.StrictMode>
-      <div className="guig-shell">
-        <div className="guig-placeholder">
-          Guig scaffold: the application shell lands in the next commit.
-        </div>
-      </div>
+      <App />
     </React.StrictMode>,
   );
 }
