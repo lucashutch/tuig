@@ -85,11 +85,41 @@ if (forceRebuild || (await sourceNewerThanOutputs())) {
 }
 
 const child = Bun.spawn([electronBin, mainEntry, repoPath], {
-  stdio: ["inherit", "inherit", "inherit"],
+  stdio: ["inherit", "inherit", "pipe"],
   env: {
     ...process.env,
     ...(needsNoSandbox() ? { ELECTRON_DISABLE_SANDBOX: "1" } : {}),
   },
 });
-const code = await child.exited;
+
+/**
+ * Chromium logs GPU/VSync internals to stderr on Linux (e.g.
+ * GetVSyncParametersIfAvailable failures on Wayland). Hide that noise but
+ * keep our own lines, fatal aborts, and renderer console errors.
+ */
+function keepChromiumLine(line: string): boolean {
+  if (line.includes("guig:")) return true;
+  if (/FATAL|CONSOLE|preload-error|failed to load/i.test(line)) return true;
+  if (/^\[.*:(ERROR|WARNING)/.test(line)) return false;
+  return true;
+}
+
+async function drainStderr(): Promise<void> {
+  const stream = child.stderr;
+  if (!stream) return;
+  const decoder = new TextDecoder();
+  let pending = "";
+  const flush = (line: string): void => {
+    if (keepChromiumLine(line)) process.stderr.write(`${line}\n`);
+  };
+  for await (const chunk of stream) {
+    pending += decoder.decode(chunk, { stream: true });
+    const lines = pending.split("\n");
+    pending = lines.pop() ?? "";
+    for (const line of lines) flush(line);
+  }
+  if (pending) flush(pending);
+}
+
+const [code] = await Promise.all([child.exited, drainStderr()]);
 process.exit(typeof code === "number" ? code : 0);
