@@ -28,7 +28,8 @@
     "format": "prettier --write . --ignore-unknown",
     "format:check": "prettier --check . --ignore-unknown",
     "check": "bun run format:check && bun run lint && bun run typecheck && bun test",
-    "lint": "eslint ."
+    "lint": "eslint .",
+    "guig": "bun ./guig/bin/guig.ts"
   },
   "dependencies": {
     "@opentui/core": "0.5.7"
