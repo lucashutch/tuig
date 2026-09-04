@@ -132,7 +132,7 @@ See the [roadmap](docs/roadmap.md) for planned work. Bugs and focused contributi
 Guig is the Electron desktop companion to tuig, with a GitKraken-style history graph, diff viewer, changes pane, and the same Git feature set. It lives in `guig/` and runs on the same repository state through the system Git executable.
 
 ```sh
-cd guig && npm install && npm run dev
+cd guig && bun install && bun run dev
 ```
 
 See [guig/README.md](guig/README.md) for install, build, packaging, and troubleshooting.

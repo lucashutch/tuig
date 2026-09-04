@@ -7,14 +7,14 @@ Feature parity with tuig covers history browsing with ref labels, per-commit fil
 ## Requirements
 
 - Linux
-- [Node.js](https://nodejs.org/) 20 or newer with npm
+- [Bun](https://bun.sh/) 1.2 or newer
 - Git 2.43 or newer recommended
 
 ## Install
 
 ```sh
 cd guig
-npm install
+bun install
 ```
 
 ## Develop
@@ -22,14 +22,14 @@ npm install
 Start the Vite dev server (renders with mock data in a plain browser):
 
 ```sh
-npm run dev
+bun run dev
 ```
 
 To open a real repository, start the Vite server above in one terminal, then
 in another run the Electron shell against it and pass the repo path:
 
 ```sh
-npm run dev:electron -- /path/to/repo
+bun run dev:electron -- /path/to/repo
 ```
 
 (`./` works to open the tuig checkout itself.) The backend opens that path
@@ -38,17 +38,17 @@ at startup; you can also type a path in the repo field of the header.
 ## Build
 
 ```sh
-npm run build
-npm run dist
+bun run build
+bun run dist
 ```
 
-`npm run build` emits the renderer to `dist/frontend` and the Electron main and preload entries to `dist/electron/electron/main.js` and `dist/electron/electron/preload.js`. `npm run dist` packages Linux `deb` and `AppImage` artifacts into `release/`.
+`bun run build` emits the renderer to `dist/frontend` and the Electron main and preload entries to `dist/electron/electron/main.js` and `dist/electron/electron/preload.js`. `bun run dist` packages Linux `deb` and `AppImage` artifacts into `release/`.
 
 ## Check and test
 
 ```sh
-npm run typecheck
-npm test
+bun run typecheck
+bun test
 ```
 
 ## Screenshots
