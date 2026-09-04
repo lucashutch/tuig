@@ -58,6 +58,7 @@ Screenshots are not checked in yet. This section will show the history graph, th
 ## Troubleshooting
 
 - `git` missing: guig shells out to the Git executable for every operation. Install Git and make sure `git --version` works on your `PATH` before starting guig.
+- SUID sandbox error (`chrome-sandbox ... is not configured correctly`): the dev script already sets `ELECTRON_DISABLE_SANDBOX=1`. If you launch Electron manually, prefix the same variable. Packaged builds keep the sandbox. (Alternative: `sudo chown root node_modules/electron/dist/chrome-sandbox && sudo chmod 4755 node_modules/electron/dist/chrome-sandbox`.)
 - Empty window or "backend not connected": you opened the Vite URL in a plain browser. Run the Electron shell so the preload exposes `window.guig`.
 - Wayland blank window or GPU errors: launch Electron with `--disable-gpu-sandbox` or set `ELECTRON_DISABLE_SANDBOX=1` for systems where the Chromium sandbox conflicts with the compositor.
 - Stale remote branches: fetch prunes removed remote refs. Auto-fetch runs every minute by default; set `guig.fetchIntervalMinutes` in `localStorage` to change it, or `0` to disable.
