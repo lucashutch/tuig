@@ -35,6 +35,7 @@ import {
   fitColumns,
   layoutSidebarSections,
   renderSidebarViewport,
+  renderStashSidebarViewport,
   renderSubmoduleSidebarViewport,
   sidebarHeader,
   sidebarRows,
@@ -187,12 +188,19 @@ export function paintSidebar(ctx: RuntimeSidebarPaintContext) {
             start,
             rect.contentHeight,
           )
-        : renderSidebarViewport(
-            rows,
-            ctx.sidebarPaneWidth,
-            start,
-            rect.contentHeight,
-          ).join("\n");
+        : section === "stashes" && s.stashes.length > 0
+          ? renderStashSidebarViewport(
+              s.stashes,
+              ctx.sidebarPaneWidth,
+              start,
+              rect.contentHeight,
+            )
+          : renderSidebarViewport(
+              rows,
+              ctx.sidebarPaneWidth,
+              start,
+              rect.contentHeight,
+            ).join("\n");
     const showDivider = rect.dividerTop !== undefined;
     widgets.divider.top = Math.max(0, (rect.dividerTop ?? 0) - 1);
     widgets.divider.left = Math.floor(ctx.sidebarPaneWidth / 4);

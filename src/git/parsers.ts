@@ -180,11 +180,15 @@ export function parseStashes(data: string): Stash[] {
         }
         const [ref, sha, at] = fields;
         const subject = rest;
+        // Subjects look like "WIP on <branch>: ..." or "On <branch>: ...".
+        const branch =
+          /^(?:WIP on|On) ([^:]+):/.exec(subject)?.[1]?.trim() || undefined;
         return {
           ref: ref ?? "",
           sha: sha ?? "",
           createdAt: at ?? "",
           subject: subject ?? "",
+          branch,
         };
       })
   );

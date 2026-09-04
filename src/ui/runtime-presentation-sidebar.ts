@@ -1,5 +1,10 @@
 import { StyledText, bg, fg } from "@opentui/core";
-import type { RepositorySnapshot, Submodule, Worktree } from "../git/types.js";
+import type {
+  RepositorySnapshot,
+  Stash,
+  Submodule,
+  Worktree,
+} from "../git/types.js";
 import {
   branchPresenceFromIndex,
   branchRefFilter,
@@ -245,7 +250,10 @@ export function sidebarRows(
       `   ${s.path}`,
     ]);
   if (section === "stashes")
-    return snapshot.stashes.map((s) => ` ◇ ${s.ref} ${s.subject}`);
+    return snapshot.stashes.flatMap((s) => [
+      ` ◇ ${s.subject}`,
+      `   on ${s.branch ?? "unknown branch"} • ${s.createdAt}`,
+    ]);
   return worktreeRows(snapshot.worktrees, snapshot.root, width).map(
     (r) => r.label,
   );
@@ -286,6 +294,32 @@ export function renderSubmoduleSidebarViewport(
         rowIndex % 2 === 0 && submodule
           ? submoduleStatusColor(submodule)
           : oneDarkTheme.muted;
+      return fg(color)(`${line}${index + 1 < rendered.length ? "\n" : ""}`);
+    }),
+  );
+}
+
+/** Styled two-line stash viewport: subject, then muted branch and age. */
+export function renderStashSidebarViewport(
+  stashes: readonly Stash[],
+  width: number,
+  start: number,
+  viewport: number,
+): StyledText {
+  const rows = stashes.flatMap((stash) => [
+    ` ◇ ${stash.subject}`,
+    `   on ${stash.branch ?? "unknown branch"} • ${stash.createdAt}`,
+  ]);
+  const safeViewport = Math.max(0, viewport);
+  const clamped = Math.max(
+    0,
+    Math.min(Math.max(0, rows.length - safeViewport), start),
+  );
+  const rendered = renderSidebarViewport(rows, width, clamped, safeViewport);
+  return new StyledText(
+    rendered.map((line, index) => {
+      const rowIndex = clamped + index;
+      const color = rowIndex % 2 === 0 ? oneDarkTheme.text : oneDarkTheme.muted;
       return fg(color)(`${line}${index + 1 < rendered.length ? "\n" : ""}`);
     }),
   );
@@ -417,7 +451,10 @@ export function renderSidebar({
   const repositoryTail = `\n\n SUBMODULES  ${snapshot.submodules.length}\n${snapshot.submodules.map((submodule) => ` ${submodule.state === "clean" ? "✓" : "!"} ${submodule.path}`).join("\n") || "  (none)"}\n\n STASHES  ${snapshot.stashes.length}\n${
     snapshot.stashes
       .slice(0, 6)
-      .map((stash) => ` ◇ ${stash.ref} ${stash.subject}`)
+      .flatMap((stash) => [
+        ` ◇ ${stash.subject}`,
+        `   on ${stash.branch ?? "unknown branch"} • ${stash.createdAt}`,
+      ])
       .join("\n") || "  (none)"
   }\n\n WORKTREES  ${snapshot.worktrees.length}\n`;
   return {
