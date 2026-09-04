@@ -234,27 +234,40 @@ async function createWindow(): Promise<void> {
   });
 }
 
-await app.whenReady();
-registerGitHandlers();
-const initialPath = initialRepoPath();
-if (initialPath) {
-  try {
-    repo = await GitRepositoryService.open(initialPath);
-    console.log(`guig: repository ${repo.root}`);
-  } catch (error) {
-    console.error(`guig: cannot open ${initialPath}:`, error);
+async function start(): Promise<void> {
+  // Note: no top-level await in this entry point. Electron 33 never resolves
+  // app.whenReady() while the main module evaluation is suspended on a
+  // top-level await, so the whole startup sequence lives in start().
+  await app.whenReady();
+  registerGitHandlers();
+
+  app.on("window-all-closed", () => {
+    if (process.platform !== "darwin") app.quit();
+  });
+
+  app.on("activate", () => {
+    if (BrowserWindow.getAllWindows().length === 0) {
+      void createWindow();
+    }
+  });
+
+  const initialPath = initialRepoPath();
+  if (initialPath) {
+    try {
+      repo = await GitRepositoryService.open(initialPath);
+      console.log(`guig: repository ${repo.root}`);
+    } catch (error) {
+      console.error(`guig: cannot open ${initialPath}:`, error);
+    }
+  } else {
+    console.log(
+      "guig: no startup path given, open a repository from the header",
+    );
   }
-} else {
-  console.log("guig: no startup path given, open a repository from the header");
+  await createWindow();
 }
-await createWindow();
 
-app.on("window-all-closed", () => {
-  if (process.platform !== "darwin") app.quit();
-});
-
-app.on("activate", () => {
-  if (BrowserWindow.getAllWindows().length === 0) {
-    void createWindow();
-  }
+start().catch((error: unknown) => {
+  console.error("guig: startup failed:", error);
+  app.quit();
 });
