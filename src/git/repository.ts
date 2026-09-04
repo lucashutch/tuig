@@ -211,6 +211,11 @@ class CommitWalk {
         "git",
         "log",
         "-z",
+        // Stash tips and their internal index/untracked parents live under
+        // refs/stash. They have their own sidebar section via `stash list`,
+        // so keep them out of the history walk where one stash reads as 2-3
+        // commit-like rows. `--exclude` must precede `--all` to take effect.
+        "--exclude=refs/stash",
         "--all",
         ...(offset ? [`--skip=${offset}`] : []),
         `-${size}`,
@@ -446,9 +451,58 @@ export class GitRepositoryService implements GitRepository {
     // without it, for identical output. The graph layout opens a fresh lane
     // for a commit it has not seen yet, so a clock-skewed parent degrades to
     // an extra lane rather than a fault.
-    const commits = await this.walk.read(offset, wanted + 1);
+    //
+    // The walk excludes refs/stash, so each stash tip is layered back here as
+    // a single row: one WIP entry per stash instead of the tip plus its
+    // internal index/untracked commits. Tips are newest-first and recent, so
+    // the merged sequence is tips followed by the walk.
+    const tips = await this.stashTipCommits();
+    if (offset >= tips.length) {
+      const commits = await this.walk.read(offset - tips.length, wanted + 1);
+      const complete = commits.length <= wanted;
+      return {
+        commits: complete ? commits : commits.slice(0, wanted),
+        complete,
+      };
+    }
+    const head = tips.slice(offset, offset + wanted + 1);
+    if (head.length > wanted)
+      return { commits: head.slice(0, wanted), complete: false };
+    const rest = await this.walk.read(0, wanted + 1 - head.length);
+    const commits = [...head, ...rest];
     const complete = commits.length <= wanted;
     return { commits: complete ? commits : commits.slice(0, wanted), complete };
+  }
+  /**
+   * One history row per stash: the WIP tip with only its first parent, so the
+   * graph draws a single lane back to the base commit instead of extra lanes
+   * for the internal index/untracked commits the walk excludes.
+   *
+   * Read-only: uses runGit directly so the `stash` subcommand does not trip
+   * the history-mutating invalidation that would drop the held-open walk.
+   */
+  private async stashTipCommits(): Promise<Commit[]> {
+    const list = await runGit(
+      ["stash", "list", "--format=%H"],
+      this.root,
+    ).catch(() => undefined);
+    const shas = (list?.stdout ?? "")
+      .split("\n")
+      .map((sha) => sha.trim())
+      .filter(Boolean);
+    if (!shas.length) return [];
+    const order = new Map(shas.map((sha, index) => [sha, index] as const));
+    const out = await runGit(
+      ["log", "--no-walk", "--decorate", "-z", LOG_FORMAT, ...shas],
+      this.root,
+    ).catch(() => undefined);
+    if (!out) return [];
+    const tips = parseLog(out.stdout).map((commit) => ({
+      ...commit,
+      parents: commit.parents.slice(0, 1),
+    }));
+    tips.sort((a, b) => (order.get(a.sha) ?? 0) - (order.get(b.sha) ?? 0));
+    return tips;
   }
   /** Ends the background history walk; the service stays usable after it. */
   dispose() {

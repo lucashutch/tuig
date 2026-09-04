@@ -79,7 +79,8 @@ export function sidebarClick(
   if (!section) return;
   const row = context.sidebarStart[section] + y - rects[section].contentTop;
   if (section === "stashes") {
-    const stash = snapshot.stashes[row];
+    // Stashes render as two rows (subject, then muted branch and age).
+    const stash = snapshot.stashes[Math.floor(row / 2)];
     if (stash)
       context.openGraphMenu(x, y + context.paneTop, { sha: stash.sha, stash });
     return;

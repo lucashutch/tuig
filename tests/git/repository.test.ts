@@ -95,6 +95,7 @@ describe("porcelain parsers", () => {
         sha: "abc",
         createdAt: "2 hours ago",
         subject: "fix\twith tab",
+        branch: undefined,
       },
     ]);
   });
@@ -109,14 +110,26 @@ describe("porcelain parsers", () => {
         sha: "abc",
         createdAt: "2 hours ago",
         subject: "first",
+        branch: undefined,
       },
       {
         ref: "stash@{1}",
         sha: "def",
         createdAt: "yesterday",
         subject: "second",
+        branch: undefined,
       },
     ]);
+  });
+  test("extracts the branch from stash subjects", () => {
+    expect(
+      parseStashes(
+        "stash@{0}\tabc\t9 minutes ago\tWIP on fix/avatar-flicker: b97d195 fix thing\0",
+      )[0],
+    ).toMatchObject({ branch: "fix/avatar-flicker" });
+    expect(
+      parseStashes("stash@{0}\tabc\tnow\tOn main: custom message\0")[0],
+    ).toMatchObject({ branch: "main" });
   });
 
   test("parses full worktree SHA and normalizes branch", () => {
@@ -219,6 +232,72 @@ test("repository stages, commits, and reports an odd filename", async () => {
     ref: "stash@{0}",
     subject: expect.stringContaining("visible stash"),
   });
+});
+
+test("snapshot keeps stash internal commits out of history", async () => {
+  const root = await mkdtemp(join(tmpdir(), "tuig-stash-history-test-"));
+  cleanup.push(root);
+  await runGit(["init", "-b", "main"], root);
+  await runGit(["config", "user.name", "Test User"], root);
+  await runGit(["config", "user.email", "test@example.com"], root);
+  await Bun.write(join(root, "file"), "base\n");
+  await runGit(["add", "file"], root);
+  await runGit(["commit", "-m", "base"], root);
+  const repo = await GitRepositoryService.open(root);
+
+  await Bun.write(join(root, "file"), "staged change\n");
+  await repo.stage(["file"]);
+  await Bun.write(join(root, "file"), "worktree change\n");
+  await Bun.write(join(root, "untracked.txt"), "untracked\n");
+  await repo.stash("history stash", true);
+
+  const snapshot = await repo.snapshot();
+  expect(snapshot.stashes).toHaveLength(1);
+  // One row per stash: the WIP tip, without its internal index/untracked rows.
+  expect(snapshot.commits.map((commit) => commit.subject)).toEqual([
+    expect.stringContaining("history stash"),
+    "base",
+  ]);
+  expect(
+    snapshot.commits.some((commit) => /^index on /.test(commit.subject)),
+  ).toBe(false);
+  expect(
+    snapshot.commits.some((commit) =>
+      /^untracked files on /.test(commit.subject),
+    ),
+  ).toBe(false);
+  expect(snapshot.commits[0]?.decorations).toContain("refs/stash");
+  expect(snapshot.commits[0]?.parents).toHaveLength(1);
+});
+
+test("stash tip pages with history instead of shifting it", async () => {
+  const root = await mkdtemp(join(tmpdir(), "tuig-stash-page-test-"));
+  cleanup.push(root);
+  await runGit(["init", "-b", "main"], root);
+  await runGit(["config", "user.name", "Test User"], root);
+  await runGit(["config", "user.email", "test@example.com"], root);
+  const repo = await GitRepositoryService.open(root);
+  for (const name of ["one", "two", "three"]) {
+    await Bun.write(join(root, `${name}.txt`), `${name}\n`);
+    await repo.stage([`${name}.txt`]);
+    await repo.commit(name);
+  }
+  await Bun.write(join(root, "three.txt"), "stashed\n");
+  await repo.stash("paged stash");
+
+  const first = await repo.commitPage(2);
+  expect(first.commits.map((commit) => commit.subject)).toEqual([
+    expect.stringContaining("paged stash"),
+    "three",
+  ]);
+  expect(first.complete).toBe(false);
+  const second = await repo.commitPage(3, 1);
+  expect(second.commits.map((commit) => commit.subject)).toEqual([
+    "three",
+    "two",
+    "one",
+  ]);
+  expect(second.complete).toBe(true);
 });
 
 test("snapshot enriches recursively reported submodules with .gitmodules names", async () => {

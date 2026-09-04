@@ -47,6 +47,8 @@ export interface Stash {
   sha: string;
   createdAt: string;
   subject: string;
+  /** Branch the stash was created on, parsed from its subject when present. */
+  branch?: string;
 }
 
 export interface Worktree {
