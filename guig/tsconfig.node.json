@@ -7,5 +7,6 @@
     "noEmit": false,
     "outDir": "dist/electron"
   },
-  "include": ["electron/**/*", "shared/**/*"]
+  "include": ["electron/**/*", "shared/**/*"],
+  "exclude": ["node_modules", "dist"]
 }

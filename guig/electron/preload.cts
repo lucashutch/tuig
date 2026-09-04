@@ -1,6 +1,51 @@
-import { contextBridge, ipcRenderer } from "electron";
-import { IPC } from "../shared/ipc.js";
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const { contextBridge, ipcRenderer } = require("electron");
 import type { GuigApi } from "../shared/ipc.js";
+
+/**
+ * Channel names for the guig backend. Sandboxed preload scripts always load
+ * as CommonJS, so this file is `.cts` (compiled to `preload.cjs`) and cannot
+ * value-import `../shared/ipc.js`, which ships as ESM for the main process.
+ * This map is a copy of `IPC` there; `tests/guig-ipc-sync.test.ts` fails when
+ * the two drift apart.
+ */
+const IPC = {
+  openRepo: "guig:open-repo",
+  snapshot: "guig:snapshot",
+  commitPage: "guig:commit-page",
+  workingStatus: "guig:working-status",
+  diff: "guig:diff",
+  commitFiles: "guig:commit-files",
+  stage: "guig:stage",
+  unstage: "guig:unstage",
+  applyPatch: "guig:apply-patch",
+  discard: "guig:discard",
+  discardAll: "guig:discard-all",
+  commit: "guig:commit",
+  amend: "guig:amend",
+  reword: "guig:reword",
+  switchBranch: "guig:switch-branch",
+  checkoutCommit: "guig:checkout-commit",
+  checkoutRemoteBranch: "guig:checkout-remote-branch",
+  resetTo: "guig:reset-to",
+  rebaseOnto: "guig:rebase-onto",
+  cherryPick: "guig:cherry-pick",
+  createBranch: "guig:create-branch",
+  createTag: "guig:create-tag",
+  deleteBranch: "guig:delete-branch",
+  fetch: "guig:fetch",
+  pull: "guig:pull",
+  push: "guig:push",
+  cancelNetwork: "guig:cancel-network",
+  stash: "guig:stash",
+  applyStash: "guig:apply-stash",
+  popStash: "guig:pop-stash",
+  dropStash: "guig:drop-stash",
+  addWorktree: "guig:add-worktree",
+  removeWorktree: "guig:remove-worktree",
+  lockWorktree: "guig:lock-worktree",
+  remoteUrl: "guig:remote-url",
+} as const;
 
 const guig: GuigApi = {
   openRepo: (path) => ipcRenderer.invoke(IPC.openRepo, { path }),

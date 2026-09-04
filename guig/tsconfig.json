@@ -22,5 +22,6 @@
     "frontend/src/**/*",
     "electron/**/*",
     "vite.config.ts"
-  ]
+  ],
+  "exclude": ["electron/preload.cts", "node_modules", "dist"]
 }

@@ -207,7 +207,9 @@ async function createWindow(): Promise<void> {
     width: 1280,
     height: 800,
     webPreferences: {
-      preload: join(here, "preload.js"),
+      // The preload is compiled from preload.cts to preload.cjs: sandboxed
+      // preload scripts always load as CommonJS, so it cannot be ESM.
+      preload: join(here, "preload.cjs"),
       contextIsolation: true,
       sandbox: true,
     },
