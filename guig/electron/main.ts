@@ -212,8 +212,18 @@ async function createWindow(): Promise<void> {
       sandbox: true,
     },
   });
+  mainWindow.webContents.on("did-fail-load", (_event, code, desc, url) => {
+    console.error(`guig: failed to load ${url}: [${code}] ${desc}`);
+    if (!mainWindow) return;
+    void dialog.showMessageBox(mainWindow, {
+      type: "error",
+      title: "Guig failed to load",
+      message: `Could not load ${url} (${desc}). Is the Vite dev server running? Start it with \`bun run dev\` in another terminal, then relaunch.`,
+    });
+  });
   const devUrl = process.env.VITE_DEV_SERVER_URL;
   if (devUrl) {
+    console.log(`guig: loading dev server ${devUrl}`);
     await mainWindow.loadURL(devUrl);
   } else {
     // `build:electron` emits next to the frontend bundle under dist/.
@@ -230,9 +240,12 @@ const initialPath = initialRepoPath();
 if (initialPath) {
   try {
     repo = await GitRepositoryService.open(initialPath);
+    console.log(`guig: repository ${repo.root}`);
   } catch (error) {
     console.error(`guig: cannot open ${initialPath}:`, error);
   }
+} else {
+  console.log("guig: no startup path given, open a repository from the header");
 }
 await createWindow();
 
