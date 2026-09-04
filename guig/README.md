@@ -25,13 +25,15 @@ Start the Vite dev server (renders with mock data in a plain browser):
 npm run dev
 ```
 
-To open a real repository, run the Electron shell against the dev server and pass the repo path. The renderer opens the path entered in the repo field of the header, or the path given to the backend at startup:
+To open a real repository, start the Vite server above in one terminal, then
+in another run the Electron shell against it and pass the repo path:
 
 ```sh
-VITE_DEV_SERVER_URL=http://localhost:5173 npx electron dist/electron/main.js -- /path/to/repo
+npm run dev:electron -- /path/to/repo
 ```
 
-Build the Electron main and preload bundles first with `npm run build:electron` if `dist/electron` does not exist yet.
+(`./` works to open the tuig checkout itself.) The backend opens that path
+at startup; you can also type a path in the repo field of the header.
 
 ## Build
 
@@ -40,7 +42,7 @@ npm run build
 npm run dist
 ```
 
-`npm run build` emits the renderer to `dist/frontend` and the Electron main and preload entries to `dist/electron/main.js` and `dist/electron/preload.js`. `npm run dist` packages Linux `deb` and `AppImage` artifacts into `release/`.
+`npm run build` emits the renderer to `dist/frontend` and the Electron main and preload entries to `dist/electron/electron/main.js` and `dist/electron/electron/preload.js`. `npm run dist` packages Linux `deb` and `AppImage` artifacts into `release/`.
 
 ## Check and test
 

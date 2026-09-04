@@ -4,9 +4,10 @@
   "private": true,
   "type": "module",
   "description": "Guig: Electron GUI for tuig repositories (GitKraken-style). Phase 1 scaffold with Node git backend and IPC contract.",
-  "main": "dist/electron/main.js",
+  "main": "dist/electron/electron/main.js",
   "scripts": {
     "dev": "vite",
+    "dev:electron": "npm run build:electron && VITE_DEV_SERVER_URL=http://localhost:5173 electron dist/electron/electron/main.js",
     "build": "vite build && npm run build:electron",
     "build:electron": "tsc -p tsconfig.node.json --outDir dist/electron",
     "dist": "electron-builder",

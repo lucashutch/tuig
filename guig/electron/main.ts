@@ -196,6 +196,12 @@ function registerGitHandlers(): void {
   ipcMain.handle(IPC.remoteUrl, () => requireRepo().remoteUrl());
 }
 
+/** Repo path passed on the command line, e.g. `electron main.js -- /path/to/repo`. */
+function initialRepoPath(): string | undefined {
+  const args = process.argv.slice(2).filter((arg) => !arg.startsWith("-"));
+  return args.length > 0 ? args[args.length - 1] : undefined;
+}
+
 async function createWindow(): Promise<void> {
   mainWindow = new BrowserWindow({
     width: 1280,
@@ -211,7 +217,7 @@ async function createWindow(): Promise<void> {
     await mainWindow.loadURL(devUrl);
   } else {
     // `build:electron` emits next to the frontend bundle under dist/.
-    await mainWindow.loadFile(join(here, "../frontend/index.html"));
+    await mainWindow.loadFile(join(here, "../../frontend/index.html"));
   }
   mainWindow.on("closed", () => {
     mainWindow = null;
@@ -220,6 +226,14 @@ async function createWindow(): Promise<void> {
 
 await app.whenReady();
 registerGitHandlers();
+const initialPath = initialRepoPath();
+if (initialPath) {
+  try {
+    repo = await GitRepositoryService.open(initialPath);
+  } catch (error) {
+    console.error(`guig: cannot open ${initialPath}:`, error);
+  }
+}
 await createWindow();
 
 app.on("window-all-closed", () => {
