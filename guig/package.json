@@ -1,0 +1,49 @@
+{
+  "name": "guig",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Guig: Electron GUI for tuig repositories (GitKraken-style). Phase 1 scaffold with Node git backend and IPC contract.",
+  "main": "dist/electron/main.js",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build && npm run build:electron",
+    "build:electron": "tsc -p tsconfig.node.json --outDir dist/electron",
+    "dist": "electron-builder",
+    "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.node.json",
+    "test": "echo \"guig: no tests configured yet\"",
+    "lint": "echo \"guig: no linter configured yet\""
+  },
+  "build": {
+    "appId": "dev.tuig.guig",
+    "productName": "guig",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**/*",
+      "package.json"
+    ],
+    "linux": {
+      "target": [
+        "deb",
+        "AppImage"
+      ],
+      "category": "Development"
+    }
+  },
+  "dependencies": {
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.7.0",
+    "@types/react": "^18.3.1",
+    "@types/react-dom": "^18.3.1",
+    "@vitejs/plugin-react": "^4.3.0",
+    "electron": "^33.0.0",
+    "electron-builder": "^24.13.3",
+    "typescript": "^5.6.0",
+    "vite": "^6.0.0"
+  }
+}
