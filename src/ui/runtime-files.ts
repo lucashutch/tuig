@@ -146,8 +146,9 @@ export function filesClick(
     context.fileStart = context.sectionStart[section];
     context.fileIndex = 0;
   }
-  const row =
-    y - Number(list(context, section).top) + context.sectionStart[section];
+  // Mouse coordinates and the rendered widget position are screen-relative.
+  // `top` is only a layout offset and can differ due to the parent's border.
+  const row = y - list(context, section).y + context.sectionStart[section];
   const node = sectionRows(context, section)[row]?.node;
   if (!node) return;
   if (button === MouseButton.RIGHT) {
@@ -174,7 +175,7 @@ export function filesClick(
   );
   ensureFileVisible(context);
   context.paintFiles();
-  if (context.view === "history") void context.openWorkingDiff();
+  if (context.view !== "commit") void context.openWorkingDiff();
   else {
     context.diffOrigin = "commit";
     context.widgets.commitDiff.visible = true;

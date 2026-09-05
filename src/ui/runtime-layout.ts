@@ -285,10 +285,9 @@ export function layoutChanges(context: RuntimeLayoutContext, height: number) {
   const commitView = context.view === "commit";
   const editing = !!context.editingCommitSha;
   const width = Math.max(1, context.detailsPaneWidth);
-  // Diffs occupy the detail pane, leaving the graph and its selection
-  // visible in the centre pane. Hide every other detail widget explicitly
-  // so a previous commit/working layout cannot bleed through the diff.
-  if (context.commitDiff.visible) {
+  // Diffs overlay the history pane. Keep the working changes layout intact;
+  // commit diffs retain their file picker without the working-tree controls.
+  if (context.commitDiff.visible && commitView) {
     for (const widget of [
       context.discardButton,
       context.stageAllButton,
@@ -302,11 +301,8 @@ export function layoutChanges(context: RuntimeLayoutContext, height: number) {
       context.composerBox,
     ])
       widget.visible = false;
-    // The commit file tree stays in the RHS picker while its selected diff
-    // is drawn over the history pane. Working-tree diffs have no commit
-    // picker, so clear these widgets in that mode instead.
-    context.unstagedLabel.visible = context.view === "commit";
-    context.unstagedText.visible = context.view === "commit";
+    context.unstagedLabel.visible = true;
+    context.unstagedText.visible = true;
     context.amendButton.visible = false;
     return;
   }

@@ -446,7 +446,7 @@ class Runtime {
         this.historyClick(x, y - PANE_TOP, button),
       filesScroll: (section, delta) => this.filesScroll(section, delta),
       filesClick: (section, y, button, x) =>
-        this.filesClick(section, y - PANE_TOP, button, x),
+        this.filesClick(section, y, button, x),
       toggleSection: (section) => this.toggleSection(section),
       resizeChangeSplit: (y) => this.resizeChangeSplit(y),
       resizeComposer: (y) => this.resizeComposer(y),
@@ -894,8 +894,7 @@ class Runtime {
       notify: (text) => this.notify(text),
       fail: (error) => this.fail(error),
       persistLayoutPreferences: () => this.persistLayoutPreferences(),
-      openFileMenu: (x, y, target) =>
-        this.openGraphMenu(x, y + PANE_TOP, target),
+      openFileMenu: (x, y, target) => this.openGraphMenu(x, y, target),
     };
   }
   private files(section: ChangeSection = this.mode): ChangedFile[] {
