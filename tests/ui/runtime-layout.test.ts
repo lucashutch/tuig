@@ -18,7 +18,7 @@ function layoutContext(
     editingCommitSha: undefined,
     detailsPaneWidth: 40,
     commitDiff: widget(diffVisible),
-    unstagedLabel: widget(),
+    unstagedLabel: widget(true),
     unstagedText: widget(),
     stagedLabel: widget(true),
     stagedText: widget(true),
@@ -30,11 +30,17 @@ function layoutContext(
     unstagedDividerBar: widget(true),
     composerDividerBar: widget(true),
     composerBox: widget(true),
+    composerSummary: widget(),
+    composerBody: widget(),
+    commitButton: widget(),
     amendButton: widget(true),
     workingBanner: widget(true),
     editMessageButton: widget(true),
     commitFilesTop: 4,
     sectionViewport: () => 10,
+    sectionRows: () => [{}, {}],
+    sectionCollapsed: { staged: false, unstaged: false },
+    files: () => [{}],
   } as unknown as RuntimeLayoutContext;
 }
 
@@ -48,12 +54,17 @@ test("commit diffs keep the commit file tree visible", () => {
   expect(context.stagedText.visible).toBe(false);
 });
 
-test("working-tree diffs hide their file tree, then restore the commit tree", () => {
+test("working-tree diffs retain both file sections and the composer", () => {
   const context = layoutContext("working", true);
 
   layoutChanges(context, 24);
-  expect(context.unstagedLabel.visible).toBe(false);
-  expect(context.unstagedText.visible).toBe(false);
+  expect(context.unstagedLabel.visible).toBe(true);
+  expect(context.unstagedText.visible).toBe(true);
+  expect(context.stagedLabel.visible).toBe(true);
+  expect(context.stagedText.visible).toBe(true);
+  expect(context.composerBox.visible).toBe(true);
+  expect(context.workingBanner.visible).toBe(false);
+  expect(context.editMessageButton.visible).toBe(false);
 
   context.view = "commit";
   context.commitDiff.visible = false;

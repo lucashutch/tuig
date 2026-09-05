@@ -664,7 +664,7 @@ export function createRuntimeWidgets(
     diff: "",
     view: "unified" as const,
     showLineNumbers: true,
-    wrapMode: "none" as const,
+    wrapMode: "word" as const,
     fg: oneDarkTheme.text,
     addedBg: oneDarkTheme.diffAddedBg,
     removedBg: oneDarkTheme.diffRemovedBg,
