@@ -1,6 +1,6 @@
 {
   "name": "tuig",
-  "version": "0.1.8",
+  "version": "0.1.9",
   "description": "A mouse-first Git client for the terminal",
   "private": true,
   "license": "MIT",
@@ -31,7 +31,8 @@
     "lint": "eslint ."
   },
   "dependencies": {
-    "@opentui/core": "0.5.7"
+    "@opentui/core": "0.5.7",
+    "tree-sitter-wasm": "1.1.7"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

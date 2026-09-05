@@ -1,4 +1,10 @@
-import { ImageRenderable, NativeImage, StyledText, fg } from "@opentui/core";
+import {
+  ImageRenderable,
+  NativeImage,
+  StyledText,
+  fg,
+  pathToFiletype,
+} from "@opentui/core";
 import type {
   ChangedFile,
   Commit,
@@ -449,6 +455,7 @@ export async function loadDiff(ctx: RuntimeDataContext) {
   )
     return;
   if (ctx.view !== "history") {
+    ctx.widgets.commitDiff.filetype = path ? pathToFiletype(path) : undefined;
     ctx.widgets.commitDiff.diff = value;
     ctx.widgets.commitDiffEmpty.visible = value.length === 0;
   }

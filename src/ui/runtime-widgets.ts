@@ -15,6 +15,8 @@ import {
   type KeyEvent,
 } from "@opentui/core";
 import { oneDarkTheme } from "./theme.js";
+import { createDiffSyntaxStyle } from "./diff-syntax.js";
+import { registerDiffParsers } from "./diff-parsers.js";
 import { COMMIT_COMPOSER_HEIGHT } from "./runtime-presentation.js";
 import {
   SIDEBAR_SECTIONS,
@@ -660,7 +662,12 @@ export function createRuntimeWidgets(
   commitBodyBox.add(editMessageButton);
   commitBodyBox.add(commitHeader);
   commitBodyBox.add(commitBody);
+  registerDiffParsers();
+  const diffSyntaxStyle = createDiffSyntaxStyle();
+  renderer.once(CliRenderEvents.DESTROY, () => diffSyntaxStyle.destroy());
   const diffOptions = {
+    syntaxStyle: diffSyntaxStyle,
+    conceal: false,
     diff: "",
     view: "unified" as const,
     showLineNumbers: true,

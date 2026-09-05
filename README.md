@@ -20,6 +20,12 @@ The bottom row is split. Keybinding hints for the focused pane stay on the left,
 
 The One Dark theme keeps Git status colors meaningful. Added lines stay green, removed lines stay red, and graph lanes remain easy to follow.
 
+Diffs highlight syntax for JavaScript/JSX, TypeScript/TSX, Python, Go, Rust, C,
+C++, HTML, CSS, JSON, Bash/shell, Markdown, and Zig. Parsers are installed with
+Tuig, so highlighting works offline. Other file types retain the normal diff
+colors without syntax highlighting. C headers (`.h`) use the C parser; C++
+headers such as `.hpp` and `.hh` use C++.
+
 ## Requirements
 
 - Linux
