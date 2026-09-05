@@ -4,7 +4,8 @@ const GIT_SOURCE = `git+https://github.com/${REPOSITORY}.git`;
 type ReleaseResponse = { tag_name?: unknown };
 
 export function installSourceForTag(tag: string) {
-  return `${GIT_SOURCE}#${tag}`;
+  // Name the existing dependency explicitly so Bun replaces its Git resolution.
+  return `tuig@${GIT_SOURCE}#${tag}`;
 }
 
 export function isCurrentRelease(version: string, tag: string) {
@@ -43,11 +44,16 @@ export async function updateTuig(currentVersion: string) {
     stdout: "pipe",
     stderr: "pipe",
   });
-  const [exitCode] = await Promise.all([
+  const [exitCode, stdout, stderr] = await Promise.all([
     child.exited,
     new Response(child.stdout).text(),
     new Response(child.stderr).text(),
   ]);
-  if (exitCode !== 0) throw new Error(`Bun could not install tuig ${tag}`);
+  if (exitCode !== 0) {
+    const details = stderr.trim() || stdout.trim();
+    throw new Error(
+      `Bun could not install tuig ${tag} (exit ${exitCode})${details ? `:\n${details}` : "."}`,
+    );
+  }
   console.log(`Tuig ${tag} is ready.`);
 }
