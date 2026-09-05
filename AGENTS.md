@@ -9,3 +9,5 @@ bun run check
 ```
 
 Do not commit generated output, logs, `node_modules`, or local planning files. Use disposable repositories when testing destructive Git operations.
+
+This repository uses rebase merges.
