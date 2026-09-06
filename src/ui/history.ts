@@ -318,17 +318,12 @@ export function branchPresenceIcon(
 export function formatBranchDecoration(
   label: string,
   refs: readonly BranchRef[],
+  index = decorationRefIndexFor(refs),
 ): string {
   if (label === "refs/stash" || label === "stash") return "stash";
   const head = label.startsWith("HEAD -> ") || label === "HEAD";
   const name = label.replace(/^HEAD -> /, "");
-  const ref = refs.find(
-    (candidate) =>
-      candidate.name === name ||
-      candidate.fullName === name ||
-      candidate.fullName === `refs/heads/${name}` ||
-      candidate.fullName === `refs/remotes/${name}`,
-  );
+  const ref = index.get(name);
   const displayName = displayBranchName(name);
   if (!ref) return head ? `${HEAD_ICON} ${displayName}` : displayName;
   const presence = branchPresence(ref, refs);
@@ -342,6 +337,29 @@ export function formatBranchDecoration(
         ? REMOTE_BRANCH_ICON
         : local;
   return `${icons} ${displayName}`;
+}
+
+/** Aliases emitted by git decorations, indexed once for a snapshot's refs. */
+export type DecorationRefIndex = ReadonlyMap<string, BranchRef>;
+const decorationRefIndexes = new WeakMap<object, DecorationRefIndex>();
+
+export function decorationRefIndexFor(
+  refs: readonly BranchRef[],
+): DecorationRefIndex {
+  const cached = decorationRefIndexes.get(refs);
+  if (cached) return cached;
+  const index = new Map<string, BranchRef>();
+  for (const ref of refs) {
+    // Keep array-order tie breaking identical to Array#find.
+    const aliases = [ref.name, ref.fullName];
+    if (ref.fullName.startsWith("refs/heads/"))
+      aliases.push(ref.fullName.slice("refs/heads/".length));
+    if (ref.fullName.startsWith("refs/remotes/"))
+      aliases.push(ref.fullName.slice("refs/remotes/".length));
+    for (const alias of aliases) if (!index.has(alias)) index.set(alias, ref);
+  }
+  decorationRefIndexes.set(refs, index);
+  return index;
 }
 
 interface HintCandidate {
@@ -535,6 +553,7 @@ export const TAG_ICON = "";
 export function summariseDecorations(
   decorations: readonly string[],
   refs: readonly BranchRef[],
+  index = decorationRefIndexFor(refs),
 ): { label: string; extra: number } {
   const tags = [
     ...new Set(
@@ -557,7 +576,7 @@ export function summariseDecorations(
   const total = distinct.size + tags.length;
   if (total === 0) return { label: "", extra: 0 };
   const label = ordered[0]
-    ? formatBranchDecoration(ordered[0], refs)
+    ? formatBranchDecoration(ordered[0], refs, index)
     : `${TAG_ICON} ${tags[0]}`;
   return { label, extra: total - 1 };
 }
@@ -572,6 +591,7 @@ export function summariseDecorations(
 export function primaryDecorationRef(
   decorations: readonly string[],
   refs: readonly BranchRef[],
+  index = decorationRefIndexFor(refs),
 ): BranchRef | undefined {
   const branches = decorations.filter((label) => !label.startsWith("tag: "));
   const head = branches.find((label) => label.startsWith("HEAD -> "));
@@ -584,11 +604,5 @@ export function primaryDecorationRef(
   const name = first.replace(/^HEAD -> /, "");
   if (name === "HEAD" || name === "refs/stash" || name === "stash")
     return undefined;
-  return refs.find(
-    (ref) =>
-      ref.name === name ||
-      ref.fullName === name ||
-      ref.fullName === `refs/heads/${name}` ||
-      ref.fullName === `refs/remotes/${name}`,
-  );
+  return index.get(name);
 }

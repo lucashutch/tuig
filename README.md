@@ -26,6 +26,13 @@ Tuig, so highlighting works offline. Other file types retain the normal diff
 colors without syntax highlighting. C headers (`.h`) use the C parser; C++
 headers such as `.hpp` and `.hh` use C++.
 
+To limit memory use, diffs at or above 1 MiB or 20,000 lines display without
+syntax highlighting or line wrapping. Tuig stops collecting a diff above
+5 MiB and shows a warning instead. Press `Shift+L` on that warning to load the
+full diff without highlighting. This override applies only to that load and
+can use substantial memory. Selecting another file or closing the diff cancels
+its pending Git read and releases the displayed document.
+
 ## Requirements
 
 - Linux

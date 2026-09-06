@@ -89,6 +89,43 @@ export function buildFileTree(files: ChangedFile[]): FileTreeDirectory {
   return root;
 }
 
+const treeCache = new WeakMap<readonly ChangedFile[], FileTreeDirectory>();
+
+/**
+ * Cache by immutable snapshot array identity. Runtime snapshots replace file
+ * arrays instead of mutating them, and WeakMap entries cannot retain history.
+ */
+export function cachedFileTree(
+  files: readonly ChangedFile[],
+): FileTreeDirectory {
+  const cached = treeCache.get(files);
+  if (cached) return cached;
+  const tree = buildFileTree([...files]);
+  treeCache.set(files, tree);
+  return tree;
+}
+
+const flattenedCache = new WeakMap<
+  FileTreeDirectory,
+  { expansion: ReadonlySet<string>; rows: VisibleFileTreeNode[] }
+>();
+
+/** Reuse flattening while detecting Sets mutated in place. */
+export function cachedFlattenVisible(
+  tree: FileTreeDirectory,
+  expanded: ReadonlySet<string>,
+): VisibleFileTreeNode[] {
+  const cached = flattenedCache.get(tree);
+  if (
+    cached?.expansion.size === expanded.size &&
+    [...expanded].every((path) => cached.expansion.has(path))
+  )
+    return cached.rows;
+  const rows = flattenVisible(tree, expanded);
+  flattenedCache.set(tree, { expansion: new Set(expanded), rows });
+  return rows;
+}
+
 /** Return rows in display order. The synthetic root itself is not a row. */
 export function flattenVisible(
   tree: FileTreeDirectory | FileTreeNode[],

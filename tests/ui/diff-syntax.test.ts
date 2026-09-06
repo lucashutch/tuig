@@ -8,6 +8,21 @@ import {
   diffSyntaxStyles,
 } from "../../src/ui/diff-syntax.js";
 
+function diffWidget(value = "", filetype?: string) {
+  return {
+    diff: value,
+    filetype,
+    clear() {
+      this.diff = "";
+      this.filetype = undefined;
+    },
+    setDiff(value: string, filetype?: string) {
+      this.diff = value;
+      this.filetype = filetype;
+    },
+  };
+}
+
 describe("diff syntax highlighting", () => {
   test("uses distinct token colors without hiding diff backgrounds", () => {
     const style = createDiffSyntaxStyle();
@@ -27,7 +42,7 @@ describe("diff syntax highlighting", () => {
   for (const view of ["working", "commit"]) {
     test(`${view} diffs select and reset the language when switching files`, async () => {
       let path: string | undefined = "src/example.ts";
-      const diff = { diff: "", filetype: undefined as string | undefined };
+      const diff = diffWidget();
       const context = {
         diffRequest: 0,
         commitIndex: 0,
@@ -57,7 +72,7 @@ describe("diff syntax highlighting", () => {
   test("a stale diff cannot replace the current language", async () => {
     let resolve!: (value: string) => void;
     let path = "old.ts";
-    const diff = { diff: "current", filetype: "python" };
+    const diff = diffWidget("previous", "typescript");
     const context = {
       diffRequest: 0,
       view: "working",
@@ -70,8 +85,10 @@ describe("diff syntax highlighting", () => {
     } as unknown as RuntimeDataContext;
     const pending = loadDiff(context);
     path = "current.py";
+    diff.setDiff("current", "python");
     resolve("stale");
     await pending;
-    expect(diff).toEqual({ diff: "current", filetype: "python" });
+    expect(diff.diff).toBe("current");
+    expect(diff.filetype).toBe("python");
   });
 });

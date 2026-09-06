@@ -201,18 +201,34 @@ export function renderSidebarViewport(
   start: number,
   viewport: number,
 ): string[] {
+  return renderSidebarViewportRows(
+    rows.length,
+    (index) => rows[index],
+    width,
+    start,
+    viewport,
+  );
+}
+
+/** Render only requested rows, so large sections do not format offscreen data. */
+export function renderSidebarViewportRows(
+  total: number,
+  rowAt: (index: number) => string | undefined,
+  width: number,
+  start: number,
+  viewport: number,
+): string[] {
   const safeWidth = Math.max(1, width);
   const safeViewport = Math.max(0, viewport);
   const clamped = Math.max(
     0,
-    Math.min(Math.max(0, rows.length - safeViewport), start),
+    Math.min(Math.max(0, total - safeViewport), start),
   );
-  const thumb = sidebarScrollbar(rows.length, clamped, safeViewport);
-  const scrollable = rows.length > safeViewport;
+  const thumb = sidebarScrollbar(total, clamped, safeViewport);
+  const scrollable = total > safeViewport;
   return Array.from({ length: safeViewport }, (_, index) => {
     const row =
-      rows[clamped + index] ??
-      (rows.length === 0 && index === 0 ? "  (none)" : "");
+      rowAt(clamped + index) ?? (total === 0 && index === 0 ? "  (none)" : "");
     const track = scrollable
       ? index >= thumb.thumbTop && index < thumb.thumbTop + thumb.thumbSize
         ? "█"
@@ -223,36 +239,82 @@ export function renderSidebarViewport(
       : `${fitColumns(row, safeWidth - 1)}${track}`;
   });
 }
+
+export type SidebarRowSource = {
+  total: number;
+  rowAt(index: number): string | undefined;
+};
+
+/** Indexed rows for viewport painting. Only matching branch refs are retained. */
+export function sidebarRowSource(
+  snapshot: RepositorySnapshot,
+  section: SidebarSection,
+  width: number,
+  branchFilter = "",
+): SidebarRowSource {
+  if (section === "local" || section === "remote") {
+    const remote = section === "remote";
+    const matches = branchRefFilter(branchFilter);
+    const refs = snapshot.branches.filter(
+      (b) => b.remote === remote && matches(b),
+    );
+    const presence = presenceIndexFor(snapshot.branches);
+    const icon = remote ? REMOTE_BRANCH_ICON : LAPTOP_BRANCH_ICON;
+    return {
+      total: refs.length,
+      rowAt(index) {
+        const b = refs[index];
+        return (
+          b &&
+          `${branchPresenceIcon(branchPresenceFromIndex(b, presence), b.current)} ${icon} ${displayBranchName(b.name)}`
+        );
+      },
+    };
+  }
+  if (section === "submodules")
+    return { total: snapshot.submodules.length * 2, rowAt: () => undefined };
+  if (section === "stashes")
+    return {
+      total: snapshot.stashes.length * 2,
+      rowAt: (index) => {
+        const stash = snapshot.stashes[Math.floor(index / 2)];
+        return (
+          stash &&
+          (index % 2 === 0
+            ? ` ◇ ${stash.subject}`
+            : `   on ${stash.branch ?? "unknown branch"} • ${stash.createdAt}`)
+        );
+      },
+    };
+  return {
+    total: snapshot.worktrees.length,
+    rowAt: (index) => {
+      const worktree = snapshot.worktrees[index];
+      return worktree
+        ? worktreeRows([worktree], snapshot.root, width)[0]?.label
+        : undefined;
+    },
+  };
+}
 export function sidebarRows(
   snapshot: RepositorySnapshot,
   section: SidebarSection,
   width: number,
   branchFilter = "",
 ): string[] {
-  if (section === "local" || section === "remote") {
-    const remote = section === "remote";
-    const icon = remote ? REMOTE_BRANCH_ICON : LAPTOP_BRANCH_ICON;
-    // One index for the whole section keeps presence lookups constant time.
-    const presenceIndex = presenceIndexFor(snapshot.branches);
-    const matches = branchRefFilter(branchFilter);
-    const rows: string[] = [];
-    for (const b of snapshot.branches) {
-      if (b.remote !== remote || !matches(b)) continue;
-      rows.push(
-        `${branchPresenceIcon(branchPresenceFromIndex(b, presenceIndex), b.current)} ${icon} ${displayBranchName(b.name)}`,
-      );
-    }
-    return rows;
-  }
+  const source = sidebarRowSource(snapshot, section, width, branchFilter);
+  if (
+    section !== "submodules" &&
+    !(section === "worktrees" && source.total === 0)
+  )
+    return Array.from(
+      { length: source.total },
+      (_, index) => source.rowAt(index) ?? "",
+    );
   if (section === "submodules")
     return snapshot.submodules.flatMap((s) => [
       ` ${s.state === "clean" ? "✓" : s.state === "uninitialized" ? "✖" : "!"} ${submoduleDisplayName(s)}`,
       `   ${s.path}`,
-    ]);
-  if (section === "stashes")
-    return snapshot.stashes.flatMap((s) => [
-      ` ◇ ${s.subject}`,
-      `   on ${s.branch ?? "unknown branch"} • ${s.createdAt}`,
     ]);
   return worktreeRows(snapshot.worktrees, snapshot.root, width).map(
     (r) => r.label,
@@ -276,16 +338,33 @@ export function renderSubmoduleSidebarViewport(
   start: number,
   viewport: number,
 ): StyledText {
-  const rows = submodules.flatMap((submodule) => [
-    ` ${submodule.state === "clean" ? "✓" : submodule.state === "uninitialized" ? "✖" : "!"} ${submoduleDisplayName(submodule)}`,
-    `   ${submodule.path}`,
-  ]);
   const safeViewport = Math.max(0, viewport);
+  const rowCount = submodules.length * 2;
   const clamped = Math.max(
     0,
-    Math.min(Math.max(0, rows.length - safeViewport), start),
+    Math.min(Math.max(0, rowCount - safeViewport), start),
   );
-  const rendered = renderSidebarViewport(rows, width, clamped, safeViewport);
+  const rows = Array.from({ length: safeViewport }, (_, index) => {
+    const rowIndex = clamped + index;
+    const submodule = submodules[Math.floor(rowIndex / 2)];
+    if (!submodule) return "";
+    return rowIndex % 2 === 0
+      ? ` ${submodule.state === "clean" ? "✓" : submodule.state === "uninitialized" ? "✖" : "!"} ${submoduleDisplayName(submodule)}`
+      : `   ${submodule.path}`;
+  });
+  const safeWidth = Math.max(1, width);
+  const thumb = sidebarScrollbar(rowCount, clamped, safeViewport);
+  const rendered = rows.map((row, index) => {
+    const track =
+      rowCount > safeViewport
+        ? index >= thumb.thumbTop && index < thumb.thumbTop + thumb.thumbSize
+          ? "█"
+          : "│"
+        : " ";
+    return safeWidth === 1
+      ? track
+      : `${fitColumns(row, safeWidth - 1)}${track}`;
+  });
   return new StyledText(
     rendered.map((line, index) => {
       const rowIndex = clamped + index;

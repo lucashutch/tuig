@@ -5,6 +5,7 @@ import {
   fg,
   pathToFiletype,
 } from "@opentui/core";
+import { createHash, type Hash } from "node:crypto";
 import type {
   ChangedFile,
   Commit,
@@ -27,7 +28,11 @@ import {
   getProviderAvatarUrl,
   loadCachedAvatar,
 } from "./avatars.js";
-import { DEFAULT_HISTORY_PAGE } from "../git/repository.js";
+import {
+  DEFAULT_HISTORY_PAGE,
+  GitOutputLimitError,
+} from "../git/repository.js";
+import { canHighlightDiff, DIFF_DISPLAY_MAX_BYTES } from "./diff-policy.js";
 import { debugLog } from "./debug-log.js";
 import {
   emptyGraphIndex,
@@ -74,6 +79,8 @@ export interface RuntimeDataContext {
   snapshotSignature?: string;
   snapshotRequest: number;
   diffRequest: number;
+  diffAbort?: AbortController;
+  diffTooLarge?: boolean;
   commitFilesRequest: number;
   busy: boolean;
   refreshPending: boolean;
@@ -135,12 +142,37 @@ export interface RuntimeDataContext {
  * bodies and timestamps are excluded because a commit's content cannot change
  * without its object name changing.
  */
+const historyFingerprints = new WeakMap<
+  Commit[],
+  { count: number; hash: Hash; value: string }
+>();
+
+/** History arrays are append-only while paging; a refresh replaces the array. */
+function historySignature(commits: Commit[]): string {
+  let cached = historyFingerprints.get(commits);
+  if (!cached || cached.count > commits.length) {
+    cached = { count: 0, hash: createHash("sha256"), value: "" };
+    historyFingerprints.set(commits, cached);
+  }
+  if (!cached.value || cached.count !== commits.length) {
+    for (let i = cached.count; i < commits.length; i++) {
+      const commit = commits[i]!;
+      cached.hash.update(JSON.stringify([commit.sha, commit.decorations]));
+      cached.hash.update("\n");
+    }
+    cached.count = commits.length;
+    cached.value = cached.hash.copy().digest("hex");
+  }
+  return cached.value;
+}
+
 export function snapshotSignature(snapshot: RepositorySnapshot): string {
   const parts: string[] = [
     snapshot.root,
     snapshot.branch ?? "",
     snapshot.upstream ?? "",
     `${snapshot.ahead}/${snapshot.behind}`,
+    `${historySignature(snapshot.commits)}/${Number(snapshot.commitsComplete)}`,
   ];
   for (const file of snapshot.files)
     parts.push(
@@ -150,8 +182,6 @@ export function snapshotSignature(snapshot: RepositorySnapshot): string {
     parts.push(
       `b${branch.fullName}\u0000${branch.sha}${Number(branch.current)}${Number(branch.remote)}\u0000${branch.upstream ?? ""}`,
     );
-  for (const commit of snapshot.commits)
-    parts.push(`c${commit.sha}\u0000${commit.decorations.join(",")}`);
   for (const stash of snapshot.stashes)
     parts.push(`s${stash.ref}\u0000${stash.sha}\u0000${stash.subject}`);
   for (const worktree of snapshot.worktrees)
@@ -197,6 +227,7 @@ export async function refreshWorkingStatus(
       return;
     }
     ctx.snapshotSignature = signature;
+    cancelDiff(ctx);
     ctx.snapshot = next;
     // History is untouched, so the graph layout and branch hints still apply.
     const fileAt = selectedPath
@@ -208,6 +239,8 @@ export async function refreshWorkingStatus(
         : Math.min(ctx.fileIndex, Math.max(0, ctx.files().length - 1));
     ctx.ensureFileVisible();
     ctx.paint();
+    if (ctx.view !== "history" && ctx.widgets.commitDiff.visible)
+      await loadDiff(ctx);
     ctx.notify("");
   } catch (error) {
     ctx.fail(error);
@@ -331,8 +364,15 @@ export async function loadMoreCommits(ctx: RuntimeDataContext) {
   if (appended) ctx.paintHistory();
 }
 
-export async function refresh(ctx: RuntimeDataContext, message?: string) {
+export async function refresh(
+  ctx: RuntimeDataContext,
+  message?: string,
+  automatic = false,
+) {
   if (ctx.busy) {
+    // Polling can wait for the next tick. Explicit actions still get a trailing
+    // refresh, so a mutation cannot be hidden by an overlapping read.
+    if (automatic) return;
     ctx.refreshPending = true;
     ctx.pendingRefreshMessage = message ?? ctx.pendingRefreshMessage;
     return;
@@ -343,12 +383,16 @@ export async function refresh(ctx: RuntimeDataContext, message?: string) {
     ctx.view === "commit" && ctx.widgets.commitDiff.visible;
   const selectedSha = ctx.snapshot?.commits[ctx.commitIndex]?.sha;
   const selectedPath = ctx.selectedFile()?.path;
-  ctx.notify(message ?? "Refreshing…", "busy");
+  if (!automatic) ctx.notify(message ?? "Refreshing…", "busy");
   try {
     // A page can land while this read is in flight. Re-read at the deeper
     // limit rather than replacing the snapshot with a shorter history, which
     // would throw away the new rows and collapse the reader's scroll position.
-    let snapshot = await ctx.repository.snapshot(ctx.historyLimit);
+    const readSnapshot = () =>
+      automatic && ctx.snapshot && ctx.repository.refreshSnapshot
+        ? ctx.repository.refreshSnapshot(ctx.snapshot, ctx.historyLimit)
+        : ctx.repository.snapshot(ctx.historyLimit);
+    let snapshot = await readSnapshot();
     for (
       let attempt = 0;
       attempt < HISTORY_REREAD_LIMIT &&
@@ -356,7 +400,7 @@ export async function refresh(ctx: RuntimeDataContext, message?: string) {
       !snapshot.commitsComplete;
       attempt++
     )
-      snapshot = await ctx.repository.snapshot(ctx.historyLimit);
+      snapshot = await readSnapshot();
     if (request !== ctx.snapshotRequest || ctx.refreshPending) return;
     ctx.historyPageFailures = 0;
     const signature = snapshotSignature(snapshot);
@@ -370,22 +414,29 @@ export async function refresh(ctx: RuntimeDataContext, message?: string) {
     // Replacing the snapshot invalidates every load that guards on its
     // identity, so the in-flight diff and commit files are dropped here rather
     // than before the unchanged-snapshot check above.
-    ++ctx.diffRequest;
+    cancelDiff(ctx);
     ++ctx.commitFilesRequest;
+    const sameHistory =
+      snapshot.commits === ctx.snapshot?.commits &&
+      snapshot.branch === ctx.snapshot?.branch &&
+      JSON.stringify(snapshot.branches) ===
+        JSON.stringify(ctx.snapshot?.branches);
     ctx.snapshot = snapshot;
-    ctx.graphIndex = emptyGraphIndex();
-    extendGraphIndex(
-      ctx.graphIndex,
-      snapshot.commits,
-      oneDarkTheme.graph,
-      resolveHeadSha(snapshot.branches, snapshot.commits),
-    );
-    ctx.branchHintIndex = extendCommitBranchHints(
-      emptyBranchHintIndex(),
-      snapshot.commits,
-      snapshot.branches,
-    );
-    ctx.branchHints = branchHints(ctx.branchHintIndex);
+    if (!sameHistory) {
+      ctx.graphIndex = emptyGraphIndex();
+      extendGraphIndex(
+        ctx.graphIndex,
+        snapshot.commits,
+        oneDarkTheme.graph,
+        resolveHeadSha(snapshot.branches, snapshot.commits),
+      );
+      ctx.branchHintIndex = extendCommitBranchHints(
+        emptyBranchHintIndex(),
+        snapshot.commits,
+        snapshot.branches,
+      );
+      ctx.branchHints = branchHints(ctx.branchHintIndex);
+    }
     const commitAt = selectedSha
       ? snapshot.commits.findIndex((commit) => commit.sha === selectedSha)
       : -1;
@@ -411,6 +462,8 @@ export async function refresh(ctx: RuntimeDataContext, message?: string) {
         ctx.layout();
         await loadDiff(ctx);
       }
+    } else if (ctx.view === "working") {
+      await loadDiff(ctx);
     }
     ctx.notify("");
   } catch (error) {
@@ -426,38 +479,85 @@ export async function refresh(ctx: RuntimeDataContext, message?: string) {
   }
 }
 
-export async function loadDiff(ctx: RuntimeDataContext) {
-  const token = ++ctx.diffRequest,
+export function cancelDiff(ctx: RuntimeDataContext) {
+  ++ctx.diffRequest;
+  ctx.diffAbort?.abort();
+  ctx.diffAbort = undefined;
+  ctx.diffTooLarge = false;
+}
+
+export async function loadDiff(ctx: RuntimeDataContext, allowLarge = false) {
+  // The override applies only to the currently blocked selection, never to
+  // later selections or automatic refreshes.
+  if (allowLarge && !ctx.diffTooLarge) return;
+  cancelDiff(ctx);
+  ctx.widgets.commitDiff.clear();
+  if (ctx.view === "history") return;
+  const token = ctx.diffRequest,
     file = ctx.selectedFile(),
     selected = ctx.snapshot?.commits[ctx.commitIndex];
   const snapshot = ctx.snapshot,
     view = ctx.view,
     mode = ctx.mode,
     path = file?.path;
-  const value =
-    view === "commit" && selected
-      ? await ctx.repository.diff({ commit: selected.sha, path, context: 6 })
-      : file
-        ? await ctx.repository.diff({
-            path: file.path,
-            staged: mode === "staged",
-            context: 6,
-          })
-        : "";
-  if (
-    token !== ctx.diffRequest ||
-    ctx.snapshot !== snapshot ||
-    ctx.view !== view ||
-    ctx.mode !== mode ||
-    ctx.selectedFile()?.path !== path ||
-    (view === "commit" &&
-      ctx.snapshot?.commits[ctx.commitIndex]?.sha !== selected?.sha)
-  )
-    return;
-  if (ctx.view !== "history") {
-    ctx.widgets.commitDiff.filetype = path ? pathToFiletype(path) : undefined;
-    ctx.widgets.commitDiff.diff = value;
+  const abort = new AbortController();
+  ctx.diffAbort = abort;
+  const current = () =>
+    !abort.signal.aborted &&
+    token === ctx.diffRequest &&
+    ctx.snapshot === snapshot &&
+    ctx.view === view &&
+    ctx.mode === mode &&
+    ctx.selectedFile()?.path === path &&
+    (view !== "commit" ||
+      ctx.snapshot?.commits[ctx.commitIndex]?.sha === selected?.sha);
+  ctx.widgets.commitDiffEmpty.content = "Loading diff…";
+  ctx.widgets.commitDiffEmpty.visible = true;
+  try {
+    const options = {
+      path,
+      context: 6,
+      signal: abort.signal,
+      maxBytes: allowLarge ? undefined : DIFF_DISPLAY_MAX_BYTES,
+    };
+    const value =
+      view === "commit" && selected
+        ? await ctx.repository.diff({ ...options, commit: selected.sha })
+        : file
+          ? await ctx.repository.diff({ ...options, staged: mode === "staged" })
+          : "";
+    if (!current()) return;
+    // Also protect UI callers backed by a repository implementation that does
+    // not enforce the optional streaming limit.
+    if (
+      !allowLarge &&
+      Buffer.byteLength(value, "utf8") > DIFF_DISPLAY_MAX_BYTES
+    )
+      throw new GitOutputLimitError([], DIFF_DISPLAY_MAX_BYTES);
+    const highlight = !allowLarge && canHighlightDiff(value);
+    ctx.widgets.commitDiff.setDiff(
+      value,
+      highlight && path ? pathToFiletype(path) : undefined,
+      highlight ? "word" : "none",
+    );
+    ctx.widgets.commitDiffEmpty.content = "No textual diff to display.";
     ctx.widgets.commitDiffEmpty.visible = value.length === 0;
+    if (value && !highlight)
+      ctx.notify("Large diff: syntax highlighting and wrapping disabled");
+  } catch (error) {
+    if (!current()) return;
+    if (error instanceof GitOutputLimitError) {
+      ctx.diffTooLarge = true;
+      ctx.widgets.commitDiffEmpty.content =
+        "Diff exceeds 5 MiB. Loading it may use substantial RAM.\nPress Shift+L to load without highlighting, or Esc to close.";
+      ctx.widgets.commitDiffEmpty.visible = true;
+      ctx.notify("Diff too large · Shift+L to load anyway");
+      return;
+    }
+    ctx.widgets.commitDiffEmpty.content = "Failed to load diff.";
+    throw error;
+  } finally {
+    if (ctx.diffAbort === abort) ctx.diffAbort = undefined;
   }
 }
 
@@ -465,7 +565,8 @@ export async function openCommit(ctx: RuntimeDataContext) {
   const commit = ctx.snapshot?.commits[ctx.commitIndex];
   if (!commit) return;
   const token = ++ctx.commitFilesRequest;
-  ++ctx.diffRequest;
+  cancelDiff(ctx);
+  ctx.widgets.commitDiff.clear();
   const snapshot = ctx.snapshot,
     selectedPath = ctx.selectedFile()?.path;
   ctx.view = "commit";
@@ -533,6 +634,9 @@ export async function openWorkingDiff(ctx: RuntimeDataContext) {
 }
 
 export function closeDiff(ctx: RuntimeDataContext) {
+  cancelDiff(ctx);
+  ++ctx.commitFilesRequest;
+  ctx.widgets.commitDiff.clear();
   const returnToCommit = ctx.diffOrigin === "commit";
   ctx.diffOrigin = undefined;
   if (returnToCommit) {

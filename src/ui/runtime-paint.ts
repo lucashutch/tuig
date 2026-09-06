@@ -10,7 +10,11 @@ import type {
   ChangedFile,
   RepositorySnapshot,
 } from "../git/types.js";
-import { buildFileTree, fitTreeLabel, flattenVisible } from "./file-tree.js";
+import {
+  cachedFileTree,
+  cachedFlattenVisible,
+  fitTreeLabel,
+} from "./file-tree.js";
 import type { GraphRow } from "./graph.js";
 import {
   clampGraphScroll,
@@ -19,7 +23,7 @@ import {
   visibleGraphColumns,
 } from "./graph-viewport.js";
 import {
-  filterBranchRefs,
+  decorationRefIndexFor,
   primaryDecorationRef,
   shortSha,
   summariseDecorations,
@@ -34,11 +38,11 @@ import {
   fileColor,
   fitColumns,
   layoutSidebarSections,
-  renderSidebarViewport,
   renderStashSidebarViewport,
+  renderSidebarViewportRows,
   renderSubmoduleSidebarViewport,
   sidebarHeader,
-  sidebarRows,
+  sidebarRowSource,
   type SidebarSection,
 } from "./runtime-presentation.js";
 import { oneDarkTheme } from "./theme.js";
@@ -137,40 +141,33 @@ export function paintSidebar(ctx: RuntimeSidebarPaintContext) {
   for (const section of SIDEBAR_SECTIONS) {
     const rect = rects[section],
       widgets = ctx.sidebarSections[section];
-    const rows = sidebarRows(
-      s,
-      section,
-      ctx.sidebarPaneWidth,
-      ctx.branchFilter,
-    );
+    const collapsed = ctx.sidebarCollapsed[section];
+    const source = collapsed
+      ? undefined
+      : sidebarRowSource(s, section, ctx.sidebarPaneWidth, ctx.branchFilter);
+    const rowCount = source?.total ?? 0;
     const start = Math.max(
       0,
       Math.min(
-        Math.max(0, rows.length - rect.contentHeight),
+        Math.max(0, rowCount - rect.contentHeight),
         ctx.sidebarStart[section],
       ),
     );
-    ctx.sidebarStart[section] = start;
+    if (!collapsed) ctx.sidebarStart[section] = start;
     widgets.box.top = rect.headerTop;
     widgets.box.height = Math.max(1, 1 + rect.contentHeight);
     widgets.box.width = ctx.sidebarPaneWidth;
     widgets.box.visible = rect.headerTop < ctx.contentHeight;
     const count =
-      section === "local"
-        ? filterBranchRefs(
-            s.branches.filter((b) => !b.remote),
-            ctx.branchFilter,
-          ).length
-        : section === "remote"
-          ? filterBranchRefs(
-              s.branches.filter((b) => b.remote),
-              ctx.branchFilter,
-            ).length
-          : section === "submodules"
-            ? s.submodules.length
-            : section === "stashes"
-              ? s.stashes.length
-              : s.worktrees.length;
+      section === "local" || section === "remote"
+        ? (source?.total ??
+          sidebarRowSource(s, section, ctx.sidebarPaneWidth, ctx.branchFilter)
+            .total)
+        : section === "submodules"
+          ? s.submodules.length
+          : section === "stashes"
+            ? s.stashes.length
+            : s.worktrees.length;
     widgets.header.content = sidebarHeader(
       section,
       count,
@@ -178,10 +175,10 @@ export function paintSidebar(ctx: RuntimeSidebarPaintContext) {
     );
     widgets.text.top = 1;
     widgets.text.height = Math.max(1, rect.contentHeight);
-    widgets.text.visible =
-      !ctx.sidebarCollapsed[section] && rect.contentHeight > 0;
-    widgets.text.content =
-      section === "submodules" && s.submodules.length > 0
+    widgets.text.visible = !collapsed && rect.contentHeight > 0;
+    widgets.text.content = collapsed
+      ? ""
+      : section === "submodules" && s.submodules.length > 0
         ? renderSubmoduleSidebarViewport(
             s.submodules,
             ctx.sidebarPaneWidth,
@@ -195,8 +192,9 @@ export function paintSidebar(ctx: RuntimeSidebarPaintContext) {
               start,
               rect.contentHeight,
             )
-          : renderSidebarViewport(
-              rows,
+          : renderSidebarViewportRows(
+              source!.total,
+              source!.rowAt,
               ctx.sidebarPaneWidth,
               start,
               rect.contentHeight,
@@ -275,6 +273,7 @@ export function paintHistory(ctx: RuntimePaintContext) {
   const thumb = (o: number) => o >= thumbStart && o < thumbStart + thumbSize,
     scroll = (o: number) => (thumb(o) ? "█" : "│");
   const avatarRequests: GraphAvatarRequest[] = [];
+  const decorationIndex = decorationRefIndexFor(s.branches);
   let line = 0;
   // The working row takes the first line while it is on screen; every commit
   // owns exactly one line after it.
@@ -309,7 +308,11 @@ export function paintHistory(ctx: RuntimePaintContext) {
       offset = unit - start,
       selected =
         ctx.historySelection === "commit" && commitRow === ctx.commitIndex,
-      summary = summariseDecorations(row.commit.decorations, s.branches);
+      summary = summariseDecorations(
+        row.commit.decorations,
+        s.branches,
+        decorationIndex,
+      );
     let primary = summary.label;
     if (selected && !primary)
       primary = ctx.branchHints.get(row.commit.sha) ?? "";
@@ -398,7 +401,11 @@ export function paintHistory(ctx: RuntimePaintContext) {
       ctx.historyLabelHits.set(commitRow, {
         start: 0,
         end: labelWidth,
-        ref: primaryDecorationRef(row.commit.decorations, s.branches),
+        ref: primaryDecorationRef(
+          row.commit.decorations,
+          s.branches,
+          decorationIndex,
+        ),
       });
   }
   ctx.historyText.content = new StyledText(chunks);
@@ -452,11 +459,11 @@ export function paintSection(ctx: RuntimePaintContext, section: ChangeSection) {
   }
   const limit = ctx.sectionViewport(section);
   if (commit) list.height = limit;
-  const tree = buildFileTree(files);
+  const tree = cachedFileTree(files);
   if (ctx.expandedFiles.size === 0)
     for (const node of tree.children)
       if (node.kind === "directory") ctx.expandedFiles.add(node.path);
-  const all = flattenVisible(tree, ctx.expandedFiles),
+  const all = cachedFlattenVisible(tree, ctx.expandedFiles),
     start = Math.max(
       0,
       Math.min(

@@ -3,6 +3,7 @@ import { mkdir, readFile, rename, stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { NativeImage } from "@opentui/core";
+import { BoundedCache } from "./bounded-cache.js";
 import { debugLog } from "./debug-log.js";
 
 const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -10,16 +11,41 @@ const AVATAR_CACHE_TTL = 7 * 24 * 60 * 60 * 1000;
 /** Known misses expire sooner: an author may gain an avatar any day. */
 const AVATAR_MISS_TTL = 24 * 60 * 60 * 1000;
 const REQUEST_TIMEOUT = 5000;
+const AVATAR_METADATA_CACHE_SIZE = 512;
 const DECODED_AVATAR_CACHE_SIZE = 128;
 const CIRCULAR_CACHE_SIZE = 256;
 /** Concurrent GitHub lookups. A tall viewport would otherwise spawn one `gh` per row. */
 const GITHUB_LOOKUP_CONCURRENCY = 4;
-const githubAvatarCache = new Map<string, string>();
-const authorAvatarCache = new Map<string, string>();
+const githubAvatarCache = new BoundedCache<string, string>({
+  maxEntries: AVATAR_METADATA_CACHE_SIZE,
+  ttlMs: AVATAR_CACHE_TTL,
+});
+const authorAvatarCache = new BoundedCache<string, string>({
+  maxEntries: AVATAR_METADATA_CACHE_SIZE,
+  ttlMs: AVATAR_CACHE_TTL,
+});
+type GitHubAvatarLookup = {
+  url?: string;
+  confirmedAbsent: boolean;
+  /** Reading a disk entry must not renew its expiry on every scroll. */
+  fromCache?: boolean;
+};
+type PendingGitHubLookup = {
+  promise: Promise<GitHubAvatarLookup>;
+  shutdownSignal: AbortSignal;
+};
+const pendingGitHubLookups = new Map<string, PendingGitHubLookup>();
 const decodedAvatarCache = new Map<string, NativeImage>();
-const pendingAvatarLoads = new Map<string, Promise<NativeImage>>();
-/** Sources that failed to load, with the time of the failure. */
-const failedAvatarSources = new Map<string, number>();
+type PendingAvatarLoad = {
+  promise: Promise<NativeImage>;
+  shutdownSignal: AbortSignal;
+};
+const pendingAvatarLoads = new Map<string, PendingAvatarLoad>();
+/** Sources that failed to load, remembered briefly to avoid repeat requests. */
+const failedAvatarSources = new BoundedCache<string, true>({
+  maxEntries: AVATAR_METADATA_CACHE_SIZE,
+  ttlMs: AVATAR_MISS_TTL,
+});
 /**
  * Aborts every avatar request when the interface is shutting down.
  *
@@ -289,6 +315,7 @@ export async function loadCachedAvatar(
   source: string,
   signal?: AbortSignal,
 ): Promise<NativeImage> {
+  signal?.throwIfAborted();
   const cached = decodedAvatarCache.get(source);
   if (cached) {
     // Refresh insertion order so frequently visible authors stay resident.
@@ -296,31 +323,41 @@ export async function loadCachedAvatar(
     decodedAvatarCache.set(source, cached);
     return cached.clone();
   }
-  const failedAt = failedAvatarSources.get(source);
-  if (failedAt !== undefined) {
-    if (Date.now() - failedAt < AVATAR_MISS_TTL)
-      throw new Error("avatar is known to be unavailable");
-    failedAvatarSources.delete(source);
-  }
+  if (failedAvatarSources.has(source))
+    throw new Error("avatar is known to be unavailable");
   // Share the underlying load even when this caller can be aborted. Scrolling
   // should stop a row from claiming the result, not start another download of
   // the same author for every commit that enters the viewport.
-  let load = pendingAvatarLoads.get(source);
-  if (!load) {
-    load = loadAvatarFromDiskOrNetwork(source).then((image) => {
+  let load: Promise<NativeImage>;
+  let shutdownSignal: AbortSignal;
+  const pending = pendingAvatarLoads.get(source);
+  if (pending && !pending.shutdownSignal.aborted) {
+    load = pending.promise;
+    shutdownSignal = pending.shutdownSignal;
+  } else {
+    if (pending) pendingAvatarLoads.delete(source);
+    shutdownSignal = shutdownRequests.signal;
+    load = loadAvatarFromDiskOrNetwork(source, shutdownSignal).then((image) => {
       cacheDecodedAvatar(source, image);
       return image;
     });
-    pendingAvatarLoads.set(source, load);
+    pendingAvatarLoads.set(source, { promise: load, shutdownSignal });
     void load.then(
-      () => pendingAvatarLoads.delete(source),
-      () => pendingAvatarLoads.delete(source),
+      () => {
+        if (pendingAvatarLoads.get(source)?.promise === load)
+          pendingAvatarLoads.delete(source);
+      },
+      () => {
+        if (pendingAvatarLoads.get(source)?.promise === load)
+          pendingAvatarLoads.delete(source);
+      },
     );
   }
   try {
     return (await abortable(load, signal)).clone();
   } catch (error) {
-    if (!signal?.aborted) failedAvatarSources.set(source, Date.now());
+    if (!signal?.aborted && !shutdownSignal.aborted)
+      failedAvatarSources.set(source, true);
     throw error;
   }
 }
@@ -440,59 +477,118 @@ export async function getGitHubCommitAvatar(
 ): Promise<string | undefined> {
   const url = getGitHubCommitUrl(remote, sha);
   if (!url) return undefined;
+  signal?.throwIfAborted();
   const authorKey = email.trim().toLowerCase();
-  const cachedAuthor = authorAvatarCache.get(authorKey);
-  if (authorKey && cachedAuthor) return cachedAuthor;
-  const cached = githubAvatarCache.get(url);
-  if (cached) {
-    if (authorKey) authorAvatarCache.set(authorKey, cached);
-    return cached;
-  }
   const authorSource = authorKey
     ? authorCacheSource(remote ?? "", authorKey)
     : undefined;
+  const cachedAuthor = authorSource
+    ? authorAvatarCache.get(authorSource)
+    : undefined;
+  if (cachedAuthor) return cachedAuthor;
+  const cached = githubAvatarCache.get(url);
+  if (cached) {
+    if (authorSource) authorAvatarCache.set(authorSource, cached);
+    return cached;
+  }
+  // Install the shared promise before any disk reads yield. Otherwise a fast
+  // first lookup can finish while another caller is still reading a cache miss.
+  const pending = getPendingGitHubLookup(
+    authorSource ?? url,
+    url,
+    authorSource,
+  );
+  const result = await abortable(pending.promise, signal);
+  // The shared lookup persists the author entry once. Each caller may have a
+  // different commit URL, which gets its own bounded metadata entry.
+  await cacheGitHubAvatarResult(url, undefined, result);
+  return result.url;
+}
+
+async function readGitHubAvatarResult(
+  url: string,
+  authorSource: string | undefined,
+  signal: AbortSignal,
+): Promise<GitHubAvatarLookup> {
   if (authorSource) {
     const diskAuthor = await readCachedAvatarSource(authorSource);
-    if (diskAuthor?.kind === "miss") return undefined;
+    if (diskAuthor?.kind === "miss")
+      return { confirmedAbsent: true, fromCache: true };
     if (diskAuthor?.kind === "hit") {
       // Seed the in-memory cache so later rows by this author resolve without
       // touching the disk again.
-      authorAvatarCache.set(authorKey, diskAuthor.url);
+      authorAvatarCache.set(authorSource, diskAuthor.url);
       githubAvatarCache.set(url, diskAuthor.url);
-      return diskAuthor.url;
+      return { url: diskAuthor.url, confirmedAbsent: false, fromCache: true };
     }
   }
   const diskCached = await readCachedAvatarSource(url);
   // A remembered miss matters more than a hit: GitHub allows 60 unauthenticated
   // requests an hour, and a repo of commits without linked accounts would burn
   // that on every scroll.
-  if (diskCached?.kind === "miss") return undefined;
+  if (diskCached?.kind === "miss")
+    return { confirmedAbsent: true, fromCache: true };
   if (diskCached?.kind === "hit") {
-    githubAvatarCache.set(url, diskCached.url);
-    if (authorKey) authorAvatarCache.set(authorKey, diskCached.url);
     if (authorSource)
       await writeCachedAvatarSource(authorSource, diskCached.url).catch(
         () => undefined,
       );
-    return diskCached.url;
+    return { url: diskCached.url, confirmedAbsent: false, fromCache: true };
   }
-  const result = await withGitHubSlot(
-    () => resolveGitHubCommitAvatar(url, signal),
-    signal,
-  );
+  signal.throwIfAborted();
+  return withGitHubSlot(() => resolveGitHubCommitAvatar(url, signal), signal);
+}
+
+/** Share one GitHub lookup between commits by the same author and forge. */
+function getPendingGitHubLookup(
+  key: string,
+  url: string,
+  authorSource: string | undefined,
+): PendingGitHubLookup {
+  const current = pendingGitHubLookups.get(key);
+  if (current && !current.shutdownSignal.aborted) return current;
+  if (current && pendingGitHubLookups.get(key) === current)
+    pendingGitHubLookups.delete(key);
+
+  const shutdownSignal = shutdownRequests.signal;
+  const promise = (async () => {
+    const result = await readGitHubAvatarResult(
+      url,
+      authorSource,
+      shutdownSignal,
+    );
+    if (shutdownSignal.aborted) return { confirmedAbsent: false };
+    await cacheGitHubAvatarResult(url, authorSource, result);
+    return result;
+  })();
+  const next = { promise, shutdownSignal };
+  pendingGitHubLookups.set(key, next);
+  void promise
+    .finally(() => {
+      if (pendingGitHubLookups.get(key) === next)
+        pendingGitHubLookups.delete(key);
+    })
+    .catch(() => undefined);
+  return next;
+}
+
+async function cacheGitHubAvatarResult(
+  url: string,
+  authorSource: string | undefined,
+  result: GitHubAvatarLookup,
+) {
   if (result.url) {
     githubAvatarCache.set(url, result.url);
-    if (authorKey) authorAvatarCache.set(authorKey, result.url);
+    if (authorSource) authorAvatarCache.set(authorSource, result.url);
   }
   // A transport failure is not evidence that the author has no avatar, so it
   // leaves both cache entries untouched and the next row retries.
-  if (result.url || result.confirmedAbsent) {
+  if (!result.fromCache && (result.url || result.confirmedAbsent)) {
     const value = result.url ?? MISS_MARKER;
     await writeCachedAvatarSource(url, value).catch(() => undefined);
     if (authorSource)
       await writeCachedAvatarSource(authorSource, value).catch(() => undefined);
   }
-  return result.url;
 }
 
 /** Resolve with the shared lookup, or reject as soon as this caller aborts. */
@@ -542,17 +638,6 @@ async function withGitHubSlot<T>(
     gitHubLookupQueue.shift()?.();
   }
 }
-
-/**
- * Outcome of one avatar lookup.
- *
- * `confirmedAbsent` means GitHub answered and the commit has no linked
- * account, which is worth remembering. Every other failure — offline, rate
- * limited, a commit that is not pushed yet — must not be cached: caching it
- * would suppress a real avatar for a whole day, and for every commit by that
- * author rather than only the one that was asked for.
- */
-type GitHubAvatarLookup = { url?: string; confirmedAbsent: boolean };
 
 async function resolveGitHubCommitAvatar(
   url: string,
@@ -605,9 +690,12 @@ async function resolveWithGitHubCli(url: string, signal?: AbortSignal) {
   // and an unbounded wait leaves the avatar slot empty with no diagnostic.
   const timer = setTimeout(() => child.kill(), REQUEST_TIMEOUT);
   activeGitHubChildren.add(child);
+  // Shared lookups pass their generation's signal here. Do not replace it
+  // with the newly created controller if shutdown raced this spawn.
+  const shutdownSignal = signal ?? shutdownRequests.signal;
   const onAbort = () => child.kill();
   signal?.addEventListener("abort", onAbort, { once: true });
-  shutdownRequests.signal.addEventListener("abort", onAbort, { once: true });
+  shutdownSignal.addEventListener("abort", onAbort, { once: true });
   try {
     const [stdout, exitCode] = await Promise.all([
       new Response(child.stdout).text(),
@@ -623,7 +711,7 @@ async function resolveWithGitHubCli(url: string, signal?: AbortSignal) {
     clearTimeout(timer);
     activeGitHubChildren.delete(child);
     signal?.removeEventListener("abort", onAbort);
-    shutdownRequests.signal.removeEventListener("abort", onAbort);
+    shutdownSignal.removeEventListener("abort", onAbort);
   }
 }
 
