@@ -105,6 +105,8 @@ export interface DiffRequest {
   staged?: boolean;
   commit?: string;
   context?: number;
+  signal?: AbortSignal;
+  maxBytes?: number;
 }
 
 export interface CommandResult {
@@ -117,6 +119,10 @@ export interface GitRepository {
   readonly root: string;
   remoteUrl?(): Promise<string | undefined>;
   snapshot(limit?: number): Promise<RepositorySnapshot>;
+  refreshSnapshot?(
+    previous: RepositorySnapshot,
+    limit?: number,
+  ): Promise<RepositorySnapshot>;
   /**
    * Optional history-only read, used to extend the loaded page without
    * paying for the rest of a snapshot. Callers without it cannot page.

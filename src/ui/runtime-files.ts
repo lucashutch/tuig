@@ -1,9 +1,9 @@
-import type { DiffRenderable, TextRenderable } from "@opentui/core";
+import type { TextRenderable } from "@opentui/core";
 import { MouseButton } from "@opentui/core";
 import type { ChangedFile, RepositorySnapshot } from "../git/types.js";
 import {
-  buildFileTree,
-  flattenVisible,
+  cachedFileTree,
+  cachedFlattenVisible,
   toggleExpansion,
   type VisibleFileTreeNode,
 } from "./file-tree.js";
@@ -28,7 +28,7 @@ export interface RuntimeFilesContext {
   widgets: {
     unstagedText: TextRenderable;
     stagedText: TextRenderable;
-    commitDiff: DiffRenderable;
+    commitDiff: { visible: boolean };
     commitDiffEmpty: TextRenderable;
   };
   sectionViewport(section: ChangeSection): number;
@@ -66,19 +66,33 @@ export function files(
   context: RuntimeFilesContext,
   section: ChangeSection = context.mode,
 ): ChangedFile[] {
-  return context.view === "commit"
-    ? context.commitFiles
-    : (context.snapshot?.files ?? []).filter((file) =>
-        section === "staged" ? file.staged : file.unstaged,
-      );
+  if (context.view === "commit") return context.commitFiles;
+  const source = context.snapshot?.files;
+  if (!source) return [];
+  let cached = filteredFiles.get(source);
+  if (!cached) {
+    cached = {
+      staged: source.filter((file) => file.staged),
+      unstaged: source.filter((file) => file.unstaged),
+    };
+    filteredFiles.set(source, cached);
+  }
+  return cached[section];
 }
+
+// Repository snapshots replace their immutable files array. Weak keys ensure
+// old snapshots and their filtered views are collectible.
+const filteredFiles = new WeakMap<
+  readonly ChangedFile[],
+  Record<ChangeSection, ChangedFile[]>
+>();
 
 export function sectionRows(
   context: RuntimeFilesContext,
   section: ChangeSection,
 ): VisibleFileTreeNode[] {
-  return flattenVisible(
-    buildFileTree(files(context, section)),
+  return cachedFlattenVisible(
+    cachedFileTree(files(context, section)),
     context.expandedFiles,
   );
 }

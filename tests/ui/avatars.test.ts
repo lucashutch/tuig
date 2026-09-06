@@ -5,6 +5,7 @@ import {
   mkdir,
   readFile,
   rm,
+  stat,
   utimes,
   writeFile,
 } from "node:fs/promises";
@@ -170,6 +171,7 @@ test("a persisted author miss is retried only after the miss TTL", async () => {
     const email = "persisted-miss@example.com";
     const path = join(directory, `${authorCacheKey("github.com", email)}.url`);
     await writeFile(path, "none\n");
+    const writtenAt = (await stat(path)).mtimeMs;
     expect(
       await getGitHubCommitAvatar(
         "git@github.com:cached/author.git",
@@ -178,6 +180,7 @@ test("a persisted author miss is retried only after the miss TTL", async () => {
       ),
     ).toBeUndefined();
     expect(fetches()).toBe(0);
+    expect((await stat(path)).mtimeMs).toBe(writtenAt);
 
     const expired = new Date(Date.now() - 25 * 60 * 60 * 1000);
     await utimes(path, expired, expired);
@@ -189,6 +192,91 @@ test("a persisted author miss is retried only after the miss TTL", async () => {
       ),
     ).toBeUndefined();
     expect(fetches()).toBe(1);
+  });
+});
+
+test("concurrent commits by one uncached author share one lookup", async () => {
+  await withIsolatedCache(async ({ directory }) => {
+    let calls = 0;
+    const avatarUrl = "https://avatars.githubusercontent.com/u/987?v=4";
+    globalThis.fetch = (async () => {
+      calls++;
+      return Response.json({ author: { avatar_url: avatarUrl } });
+    }) as unknown as typeof fetch;
+    const remote = "git@github.com:cached/concurrent.git";
+    const shas = Array.from({ length: 12 }, (_, i) => `shared-${i}`);
+    const results = await Promise.all(
+      shas.map((sha) =>
+        getGitHubCommitAvatar(remote, sha, "concurrent-hit@example.com"),
+      ),
+    );
+    expect(calls).toBe(1);
+    expect(results).toEqual(shas.map(() => avatarUrl));
+    for (const sha of shas) {
+      const key = createHash("sha256")
+        .update(getGitHubCommitUrl(remote, sha)!)
+        .digest("hex");
+      expect(
+        (await readFile(join(directory, `${key}.url`), "utf8")).trim(),
+      ).toBe(avatarUrl);
+    }
+  });
+});
+
+test("aborting one author-lookup caller does not cancel another", async () => {
+  await withIsolatedCache(async () => {
+    let release!: (response: Response) => void;
+    let started!: () => void;
+    const ready = new Promise<void>((resolve) => {
+      started = resolve;
+    });
+    let calls = 0;
+    let sharedSignal: AbortSignal | null | undefined;
+    globalThis.fetch = (async (_input, options) => {
+      calls++;
+      sharedSignal = options?.signal;
+      started();
+      return new Promise<Response>((resolve) => {
+        release = resolve;
+      });
+    }) as typeof fetch;
+    const controller = new AbortController();
+    const first = getGitHubCommitAvatar(
+      "git@github.com:cached/shared.git",
+      "abort-one",
+      "shared-abort@example.com",
+      controller.signal,
+    );
+    const second = getGitHubCommitAvatar(
+      "git@github.com:cached/shared.git",
+      "keep-two",
+      "shared-abort@example.com",
+    );
+    await ready;
+    controller.abort(new Error("row scrolled away"));
+    await expect(first).rejects.toThrow("row scrolled away");
+    expect(sharedSignal?.aborted).toBe(false);
+    release(
+      Response.json({
+        author: { avatar_url: "https://avatars.githubusercontent.com/u/654" },
+      }),
+    );
+    expect(await second).toContain("/654");
+    expect(calls).toBe(1);
+  });
+});
+
+test("a shared transport failure is retried rather than cached for the author", async () => {
+  await withIsolatedCache(async ({ fetches }) => {
+    const remote = "git@github.com:cached/shared-failure.git";
+    await Promise.all(
+      ["one", "two"].map((sha) =>
+        getGitHubCommitAvatar(remote, sha, "shared-failure@example.com"),
+      ),
+    );
+    expect(fetches()).toBe(1);
+    await getGitHubCommitAvatar(remote, "retry", "shared-failure@example.com");
+    expect(fetches()).toBe(2);
   });
 });
 
@@ -228,6 +316,14 @@ test("a failed lookup is not remembered as an author-wide miss", async () => {
     ).toBeUndefined();
     expect(fetches()).toBe(1);
     expect(await Bun.file(path).exists()).toBe(false);
+    expect(
+      await getGitHubCommitAvatar(
+        "git@github.com:cached/author.git",
+        "offline-sha-retry",
+        email,
+      ),
+    ).toBeUndefined();
+    expect(fetches()).toBe(2);
   });
 });
 
@@ -250,11 +346,64 @@ test("a commit with no linked account is remembered as a miss", async () => {
   });
 });
 
+test("shares an in-flight author lookup when one caller aborts", async () => {
+  await withIsolatedCache(async () => {
+    const email = "shared-author@example.com";
+    const avatarUrl = "https://avatars.githubusercontent.com/u/987?v=4";
+    let attempts = 0;
+    let transportAborted = false;
+    let markStarted!: () => void;
+    const started = new Promise<void>((resolve) => {
+      markStarted = resolve;
+    });
+    let release!: () => void;
+    const response = new Promise<Response>((resolve) => {
+      release = () =>
+        resolve(
+          new Response(JSON.stringify({ author: { avatar_url: avatarUrl } }), {
+            status: 200,
+          }),
+        );
+    });
+    globalThis.fetch = ((_input: unknown, init?: { signal?: AbortSignal }) => {
+      attempts++;
+      init?.signal?.addEventListener("abort", () => {
+        transportAborted = true;
+      });
+      markStarted();
+      return response;
+    }) as unknown as typeof fetch;
+
+    const firstAbort = new AbortController();
+    const first = getGitHubCommitAvatar(
+      "git@github.com:shared/avatar.git",
+      "shared-first-sha",
+      email,
+      firstAbort.signal,
+    );
+    await started;
+    const second = getGitHubCommitAvatar(
+      "git@github.com:shared/avatar.git",
+      "shared-second-sha",
+      email,
+    );
+    firstAbort.abort();
+    release();
+
+    await expect(first).rejects.toThrow();
+    await expect(second).resolves.toBe(avatarUrl);
+    expect(attempts).toBe(1);
+    expect(transportAborted).toBe(false);
+  });
+});
+
 test("shutdown cancels an avatar request instead of waiting for its timeout", async () => {
   await withIsolatedCache(async () => {
     let aborted = false;
+    let attempts = 0;
     globalThis.fetch = ((_input: unknown, init?: { signal?: AbortSignal }) =>
       new Promise((_resolve, reject) => {
+        attempts++;
         init?.signal?.addEventListener("abort", () => {
           aborted = true;
           reject(new Error("aborted"));
@@ -266,5 +415,13 @@ test("shutdown cancels an avatar request instead of waiting for its timeout", as
     cancelAvatarWork();
     await expect(load).rejects.toThrow();
     expect(aborted).toBe(true);
+
+    // Shutdown cancellation must not turn a transient abort into a remembered
+    // source failure. A later caller gets a fresh request.
+    const retry = loadCachedAvatar("https://example.com/never-answers.png");
+    await Bun.sleep(5);
+    expect(attempts).toBe(2);
+    cancelAvatarWork();
+    await expect(retry).rejects.toThrow();
   });
 });

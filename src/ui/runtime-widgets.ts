@@ -1,7 +1,6 @@
 import {
   BoxRenderable,
   CliRenderEvents,
-  DiffRenderable,
   InputRenderable,
   InputRenderableEvents,
   ImageRenderable,
@@ -15,6 +14,7 @@ import {
   type KeyEvent,
 } from "@opentui/core";
 import { oneDarkTheme } from "./theme.js";
+import { DiffView } from "./diff-view.js";
 import { createDiffSyntaxStyle } from "./diff-syntax.js";
 import { registerDiffParsers } from "./diff-parsers.js";
 import { COMMIT_COMPOSER_HEIGHT } from "./runtime-presentation.js";
@@ -58,7 +58,7 @@ export type RuntimeWidgets = {
   graphAvatars: ImageRenderable[];
   /** Grow the avatar pool so `graphAvatars` covers `count` viewport rows. */
   ensureGraphAvatarSlots: (count: number) => void;
-  commitDiff: DiffRenderable;
+  commitDiff: DiffView;
   commitDiffEmpty: TextRenderable;
   unstagedLabel: TextRenderable;
   unstagedText: TextRenderable;
@@ -680,7 +680,7 @@ export function createRuntimeWidgets(
     addedSignColor: oneDarkTheme.added,
     removedSignColor: oneDarkTheme.deleted,
   };
-  const commitDiff = new DiffRenderable(renderer, {
+  const commitDiff = new DiffView(renderer, {
     ...absolute,
     id: "commit-diff",
     left: 1,

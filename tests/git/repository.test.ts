@@ -4,6 +4,8 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import {
   GitRepositoryService,
+  GitCommandAbortedError,
+  GitOutputLimitError,
   parseLog,
   parseStashes,
   parseRefs,
@@ -298,6 +300,101 @@ test("stash tip pages with history instead of shifting it", async () => {
     "one",
   ]);
   expect(second.complete).toBe(true);
+});
+
+test("diff enforces byte limits and preserves cancellation errors", async () => {
+  const root = await mkdtemp(join(tmpdir(), "tuig-diff-limit-"));
+  cleanup.push(root);
+  await runGit(["init", "-b", "main"], root);
+  await Bun.write(join(root, "large.txt"), "x".repeat(100_000));
+  const repo = await GitRepositoryService.open(root);
+  const limited = repo.diff({ path: "large.txt", maxBytes: 100 });
+  await expect(limited).rejects.toBeInstanceOf(GitOutputLimitError);
+  await limited.catch((error) =>
+    expect((error as GitOutputLimitError).limitBytes).toBe(100),
+  );
+  const controller = new AbortController();
+  controller.abort();
+  await expect(
+    repo.diff({ path: "large.txt", signal: controller.signal }),
+  ).rejects.toBeInstanceOf(GitCommandAbortedError);
+});
+
+test("runGit counts raw UTF-8 bytes and validates output limits", async () => {
+  const root = await mkdtemp(join(tmpdir(), "tuig-run-limit-"));
+  cleanup.push(root);
+  await runGit(["init", "-b", "main"], root);
+  expect(
+    (
+      await runGit(
+        ["-c", "alias.emit=!printf é", "emit"],
+        root,
+        undefined,
+        undefined,
+        2,
+      )
+    ).stdout,
+  ).toBe("é");
+  await expect(
+    runGit(
+      ["-c", "alias.emit=!printf é", "emit"],
+      root,
+      undefined,
+      undefined,
+      1,
+    ),
+  ).rejects.toBeInstanceOf(GitOutputLimitError);
+  expect(
+    (await runGit(["status", "--porcelain"], root, undefined, undefined, 0))
+      .stdout,
+  ).toBe("");
+  for (const limit of [-1, 1.5, Number.POSITIVE_INFINITY, Number.NaN])
+    await expect(
+      runGit(["status"], root, undefined, undefined, limit),
+    ).rejects.toBeInstanceOf(RangeError);
+});
+
+test("refresh reuses history for worktree edits and reloads moved refs", async () => {
+  const root = await mkdtemp(join(tmpdir(), "tuig-refresh-"));
+  cleanup.push(root);
+  await runGit(["init", "-b", "main"], root);
+  await runGit(["config", "user.name", "Test User"], root);
+  await runGit(["config", "user.email", "test@example.com"], root);
+  await Bun.write(join(root, "file"), "one\n");
+  await runGit(["add", "file"], root);
+  await runGit(["commit", "-m", "one"], root);
+  const repo = await GitRepositoryService.open(root);
+  const first = await repo.snapshot(1);
+  await Bun.write(join(root, "file"), "two\n");
+  const worktreeRefresh = await repo.refreshSnapshot(first, 1);
+  expect(worktreeRefresh.commits).toBe(first.commits);
+  expect(worktreeRefresh.files).toHaveLength(1);
+  await runGit(["tag", "new-tag"], root);
+  const refRefresh = await repo.refreshSnapshot(worktreeRefresh, 1);
+  expect(refRefresh.commits).not.toBe(first.commits);
+  expect(
+    refRefresh.branches.some((ref) => ref.fullName.includes("tags/")),
+  ).toBe(false);
+});
+
+test("refresh extends an unchanged incomplete history page", async () => {
+  const root = await mkdtemp(join(tmpdir(), "tuig-refresh-limit-"));
+  cleanup.push(root);
+  await runGit(["init", "-b", "main"], root);
+  await runGit(["config", "user.name", "Test User"], root);
+  await runGit(["config", "user.email", "test@example.com"], root);
+  for (const name of ["one", "two", "three"]) {
+    await Bun.write(join(root, name), name);
+    await runGit(["add", name], root);
+    await runGit(["commit", "-m", name], root);
+  }
+  const repo = await GitRepositoryService.open(root);
+  const first = await repo.snapshot(1);
+  const extended = await repo.refreshSnapshot(first, 3);
+  expect(extended.commits).toHaveLength(3);
+  expect(extended.commits).not.toBe(first.commits);
+  const reused = await repo.refreshSnapshot(extended, 2);
+  expect(reused.commits).toBe(extended.commits);
 });
 
 test("snapshot enriches recursively reported submodules with .gitmodules names", async () => {

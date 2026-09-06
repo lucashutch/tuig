@@ -8,7 +8,7 @@ import type {
   ResetMode,
   WorkingStatus,
 } from "./types";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -57,6 +57,17 @@ export class GitCommandAbortedError extends Error {
   }
 }
 
+/** Raised when a command emits more stdout than its caller permits. */
+export class GitOutputLimitError extends Error {
+  constructor(
+    public readonly args: string[],
+    public readonly limitBytes: number,
+  ) {
+    super(`git ${args.join(" ")}: output exceeded ${limitBytes} bytes`);
+    this.name = "GitOutputLimitError";
+  }
+}
+
 /**
  * The TUI cannot answer prompts printed to its terminal, so credential
  * requests are disabled outright: Git fails fast with a clear error instead
@@ -72,9 +83,22 @@ export async function runGit(
   cwd?: string,
   env?: Record<string, string | undefined>,
   signal?: AbortSignal,
+  maxBytes?: number,
 ): Promise<CommandResult> {
+  if (
+    maxBytes !== undefined &&
+    (!Number.isFinite(maxBytes) || !Number.isInteger(maxBytes) || maxBytes < 0)
+  )
+    throw new RangeError("maxBytes must be a finite nonnegative integer");
+  if (signal?.aborted) throw new GitCommandAbortedError(args);
+  // A textconv/credential helper can inherit Git's pipes. Killing only Git
+  // leaves those pipes open and makes a cancelled read wait for the helper.
+  const isolated =
+    process.platform !== "win32" &&
+    (signal !== undefined || maxBytes !== undefined);
   const p = Bun.spawn(["git", ...args], {
     cwd,
+    detached: isolated,
     env: {
       ...process.env,
       ...(env ?? {}),
@@ -88,18 +112,63 @@ export async function runGit(
     stdout: "pipe",
     stderr: "pipe",
   });
-  if (signal) {
-    const abort = () => p.kill();
-    if (signal.aborted) p.kill();
-    else signal.addEventListener("abort", abort, { once: true });
+  let killTimer: ReturnType<typeof setTimeout> | undefined;
+  const kill = (signal: NodeJS.Signals) => {
+    try {
+      if (isolated) process.kill(-p.pid, signal);
+      else p.kill(signal);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ESRCH") throw error;
+    }
+  };
+  const abort = () => {
+    kill("SIGTERM");
+    killTimer ??= setTimeout(() => kill("SIGKILL"), 250);
+    killTimer.unref();
+  };
+  signal?.addEventListener("abort", abort, { once: true });
+  let exceeded = false;
+  const stdoutPromise = (async () => {
+    const chunks: Uint8Array[] = [];
+    let bytes = 0;
+    for await (const chunk of p.stdout) {
+      bytes += chunk.byteLength;
+      if (maxBytes !== undefined && bytes > maxBytes) {
+        exceeded = true;
+        abort();
+        break;
+      }
+      chunks.push(chunk);
+    }
+    if (exceeded) return "";
+    const output = new Uint8Array(bytes);
+    let offset = 0;
+    for (const chunk of chunks) {
+      output.set(chunk, offset);
+      offset += chunk.byteLength;
+    }
+    return new TextDecoder().decode(output);
+  })();
+  let stdout: string;
+  let stderr: string;
+  let exitCode: number;
+  try {
+    [stdout, stderr, exitCode] = await Promise.all([
+      stdoutPromise,
+      new Response(p.stderr).text(),
+      p.exited,
+    ]);
+  } catch (error) {
+    kill("SIGKILL");
+    await p.exited.catch(() => undefined);
+    throw error;
+  } finally {
+    signal?.removeEventListener("abort", abort);
+    if (killTimer) clearTimeout(killTimer);
   }
-  const [stdout, stderr, exitCode] = await Promise.all([
-    new Response(p.stdout).text(),
-    new Response(p.stderr).text(),
-    p.exited,
-  ]);
   const result = { stdout, stderr, exitCode };
   if (signal?.aborted) throw new GitCommandAbortedError(args);
+  if (exceeded) throw new GitOutputLimitError(args, maxBytes!);
   if (exitCode) throw new GitCommandError(args, result);
   return result;
 }
@@ -331,19 +400,35 @@ export const DEFAULT_HISTORY_PAGE = 250;
 export class GitRepositoryService implements GitRepository {
   readonly root: string;
   private readonly walk: CommitWalk;
-  private constructor(root: string) {
+  private readonly historySignatures = new WeakMap<Commit[], string>();
+  private constructor(
+    root: string,
+    private readonly shallowMetadataPaths: readonly string[],
+  ) {
     this.root = root;
     this.walk = new CommitWalk(root);
   }
   static async open(path = process.cwd()): Promise<GitRepositoryService> {
     const r = await runGit(["rev-parse", "--show-toplevel"], path);
-    return new GitRepositoryService(r.stdout.trim());
+    const root = r.stdout.trim();
+    const metadata = await runGit(
+      [
+        "rev-parse",
+        "--path-format=absolute",
+        "--git-path",
+        "shallow",
+        "--git-path",
+        "info/grafts",
+      ],
+      root,
+    );
+    return new GitRepositoryService(root, metadata.stdout.trim().split("\n"));
   }
-  private async git(args: string[], signal?: AbortSignal) {
+  private async git(args: string[], signal?: AbortSignal, maxBytes?: number) {
     const subcommand = args.find((arg) => !arg.startsWith("-"));
     if (subcommand && HISTORY_MUTATING.has(subcommand))
       this.invalidateHistory();
-    return runGit(args, this.root, undefined, signal);
+    return runGit(args, this.root, undefined, signal, maxBytes);
   }
   async remoteUrl() {
     return (
@@ -356,62 +441,136 @@ export class GitRepositoryService implements GitRepository {
     // A snapshot is the refresh point for new history, so the walk restarts
     // from the tip rather than continuing one taken before a fetch or commit.
     this.invalidateHistory();
-    const [st, refs, log, stash, wt, sm, submoduleConfig, head] =
-      await Promise.all([
-        // Polling must not take the index lock: the auto-refresh would
-        // otherwise collide with a Git command the user is running elsewhere.
-        this.git([
-          "--no-optional-locks",
-          "status",
-          "--porcelain=v2",
-          "--branch",
-          "-z",
-        ]),
-        this.git([
-          "for-each-ref",
-          // %(HEAD) marks the checked-out local branch.  Explicitly emit the
-          // record terminator: for-each-ref otherwise separates records with
-          // newlines, which makes the tabular parser see all refs as one row.
-          "--format=%(refname)\t%(objectname)\t%(HEAD)%00",
-          "refs/heads",
-          "refs/remotes",
-        ]),
-        this.commitPage(limit),
-        this.git([
-          "stash",
-          "list",
-          "--format=%gd%x09%H%x09%cr%x09%s%x00",
-        ]).catch(() => ({
+    const metadata = await this.readSnapshotMetadata();
+    const log = await this.commitPage(limit);
+    const snapshot = this.buildSnapshot(metadata, log.commits, log.complete);
+    this.historySignatures.set(snapshot.commits, metadata.historySignature);
+    return snapshot;
+  }
+  async refreshSnapshot(
+    previous: RepositorySnapshot,
+    limit = DEFAULT_HISTORY_PAGE,
+  ): Promise<RepositorySnapshot> {
+    const metadata = await this.readSnapshotMetadata();
+    const priorSignature = this.historySignatures.get(previous.commits);
+    if (
+      priorSignature === metadata.historySignature &&
+      (previous.commitsComplete || previous.commits.length >= limit)
+    ) {
+      const snapshot = this.buildSnapshot(
+        metadata,
+        previous.commits,
+        previous.commitsComplete,
+      );
+      this.historySignatures.set(snapshot.commits, metadata.historySignature);
+      return snapshot;
+    }
+    this.invalidateHistory();
+    const log = await this.commitPage(limit);
+    const snapshot = this.buildSnapshot(metadata, log.commits, log.complete);
+    this.historySignatures.set(snapshot.commits, metadata.historySignature);
+    return snapshot;
+  }
+  private async readSnapshotMetadata() {
+    const submoduleConfig = await this.git([
+      "config",
+      "--null",
+      "--file",
+      ".gitmodules",
+      "--get-regexp",
+      "^submodule\\..*\\.path$",
+    ]).catch(() => ({ stdout: "", stderr: "", exitCode: 0 }));
+    const submoduleNames = parseSubmoduleNames(submoduleConfig.stdout);
+    const shallowMetadata = Promise.all(
+      this.shallowMetadataPaths.map((path) =>
+        readFile(path).catch((error: NodeJS.ErrnoException) => {
+          if (error.code === "ENOENT") return Buffer.alloc(0);
+          throw error;
+        }),
+      ),
+    );
+    const [st, allRefs, stash, wt, sm, shallow] = await Promise.all([
+      // Polling must not take the index lock: the auto-refresh would
+      // otherwise collide with a Git command the user is running elsewhere.
+      this.git([
+        "--no-optional-locks",
+        "status",
+        "--porcelain=v2",
+        "--branch",
+        "-z",
+      ]),
+      this.git([
+        "for-each-ref",
+        // %(HEAD) marks the checked-out local branch.  Explicitly emit the
+        // record terminator: for-each-ref otherwise separates records with
+        // newlines, which makes the tabular parser see all refs as one row.
+        "--format=%(refname)\t%(objectname)\t%(HEAD)%00",
+      ]),
+      this.git(["stash", "list", "--format=%gd%x09%H%x09%cr%x09%s%x00"]).catch(
+        () => ({
           stdout: "",
           stderr: "",
           exitCode: 0,
-        })),
-        this.git(["worktree", "list", "--porcelain"]),
-        this.git(["submodule", "status", "--recursive"]).catch(() => ({
-          stdout: "",
-          stderr: "",
-          exitCode: 0,
-        })),
-        // Read this through git rather than parsing the INI file ourselves: it
-        // correctly handles quoting, escapes, spaces, and subsection names.
-        this.git([
-          "config",
-          "--null",
-          "--file",
-          ".gitmodules",
-          "--get-regexp",
-          "^submodule\\..*\\.path$",
-        ]).catch(() => ({ stdout: "", stderr: "", exitCode: 0 })),
-        this.git(["symbolic-ref", "--short", "HEAD"]).catch(() => ({
-          stdout: "",
-          stderr: "",
-          exitCode: 0,
-        })),
-      ]);
+        }),
+      ),
+      this.git(["worktree", "list", "--porcelain"]),
+      (submoduleNames.size
+        ? this.git(["submodule", "status", "--recursive"])
+        : Promise.resolve({ stdout: "", stderr: "", exitCode: 0 })
+      ).catch(() => ({
+        stdout: "",
+        stderr: "",
+        exitCode: 0,
+      })),
+      shallowMetadata,
+    ]);
+    const branchHead = st.stdout
+      .split("\0")
+      .find((record) => record.startsWith("# branch.head "))
+      ?.slice(14);
+    const worktreeHeads = wt.stdout
+      .split("\n")
+      .filter((line) => line.startsWith("HEAD ") || line.startsWith("branch "))
+      .join("\n");
+    return {
+      st,
+      refs: {
+        ...allRefs,
+        stdout: allRefs.stdout
+          .split("\0")
+          .filter((record) => /^\n?refs\/(?:heads|remotes)\//.test(record))
+          .join("\0"),
+      },
+      stash,
+      wt,
+      sm,
+      submoduleNames,
+      branch:
+        branchHead && branchHead !== "(detached)" ? branchHead : undefined,
+      historySignature: [
+        allRefs.stdout,
+        st.stdout
+          .split("\0")
+          .filter(
+            (r) =>
+              r.startsWith("# branch.oid ") || r.startsWith("# branch.head "),
+          )
+          .join("\0"),
+        worktreeHeads,
+        ...shallow.map((contents) => contents.toString("base64")),
+      ].join("\x1e"),
+    };
+  }
+  private buildSnapshot(
+    metadata: Awaited<ReturnType<GitRepositoryService["readSnapshotMetadata"]>>,
+    commits: Commit[],
+    commitsComplete: boolean,
+  ): RepositorySnapshot {
+    const { st, refs, stash, wt, sm, submoduleNames, branch } = metadata;
     const tracking = parseTracking(st.stdout);
     return {
       root: this.root,
-      branch: head.stdout.trim() || undefined,
+      branch,
       upstream: tracking.upstream,
       ahead: tracking.ahead,
       behind: tracking.behind,
@@ -419,12 +578,9 @@ export class GitRepositoryService implements GitRepository {
       branches: parseRefs(refs.stdout),
       stashes: parseStashes(stash.stdout),
       worktrees: parseWorktrees(wt.stdout),
-      submodules: parseSubmodules(
-        sm.stdout,
-        parseSubmoduleNames(submoduleConfig.stdout),
-      ),
-      commits: log.commits,
-      commitsComplete: log.complete,
+      submodules: parseSubmodules(sm.stdout, submoduleNames),
+      commits,
+      commitsComplete,
     };
   }
   /**
@@ -536,29 +692,37 @@ export class GitRepositoryService implements GitRepository {
   }
   async diff(r: DiffRequest) {
     if (r.commit) return this.commitDiff(r);
-    const result = await this.git([
-      "diff",
-      "--no-ext-diff",
-      ...(r.staged ? ["--cached"] : []),
-      ...(r.context !== undefined ? [`-U${r.context}`] : []),
-      "--",
-      ...(r.path ? [r.path] : []),
-    ]);
+    const result = await this.git(
+      [
+        "diff",
+        "--no-ext-diff",
+        ...(r.staged ? ["--cached"] : []),
+        ...(r.context !== undefined ? [`-U${r.context}`] : []),
+        "--",
+        ...(r.path ? [r.path] : []),
+      ],
+      r.signal,
+      r.maxBytes,
+    );
     if (result.stdout || r.staged || !r.path) return result.stdout;
     try {
-      await this.git(["ls-files", "--error-unmatch", "--", r.path]);
+      await this.git(["ls-files", "--error-unmatch", "--", r.path], r.signal);
       return "";
     } catch {
       try {
-        await this.git([
-          "diff",
-          "--no-index",
-          "--no-ext-diff",
-          ...(r.context !== undefined ? [`-U${r.context}`] : []),
-          "--",
-          "/dev/null",
-          r.path,
-        ]);
+        await this.git(
+          [
+            "diff",
+            "--no-index",
+            "--no-ext-diff",
+            ...(r.context !== undefined ? [`-U${r.context}`] : []),
+            "--",
+            "/dev/null",
+            r.path,
+          ],
+          r.signal,
+          r.maxBytes,
+        );
       } catch (error) {
         if (error instanceof GitCommandError && error.result.exitCode === 1)
           return error.result.stdout;
@@ -605,25 +769,34 @@ export class GitRepositoryService implements GitRepository {
         files.findIndex((other) => other.path === file.path) === index,
     );
   }
-  private async commitDetails(sha: string) {
-    const resolved = (
-      await this.git(["rev-parse", "--verify", `${sha}^{commit}`])
-    ).stdout.trim();
-    const parents = (
-      await this.git(["show", "-s", "--format=%P", resolved])
+  private async commitDetails(sha: string, signal?: AbortSignal) {
+    if (!sha.trim() || sha.includes("\0"))
+      throw new Error("A commit is required");
+    const [resolved = "", parentLine = ""] = (
+      await this.git(
+        [
+          "show",
+          "-s",
+          "--format=%H%x00%P",
+          "--end-of-options",
+          `${sha}^{commit}`,
+        ],
+        signal,
+      )
     ).stdout
       .trim()
-      .split(/\s+/)
-      .filter(Boolean);
+      .split("\0");
+    const parents = parentLine.split(/\s+/).filter(Boolean);
     let untrackedParent: string | undefined;
     if (parents.length === 3) {
       const stashShas = (
-        await this.git(["reflog", "show", "--format=%H", "refs/stash"]).catch(
-          () => ({ stdout: "" }),
-        )
+        await this.git(
+          ["reflog", "show", "--format=%H", "refs/stash"],
+          signal,
+        ).catch(() => ({ stdout: "" }))
       ).stdout.split("\n");
       const thirdParents = (
-        await this.git(["show", "-s", "--format=%P", parents[2]!])
+        await this.git(["show", "-s", "--format=%P", parents[2]!], signal)
       ).stdout.trim();
       // Only stash commits currently named by the stash reflog get the special
       // third-parent treatment. This avoids reinterpreting arbitrary octopus
@@ -636,6 +809,7 @@ export class GitRepositoryService implements GitRepository {
   private async commitDiff(r: DiffRequest): Promise<string> {
     const { resolved, parents, untrackedParent } = await this.commitDetails(
       r.commit!,
+      r.signal,
     );
     const args = parents[0]
       ? [
@@ -656,18 +830,27 @@ export class GitRepositoryService implements GitRepository {
           "--",
           ...(r.path ? [r.path] : []),
         ];
-    const tracked = (await this.git(args)).stdout;
+    const tracked = (await this.git(args, r.signal, r.maxBytes)).stdout;
     if (!untrackedParent) return tracked;
     const untracked = (
-      await this.git([
-        "show",
-        "--format=",
-        "--no-ext-diff",
-        ...(r.context !== undefined ? [`-U${r.context}`] : []),
-        untrackedParent,
-        "--",
-        ...(r.path ? [r.path] : []),
-      ])
+      await this.git(
+        [
+          "show",
+          "--format=",
+          "--no-ext-diff",
+          ...(r.context !== undefined ? [`-U${r.context}`] : []),
+          untrackedParent,
+          "--",
+          ...(r.path ? [r.path] : []),
+        ],
+        r.signal,
+        r.maxBytes === undefined
+          ? undefined
+          : Math.max(
+              0,
+              r.maxBytes - new TextEncoder().encode(tracked).byteLength,
+            ),
+      )
     ).stdout;
     return tracked + untracked;
   }

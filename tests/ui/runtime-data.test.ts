@@ -1,8 +1,19 @@
 import { describe, expect, test } from "bun:test";
-import type { RepositorySnapshot, WorkingStatus } from "../../src/git/types.js";
+import type {
+  DiffRequest,
+  RepositorySnapshot,
+  WorkingStatus,
+} from "../../src/git/types.js";
+import { GitOutputLimitError } from "../../src/git/repository.js";
+import {
+  DIFF_DISPLAY_MAX_BYTES,
+  DIFF_HIGHLIGHT_MAX_BYTES,
+} from "../../src/ui/diff-policy.js";
 import type { Commit, CommitPage } from "../../src/git/types.js";
 import {
   HISTORY_PAGE,
+  cancelDiff,
+  loadDiff,
   loadMoreCommits,
   refresh,
   refreshWorkingStatus,
@@ -70,6 +81,10 @@ function stubContext(
   reader: {
     snapshot?: (limit?: number) => Promise<RepositorySnapshot>;
     workingStatus?: () => Promise<WorkingStatus>;
+    refreshSnapshot?: (
+      previous: RepositorySnapshot,
+      limit?: number,
+    ) => Promise<RepositorySnapshot>;
     commitPage?: (limit: number, skip?: number) => Promise<CommitPage>;
   },
 ): Stub {
@@ -87,6 +102,7 @@ function stubContext(
         return reader.snapshot?.(limit) ?? snapshot();
       },
       workingStatus: reader.workingStatus,
+      refreshSnapshot: reader.refreshSnapshot,
       commitPage: reader.commitPage
         ? (limit: number, skip = 0) => {
             context.pageRequests.push([limit, skip]);
@@ -133,6 +149,22 @@ function stubContext(
 }
 
 describe("snapshot fingerprint", () => {
+  test("incrementally appended history matches a fresh fingerprint", () => {
+    const initial = snapshot({ commitsComplete: false });
+    const before = snapshotSignature(initial);
+    initial.commits.push({
+      ...initial.commits[0]!,
+      sha: "b".repeat(40),
+      decorations: [],
+    });
+    expect(snapshotSignature(initial)).not.toBe(before);
+    expect(snapshotSignature(initial)).toBe(
+      snapshotSignature({ ...initial, commits: [...initial.commits] }),
+    );
+    expect(snapshotSignature({ ...initial, commitsComplete: true })).not.toBe(
+      snapshotSignature(initial),
+    );
+  });
   test("ignores fields that cannot change without a new object name", () => {
     const before = snapshot();
     const after = snapshot({
@@ -172,6 +204,40 @@ describe("snapshot fingerprint", () => {
 });
 
 describe("refresh", () => {
+  test("automatic metadata refresh preserves the graph for working-tree changes", async () => {
+    const initial = snapshot();
+    const context = stubContext(initial, {
+      refreshSnapshot: async (previous) => ({
+        ...previous,
+        files: [
+          { path: "a.txt", state: "modified", staged: false, unstaged: true },
+        ],
+      }),
+    });
+    const graph = context.graphIndex;
+    const hints = context.branchHintIndex;
+    await refresh(context, undefined, true);
+    expect(context.snapshotReads).toBe(0);
+    expect(context.snapshot?.commits).toBe(initial.commits);
+    expect(context.graphIndex).toBe(graph);
+    expect(context.branchHintIndex).toBe(hints);
+    expect(context.paints).toBe(1);
+  });
+
+  test("manual refresh bypasses history reuse and busy polls do not queue work", async () => {
+    const context = stubContext(snapshot(), {
+      refreshSnapshot: async () => {
+        throw new Error("manual refresh used poll path");
+      },
+    });
+    await refresh(context);
+    expect(context.snapshotReads).toBe(1);
+    context.busy = true;
+    await refresh(context, undefined, true);
+    expect(context.refreshPending).toBe(false);
+    await refresh(context);
+    expect(context.refreshPending).toBe(true);
+  });
   test("keeps the snapshot object and skips the repaint when nothing changed", async () => {
     const initial = snapshot();
     const context = stubContext(initial, { snapshot: async () => snapshot() });
@@ -198,6 +264,166 @@ describe("refresh", () => {
     });
     await refresh(context);
     expect(context.paints).toBe(1);
+  });
+});
+
+function diffContext(read: (request: DiffRequest) => Promise<string>) {
+  const context = stubContext(
+    snapshot({
+      files: [
+        { path: "a.ts", state: "modified", staged: false, unstaged: true },
+        { path: "b.ts", state: "modified", staged: false, unstaged: true },
+      ],
+    }),
+    {},
+  );
+  const display = {
+    visible: true,
+    diff: "previous diff",
+    filetype: undefined as string | undefined,
+    wrapMode: "word" as "word" | "none",
+    clear() {
+      this.diff = "";
+      this.filetype = undefined;
+    },
+    setDiff(
+      value: string,
+      filetype?: string,
+      wrapMode: "word" | "none" = "word",
+    ) {
+      this.diff = value;
+      this.filetype = filetype;
+      this.wrapMode = wrapMode;
+    },
+  };
+  context.widgets.commitDiff =
+    display as unknown as RuntimeDataContext["widgets"]["commitDiff"];
+  context.widgets.commitDiffEmpty = {
+    content: "",
+    visible: false,
+  } as unknown as RuntimeDataContext["widgets"]["commitDiffEmpty"];
+  context.repository.diff = read;
+  context.view = "working";
+  context.mode = "unstaged";
+  return { context, display };
+}
+
+describe("diff resource policy", () => {
+  test("working-status changes cancel the old read and reload the visible diff", async () => {
+    let resolveOld!: (value: string) => void;
+    const { context, display } = diffContext(async (request) =>
+      request.path === "a.ts"
+        ? new Promise<string>((resolve) => {
+            resolveOld = resolve;
+          })
+        : "remaining file diff",
+    );
+    const old = loadDiff(context);
+    const signal = context.diffAbort?.signal;
+    context.repository.workingStatus = async () => ({
+      ahead: 0,
+      behind: 0,
+      files: [
+        { path: "b.ts", state: "modified", staged: false, unstaged: true },
+      ],
+    });
+    await refreshWorkingStatus(context);
+    expect(signal?.aborted).toBe(true);
+    resolveOld("stale diff");
+    await old;
+    expect(display.diff).toBe("remaining file diff");
+  });
+
+  test("sends display bounds and highlights small file diffs", async () => {
+    let request: DiffRequest | undefined;
+    const { context, display } = diffContext(async (value) => {
+      request = value;
+      return "small diff";
+    });
+    await loadDiff(context);
+    expect(request?.maxBytes).toBe(DIFF_DISPLAY_MAX_BYTES);
+    expect(request?.signal).toBeInstanceOf(AbortSignal);
+    expect(display.diff).toBe("small diff");
+    expect(display.filetype).toBe("typescript");
+    expect(context.diffAbort).toBeUndefined();
+  });
+
+  test("large diffs bypass both highlighting and wrapping", async () => {
+    const { context, display } = diffContext(async () =>
+      "a".repeat(DIFF_HIGHLIGHT_MAX_BYTES),
+    );
+    await loadDiff(context);
+    expect(display.filetype).toBeUndefined();
+    expect(display.wrapMode).toBe("none");
+  });
+
+  test("overflow offers a one-selection override without highlighting", async () => {
+    const limits: Array<number | undefined> = [];
+    const { context, display } = diffContext(async ({ maxBytes }) => {
+      limits.push(maxBytes);
+      if (maxBytes) throw new GitOutputLimitError([], maxBytes);
+      return "full diff";
+    });
+    await loadDiff(context);
+    expect(context.diffTooLarge).toBe(true);
+    expect(display.diff).toBe("");
+    expect(context.widgets.commitDiffEmpty.content.toString()).toContain(
+      "Shift+L",
+    );
+    await loadDiff(context, true);
+    expect(limits).toEqual([DIFF_DISPLAY_MAX_BYTES, undefined]);
+    expect(display.diff).toBe("full diff");
+    expect(display.filetype).toBeUndefined();
+    expect(context.diffTooLarge).toBe(false);
+    context.fileIndex = 1;
+    await loadDiff(context);
+    expect(limits[2]).toBe(DIFF_DISPLAY_MAX_BYTES);
+  });
+
+  test("aborts the previous selection and ignores its late result", async () => {
+    let firstSignal: AbortSignal | undefined;
+    let resolveFirst!: (value: string) => void;
+    const { context, display } = diffContext(async (request) => {
+      if (request.path === "b.ts") return "second diff";
+      firstSignal = request.signal;
+      return new Promise<string>((resolve) => {
+        resolveFirst = resolve;
+      });
+    });
+    const first = loadDiff(context);
+    expect(display.diff).toBe("");
+    context.fileIndex = 1;
+    await loadDiff(context);
+    expect(firstSignal?.aborted).toBe(true);
+    resolveFirst("obsolete diff");
+    await first;
+    expect(display.diff).toBe("second diff");
+  });
+
+  test("cancelling a pending diff suppresses its error", async () => {
+    let reject!: (reason: Error) => void;
+    const { context, display } = diffContext(
+      () =>
+        new Promise((_resolve, fail) => {
+          reject = fail;
+        }),
+    );
+    const read = loadDiff(context);
+    const signal = context.diffAbort?.signal;
+    cancelDiff(context);
+    reject(new Error("process cancelled"));
+    await read;
+    expect(signal?.aborted).toBe(true);
+    expect(display.diff).toBe("");
+  });
+
+  test("does not read a hidden diff in history view", async () => {
+    const { context, display } = diffContext(async () => {
+      throw new Error("unexpected read");
+    });
+    context.view = "history";
+    await loadDiff(context);
+    expect(display.diff).toBe("");
   });
 });
 

@@ -3,7 +3,6 @@ import {
   CliRenderEvents,
   TextareaRenderable,
   ScrollBoxRenderable,
-  DiffRenderable,
   InputRenderable,
   InputRenderableEvents,
   ImageRenderable,
@@ -25,6 +24,7 @@ import {
   graphWindow,
   type GraphIndex,
 } from "./graph-index.js";
+import type { DiffView } from "./diff-view.js";
 import { clampGraphScroll } from "./graph-viewport.js";
 import {
   branchRefsForSection,
@@ -88,6 +88,7 @@ import {
 } from "./runtime-widgets.js";
 import {
   closeDiff as closeRuntimeDiff,
+  cancelDiff as cancelRuntimeDiff,
   loadDiff as loadRuntimeDiff,
   openCommit as openRuntimeCommit,
   openWorkingDiff as openRuntimeWorkingDiff,
@@ -257,6 +258,8 @@ class Runtime {
   private mutationBusy?: string;
   private mutationAbort?: AbortController;
   private diffRequest = 0;
+  private diffAbort?: AbortController;
+  private diffTooLarge = false;
   private commitFilesRequest = 0;
   private snapshotRequest = 0;
   private refreshTimer?: ReturnType<typeof setInterval>;
@@ -298,7 +301,7 @@ class Runtime {
     typeof createRuntimeWidgets
   >["sidebarSections"];
   private readonly historyText: TextRenderable;
-  private readonly commitDiff: DiffRenderable;
+  private readonly commitDiff: DiffView;
   private readonly commitDiffEmpty: TextRenderable;
   private readonly unstagedLabel: TextRenderable;
   private readonly unstagedText: TextRenderable;
@@ -621,7 +624,9 @@ class Runtime {
     this.remoteFetchIntervalMinutes =
       preferences.remoteFetchIntervalMinutes ??
       DEFAULT_REMOTE_FETCH_INTERVAL_MINUTES;
-    this.renderer.start();
+    // OpenTUI starts demand-driven. start() would render at 30 FPS even when
+    // nothing changes; widget invalidations and spinner ticks request frames.
+    this.renderer.requestRender();
     // Terminal dimensions are reliable only after the renderer has started.
     await Bun.sleep(0);
     this.layout();
@@ -630,7 +635,7 @@ class Runtime {
     // the live snapshot so startup follows the same path as a manual resize.
     this.layout();
     this.refreshTimer = setInterval(() => {
-      if (!this.composing) void this.refresh("Auto-refreshing…");
+      if (!this.composing) void this.refresh("Auto-refreshing…", true);
     }, REFRESH_INTERVAL_MS);
     if (this.remoteFetchIntervalMinutes > 0) {
       this.remoteFetchTimer = setInterval(() => {
@@ -741,6 +746,7 @@ class Runtime {
   }
   private readonly dispose = () => {
     this.disposed = true;
+    cancelRuntimeDiff(this.dataContext());
     this.removeSelectionListener();
     this.stopBusySpinner();
     if (this.messageTimer) clearTimeout(this.messageTimer);
@@ -927,8 +933,8 @@ class Runtime {
     return selectedRuntimeFile(this.filesContext());
   }
 
-  private refresh(message?: string) {
-    return refreshRuntimeData(this.dataContext(), message);
+  private refresh(message?: string, automatic = false) {
+    return refreshRuntimeData(this.dataContext(), message, automatic);
   }
 
   /** Refresh after a change that cannot have touched history. */
@@ -1002,6 +1008,18 @@ class Runtime {
       },
       set diffRequest(value) {
         runtime.diffRequest = value;
+      },
+      get diffAbort() {
+        return runtime.diffAbort;
+      },
+      set diffAbort(value) {
+        runtime.diffAbort = value;
+      },
+      get diffTooLarge() {
+        return runtime.diffTooLarge;
+      },
+      set diffTooLarge(value) {
+        runtime.diffTooLarge = value ?? false;
       },
       get commitFilesRequest() {
         return runtime.commitFilesRequest;
@@ -1262,8 +1280,8 @@ class Runtime {
     ensureRuntimeFileVisible(this.filesContext());
   }
 
-  private loadDiff() {
-    return loadRuntimeDiff(this.dataContext());
+  private loadDiff(allowLarge = false) {
+    return loadRuntimeDiff(this.dataContext(), allowLarge);
   }
 
   private historyContext(): RuntimeHistoryContext {
@@ -1752,6 +1770,13 @@ class Runtime {
       if (this.focus === "history" && this.scrollGraphColumns(delta)) return;
       return this.moveFile(delta);
     }
+    if (
+      key.shift &&
+      key.name.toLowerCase() === "l" &&
+      this.diffTooLarge &&
+      this.commitDiff.visible
+    )
+      return void this.loadDiff(true).catch((error) => this.fail(error));
     if (key.name === "r") return void this.refresh();
     if (key.name === "f")
       return void this.perform(
