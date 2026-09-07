@@ -1,5 +1,6 @@
 import {
   BoxRenderable,
+  RGBA,
   CliRenderEvents,
   InputRenderable,
   InputRenderableEvents,
@@ -12,6 +13,7 @@ import {
   TextRenderable,
   type CliRenderer,
   type KeyEvent,
+  type TextBufferRenderable,
 } from "@opentui/core";
 import { oneDarkTheme } from "./theme.js";
 import { DiffView } from "./diff-view.js";
@@ -24,6 +26,40 @@ import {
 } from "./runtime-presentation.js";
 
 export type ChangeSection = "unstaged" | "staged";
+
+/** Activate on release, and cancel a press when the pointer leaves. */
+export function buttonMouse(onPress: () => void, enabled = () => true) {
+  let pressed = false;
+  let resting: TextRenderable["bg"];
+  let hovered = false;
+  return {
+    onMouseOver(this: TextBufferRenderable) {
+      if (!enabled()) return;
+      if (!hovered) resting = this.bg;
+      hovered = true;
+      this.bg = oneDarkTheme.selected;
+    },
+    onMouseOut(this: TextBufferRenderable) {
+      if (!hovered) return;
+      pressed = false;
+      hovered = false;
+      this.bg = resting;
+    },
+    onMouseDown(this: TextBufferRenderable, e: { button: number }) {
+      if (e.button !== 0 || !enabled()) return;
+      if (!hovered) resting = this.bg;
+      hovered = true;
+      pressed = true;
+      this.bg = oneDarkTheme.dividerActive;
+    },
+    onMouseUp(this: TextBufferRenderable, e: { button: number }) {
+      if (e.button !== 0 || !pressed) return;
+      pressed = false;
+      this.bg = oneDarkTheme.selected;
+      if (enabled()) onPress();
+    },
+  };
+}
 
 /** Hard ceiling on pooled avatars; the pool grows to the terminal height. */
 export const GRAPH_AVATAR_SLOT_LIMIT = 512;
@@ -126,6 +162,8 @@ export type RuntimeWidgetActions = {
   resize(): void;
   keypress(key: KeyEvent): void;
   toolbarClick(x: number): void;
+  toolbarHover(x?: number): void;
+  toolbarDown(x: number): void;
   commit(): void;
   toggleAmend(): void;
   viewWorkingChanges(): void;
@@ -504,10 +542,10 @@ export function createRuntimeWidgets(
       height: 1,
       width: Bun.stringWidth(content),
       wrapMode: "none",
-      content: new StyledText([
-        bg(oneDarkTheme.panelRaised)(fg(color)(content)),
-      ]),
-      onMouseDown: onPress,
+      content,
+      fg: color,
+      bg: oneDarkTheme.panelRaised,
+      ...buttonMouse(onPress),
     });
   const discardButton = makeButton(
     "discard-all",
@@ -621,7 +659,7 @@ export function createRuntimeWidgets(
     content: new StyledText([
       bg(oneDarkTheme.selected)(fg(oneDarkTheme.accent)(" Edit Message ")),
     ]),
-    onMouseDown: actions.editMessage,
+    ...buttonMouse(actions.editMessage),
   });
   const commitHeader = text("commit-header");
   const commitBody = new TextRenderable(renderer, {
@@ -749,9 +787,10 @@ export function createRuntimeWidgets(
     textColor: oneDarkTheme.text,
     wrapMode: "word",
   });
-  const commitButton = new TextRenderable(renderer, {
+  const commitButton: TextRenderable = new TextRenderable(renderer, {
     ...absolute,
     id: "commit-button",
+    bg: oneDarkTheme.panelRaised,
     left: 1,
     top: 6,
     height: 1,
@@ -759,7 +798,9 @@ export function createRuntimeWidgets(
     wrapMode: "none",
     fg: oneDarkTheme.text,
     content: "",
-    onMouseDown: () => actions.commit(),
+    ...buttonMouse(actions.commit, () =>
+      commitButton.fg.equals(RGBA.fromHex(oneDarkTheme.added)),
+    ),
   });
   const amendButton = new TextRenderable(renderer, {
     ...absolute,
@@ -771,7 +812,7 @@ export function createRuntimeWidgets(
     wrapMode: "none",
     fg: oneDarkTheme.muted,
     content: "[ ] Amend previous commit",
-    onMouseDown: actions.toggleAmend,
+    ...buttonMouse(actions.toggleAmend),
   });
   const workingBanner = new TextRenderable(renderer, {
     ...absolute,
@@ -784,7 +825,7 @@ export function createRuntimeWidgets(
     visible: false,
     fg: oneDarkTheme.warning,
     content: "",
-    onMouseDown: actions.viewWorkingChanges,
+    ...buttonMouse(actions.viewWorkingChanges),
   });
   composerBox.add(composerLabel);
   composerBox.add(composerSummary);
@@ -814,7 +855,15 @@ export function createRuntimeWidgets(
     fg: oneDarkTheme.text,
     wrapMode: "none",
     content: "",
-    onMouseDown: (e) => actions.toolbarClick(e.x),
+    onMouseOver: (e) => actions.toolbarHover(e.x),
+    onMouseMove: (e) => actions.toolbarHover(e.x),
+    onMouseOut: () => actions.toolbarHover(),
+    onMouseDown: (e) => {
+      if (e.button === 0) actions.toolbarDown(e.x);
+    },
+    onMouseUp: (e) => {
+      if (e.button === 0) actions.toolbarClick(e.x);
+    },
   });
   const hints = new TextRenderable(renderer, {
     ...absolute,

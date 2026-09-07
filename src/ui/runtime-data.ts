@@ -215,7 +215,7 @@ export async function refreshWorkingStatus(
   const request = ++ctx.snapshotRequest;
   const base = ctx.snapshot;
   const selectedPath = ctx.selectedFile()?.path;
-  ctx.notify(message ?? "Refreshing…", "busy");
+  if (message) ctx.notify(message, "busy");
   try {
     const status = await readStatus();
     if (request !== ctx.snapshotRequest || ctx.refreshPending) return;
@@ -383,7 +383,7 @@ export async function refresh(
     ctx.view === "commit" && ctx.widgets.commitDiff.visible;
   const selectedSha = ctx.snapshot?.commits[ctx.commitIndex]?.sha;
   const selectedPath = ctx.selectedFile()?.path;
-  if (!automatic) ctx.notify(message ?? "Refreshing…", "busy");
+  if (!automatic && message) ctx.notify(message, "busy");
   try {
     // A page can land while this read is in flight. Re-read at the deeper
     // limit rather than replacing the snapshot with a shorter history, which

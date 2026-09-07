@@ -2,13 +2,12 @@ import { StyledText, bg, fg } from "@opentui/core";
 import type { RepositorySnapshot } from "../git/types.js";
 import { displayBranchName } from "./history.js";
 import { oneDarkTheme } from "./theme.js";
+import { clipColumns } from "./runtime-presentation-text.js";
 
 export type HeaderPresentationInput = {
   snapshot?: RepositorySnapshot;
   repositoryRoot: string;
   width: number;
-  syncedAt?: number;
-  now?: number;
 };
 
 /** Relative age used by the header's sync indicator. */
@@ -26,15 +25,13 @@ export function formatAge(
 }
 
 /**
- * Repository header shown above every pane, so branch and sync state survive
+ * Repository header shown above every pane, so branch and working state survive
  * collapsing the repository pane.
  */
 export function renderHeader({
   snapshot,
   repositoryRoot,
   width,
-  syncedAt,
-  now,
 }: HeaderPresentationInput): StyledText {
   const name = repositoryRoot.split("/").filter(Boolean).at(-1) ?? "repository";
   const raised = oneDarkTheme.panelRaised;
@@ -72,13 +69,20 @@ export function renderHeader({
         : { text: "  clean", color: oneDarkTheme.muted },
     );
   }
-  const tail = `${formatAge(syncedAt, now)} `;
+  let room = Math.max(0, width);
+  for (const segment of segments) {
+    segment.text = clipColumns(segment.text, room);
+    room -= Bun.stringWidth(segment.text);
+  }
   const used = segments.reduce(
     (total, segment) => total + Bun.stringWidth(segment.text),
     0,
   );
-  const gap = Math.max(1, width - used - Bun.stringWidth(tail));
-  segments.push({ text: " ".repeat(gap) + tail, color: oneDarkTheme.muted });
+  const gap = Math.max(0, width - used);
+  segments.push({
+    text: " ".repeat(gap),
+    color: oneDarkTheme.muted,
+  });
   return new StyledText(
     segments.map((segment) => bg(raised)(fg(segment.color)(segment.text))),
   );
@@ -138,6 +142,11 @@ export function toolbarButtons(
 export function renderToolbar(
   buttons: ToolbarButton[],
   width: number,
+  interaction: {
+    hovered?: ToolbarAction;
+    pressed?: ToolbarAction;
+    busy?: string;
+  } = {},
 ): ToolbarPresentation {
   const gap = 2;
   const cells = buttons.map((button) => ({
@@ -163,14 +172,24 @@ export function renderToolbar(
     const glyphColor = button.enabled
       ? oneDarkTheme.accent
       : oneDarkTheme.border;
-    labels.push(bg(raised)(fg(labelColor)(centre(button.label))));
-    glyphs.push(bg(raised)(fg(glyphColor)(centre(button.glyph))));
+    const pressed = button.enabled && interaction.pressed === button.id;
+    const background = pressed
+      ? oneDarkTheme.dividerActive
+      : button.enabled && interaction.hovered === button.id
+        ? oneDarkTheme.selected
+        : raised;
+    labels.push(bg(background)(fg(labelColor)(centre(button.label))));
+    glyphs.push(bg(background)(fg(glyphColor)(centre(button.glyph))));
     if (button.enabled)
       hits.push({ id: button.id, start: column, end: column + cellWidth });
     column += cellWidth;
   }
   const trail = Math.max(0, width - column);
-  labels.push(bg(raised)(" ".repeat(trail)));
+  // Keep progress clear of the buttons and four columns from the right edge.
+  const status = clipColumns(interaction.busy ?? "", Math.max(0, trail - 5));
+  const inset = status ? 4 : 0;
+  labels.push(bg(raised)(" ".repeat(trail - Bun.stringWidth(status) - inset)));
+  labels.push(bg(raised)(fg(oneDarkTheme.accent)(status + " ".repeat(inset))));
   glyphs.push(bg(raised)(" ".repeat(trail)), fg(oneDarkTheme.border)(""));
   return {
     content: new StyledText([...labels, bg(raised)("\n"), ...glyphs]),

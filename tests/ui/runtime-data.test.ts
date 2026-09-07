@@ -319,6 +319,10 @@ describe("diff resource policy", () => {
         : "remaining file diff",
     );
     const old = loadDiff(context);
+    const notifications: string[] = [];
+    context.notify = (text, tone) => {
+      if (tone === "busy") notifications.push(text);
+    };
     const signal = context.diffAbort?.signal;
     context.repository.workingStatus = async () => ({
       ahead: 0,
@@ -328,6 +332,7 @@ describe("diff resource policy", () => {
       ],
     });
     await refreshWorkingStatus(context);
+    expect(notifications).toEqual([]);
     expect(signal?.aborted).toBe(true);
     resolveOld("stale diff");
     await old;
