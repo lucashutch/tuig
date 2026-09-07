@@ -8,9 +8,9 @@ import type {
   ResetMode,
   WorkingStatus,
 } from "./types";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { access, mkdtemp, readdir, readFile, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 import {
   parseLog,
   parseNameStatus,
@@ -47,6 +47,90 @@ export class GitCommandError extends Error {
     );
     this.name = "GitCommandError";
   }
+}
+
+/** Raised when the path used to launch Tuig is outside a Git work tree. */
+export class NotGitRepositoryError extends Error {
+  constructor(
+    public readonly path: string,
+    public readonly suggestions: readonly string[] = [],
+    problem: "not-repository" | "missing" | "not-directory" = "not-repository",
+  ) {
+    const description =
+      problem === "missing"
+        ? `Path "${path}" does not exist.`
+        : problem === "not-directory"
+          ? `Path "${path}" is not a directory.`
+          : `No Git repository found at "${path}".`;
+    const hint = suggestions.length
+      ? `\n\nRepositories found nearby:\n${suggestions.map((candidate) => `  tuig ${shellPath(candidate)}`).join("\n")}`
+      : "\n\nHint: Run tuig from inside a Git repository or pass the path to one.";
+    super(description + hint);
+    this.name = "NotGitRepositoryError";
+  }
+}
+
+function shellPath(path: string) {
+  return /^[A-Za-z0-9_./:@%+=,-]+$/.test(path)
+    ? path
+    : `'${path.replaceAll("'", `'"'"'`)}'`;
+}
+
+async function repositoryDirectories(path: string): Promise<string[]> {
+  const entries = await readdir(path, { withFileTypes: true }).catch(() => []);
+  const repositories = await Promise.all(
+    entries
+      .filter((entry) => entry.isDirectory())
+      .map(async (entry) => {
+        const candidate = join(path, entry.name);
+        try {
+          await access(join(candidate, ".git"));
+          const root = (
+            await runGit(["rev-parse", "--show-toplevel"], candidate)
+          ).stdout.trim();
+          return resolve(root) === resolve(candidate) ? candidate : undefined;
+        } catch {
+          return undefined;
+        }
+      }),
+  );
+  return repositories.filter((path): path is string => path !== undefined);
+}
+
+function editDistance(left: string, right: string): number {
+  let previous = Array.from({ length: right.length + 1 }, (_, i) => i);
+  for (let i = 1; i <= left.length; i++) {
+    const current = [i];
+    for (let j = 1; j <= right.length; j++)
+      current[j] = Math.min(
+        current[j - 1]! + 1,
+        previous[j]! + 1,
+        previous[j - 1]! + (left[i - 1] === right[j - 1] ? 0 : 1),
+      );
+    previous = current;
+  }
+  return previous[right.length]!;
+}
+
+async function nearbyRepositories(path: string, pathExists: boolean) {
+  if (pathExists) return (await repositoryDirectories(path)).sort().slice(0, 3);
+
+  const wanted = basename(path).toLowerCase();
+  return (await repositoryDirectories(dirname(path)))
+    .map((candidate) => ({
+      candidate,
+      distance: editDistance(wanted, basename(candidate).toLowerCase()),
+    }))
+    .filter(
+      ({ distance }) =>
+        distance <= Math.max(2, Math.floor(wanted.length * 0.4)),
+    )
+    .sort(
+      (a, b) =>
+        a.distance - b.distance || a.candidate.localeCompare(b.candidate),
+    )
+    .slice(0, 3)
+    .map(({ candidate }) => candidate);
 }
 
 /** Raised when a caller aborted a running Git command. */
@@ -409,7 +493,31 @@ export class GitRepositoryService implements GitRepository {
     this.walk = new CommitWalk(root);
   }
   static async open(path = process.cwd()): Promise<GitRepositoryService> {
-    const r = await runGit(["rev-parse", "--show-toplevel"], path);
+    let pathStat;
+    try {
+      pathStat = await stat(path);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+      throw new NotGitRepositoryError(
+        path,
+        await nearbyRepositories(path, false),
+        "missing",
+      );
+    }
+    if (!pathStat.isDirectory())
+      throw new NotGitRepositoryError(path, [], "not-directory");
+    const r = await runGit(["rev-parse", "--show-toplevel"], path).catch(
+      (error: unknown) => {
+        if (
+          error instanceof GitCommandError &&
+          /not a git repository/i.test(error.result.stderr)
+        )
+          return nearbyRepositories(path, true).then((suggestions) => {
+            throw new NotGitRepositoryError(path, suggestions);
+          });
+        throw error;
+      },
+    );
     const root = r.stdout.trim();
     const metadata = await runGit(
       [
