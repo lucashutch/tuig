@@ -123,8 +123,6 @@ test("header reports branch, sync state, and dirty count", () => {
       snapshot,
       repositoryRoot: "/tmp/demo",
       width: 100,
-      syncedAt: 0,
-      now: 125_000,
     }),
   );
   expect(header).toContain("demo");
@@ -132,7 +130,7 @@ test("header reports branch, sync state, and dirty count", () => {
   expect(header).toContain("↑2");
   expect(header).toContain("↓1");
   expect(header).toContain("1 changed");
-  expect(header).toContain("synced 2m ago");
+  expect(header).not.toContain("synced");
 });
 
 test("header falls back before the first snapshot arrives", () => {
@@ -140,7 +138,7 @@ test("header falls back before the first snapshot arrives", () => {
     renderHeader({ repositoryRoot: "/tmp/demo/", width: 40 }),
   );
   expect(header).toContain("demo");
-  expect(header).toContain("not synced");
+  expect(header).not.toContain("synced");
 });
 
 test("hints follow focus and composer state", () => {
@@ -292,6 +290,51 @@ test("the toolbar centres its buttons and reports their columns", () => {
   expect(hits.map((hit) => hit.id)).toEqual(["pull"]);
   expect(toolbarHit(hits, hits[0]!.start)).toBe("pull");
   expect(toolbarHit(hits, hits[0]!.end)).toBeUndefined();
+});
+
+test("headers have no idle sync status and stay within narrow widths", () => {
+  for (const width of [1, 12, 40, 100]) {
+    const text = plain(
+      renderHeader({
+        repositoryRoot: "/repos/long-repository-name",
+        width,
+      }),
+    );
+    expect(Bun.stringWidth(text)).toBe(width);
+    expect(text).not.toContain("not synced");
+  }
+});
+
+test("activity appears on the toolbar label row with a four-column right inset", () => {
+  const buttons = toolbarButtons(undefined);
+  const idle = renderToolbar(buttons, 120);
+  const active = renderToolbar(buttons, 120, { busy: "⠋ Fetching…" });
+  const [labels, glyphs] = plain(active.content).split("\n");
+  expect(labels).toEndWith("⠋ Fetching…    ");
+  expect(Bun.stringWidth(labels!)).toBe(120);
+  expect(glyphs).toBe(plain(idle.content).split("\n")[1]);
+  expect(active.hits).toEqual(idle.hits);
+  expect(plain(idle.content)).not.toContain("Fetching");
+  const narrow = renderToolbar(buttons, 60, { busy: "⠋ Fetching…" });
+  expect(plain(narrow.content)).toBe(plain(renderToolbar(buttons, 60).content));
+});
+
+test("toolbar hover and press change colors without moving hit targets", () => {
+  const buttons = toolbarButtons(undefined);
+  buttons[0]!.enabled = true;
+  const idle = renderToolbar(buttons, 80);
+  const hover = renderToolbar(buttons, 80, { hovered: "fetch" });
+  const press = renderToolbar(buttons, 80, {
+    hovered: "fetch",
+    pressed: "fetch",
+  });
+  expect(hover.hits).toEqual(idle.hits);
+  expect(plain(press.content)).toBe(plain(idle.content));
+  expect(hover.content).not.toEqual(idle.content);
+  expect(press.content).not.toEqual(hover.content);
+  expect(
+    renderToolbar(buttons, 80, { hovered: "push", pressed: "push" }).content,
+  ).toEqual(idle.content);
 });
 
 test("marks the worktree the session has open", () => {

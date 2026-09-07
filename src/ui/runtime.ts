@@ -405,6 +405,9 @@ class Runtime {
   private sidebarPaneWidth = 28;
   private detailsPaneWidth = 44;
   private toolbarHits: ToolbarHit[] = [];
+  private toolbarHovered?: ToolbarAction;
+  private toolbarPressed?: ToolbarAction;
+  private busyFrame = "";
   private commitHeaderValue = "";
   private commitBodyValue = "";
   private commitInfoValue = "";
@@ -482,6 +485,18 @@ class Runtime {
       resize: () => this.layout(),
       keypress: (key) => void this.key(key),
       toolbarClick: (x) => void this.toolbarPress(x),
+      toolbarHover: (x) => {
+        const hovered =
+          x === undefined ? undefined : toolbarHit(this.toolbarHits, x);
+        if (hovered === this.toolbarHovered) return;
+        this.toolbarHovered = hovered;
+        this.toolbarPressed = undefined;
+        this.paintToolbar();
+      },
+      toolbarDown: (x) => {
+        this.toolbarPressed = toolbarHit(this.toolbarHits, x);
+        this.paintToolbar();
+      },
       commit: () => void this.commit(),
       toggleAmend: () => this.toggleAmend(),
       viewWorkingChanges: () => this.closeDiff(),
@@ -701,7 +716,7 @@ class Runtime {
     return Math.max(1, this.renderer.terminalHeight - PANE_TOP);
   }
   /**
-   * Show a transient message on the right of the bottom row.
+   * Show busy progress in the toolbar and transient messages at bottom right.
    *
    * Messages expire so the keybinding hints on the left, which they never
    * overwrite, remain the resting state of the row.
@@ -713,6 +728,9 @@ class Runtime {
     if (tone === "busy") {
       this.stopBusySpinner();
       this.busySpinnerText = text;
+      this.messageText = "";
+      this.message.content = "";
+      this.paintHints();
       this.busySpinner.start();
       return;
     }
@@ -733,16 +751,13 @@ class Runtime {
     }, 6000);
   }
   private renderBusyNotification(frame: string) {
-    const limit = Math.max(20, Math.floor(this.renderer.terminalWidth / 2));
-    this.messageText = clipColumns(`${frame} ${this.busySpinnerText}`, limit);
-    this.message.content = this.messageText;
-    this.message.fg = oneDarkTheme.accentSoft;
-    this.positionMessage();
-    this.paintHints();
+    this.busyFrame = frame;
+    this.paintToolbar();
   }
   private stopBusySpinner() {
     this.busySpinner.stop();
     this.busySpinnerText = "";
+    if (!this.disposed) this.paintToolbar();
   }
   private readonly dispose = () => {
     this.disposed = true;
@@ -784,19 +799,27 @@ class Runtime {
       snapshot: this.snapshot,
       repositoryRoot: this.repository.root,
       width: Math.max(1, this.renderer.terminalWidth),
-      syncedAt: this.syncedAt,
     });
   }
   private paintToolbar() {
     const width = Math.max(1, this.renderer.terminalWidth);
-    const toolbar = renderToolbar(toolbarButtons(this.snapshot), width);
+    const toolbar = renderToolbar(toolbarButtons(this.snapshot), width, {
+      hovered: this.toolbarHovered,
+      pressed: this.toolbarPressed,
+      busy: this.busySpinnerText
+        ? `${this.busyFrame} ${this.busySpinnerText}`
+        : undefined,
+    });
     this.toolbar.width = width;
     this.toolbar.content = toolbar.content;
     this.toolbarHits = toolbar.hits;
   }
   private async toolbarPress(x: number) {
     const action = toolbarHit(this.toolbarHits, x);
-    if (!action) return;
+    const pressed = this.toolbarPressed;
+    this.toolbarPressed = undefined;
+    this.paintToolbar();
+    if (!action || action !== pressed) return;
     await this.runToolbarAction(action);
   }
   private runToolbarAction(action: ToolbarAction) {

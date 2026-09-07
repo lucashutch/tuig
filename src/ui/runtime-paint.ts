@@ -536,13 +536,10 @@ export function paintComposer(ctx: RuntimePaintContext) {
         : "Write a summary to commit",
     padding = Math.max(0, Math.floor((width - Bun.stringWidth(text)) / 2));
   ctx.commitButton.fg = ready ? oneDarkTheme.added : oneDarkTheme.muted;
-  ctx.commitButton.content = new StyledText([
-    bg(ready ? oneDarkTheme.selected : oneDarkTheme.panelRaised)(
-      fg(ready ? oneDarkTheme.added : oneDarkTheme.muted)(
-        fitColumns(`${" ".repeat(padding)}${ready ? "✓ " : ""}${text}`, width),
-      ),
-    ),
-  ]);
+  ctx.commitButton.content = fitColumns(
+    `${" ".repeat(padding)}${ready ? "✓ " : ""}${text}`,
+    width,
+  );
   ctx.amendButton.content = `${ctx.amend ? "[x]" : "[ ]"} Amend previous commit`;
   ctx.amendButton.fg = ctx.amend ? oneDarkTheme.warning : oneDarkTheme.muted;
 }
