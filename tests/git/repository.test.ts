@@ -1,11 +1,12 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import {
   GitRepositoryService,
   GitCommandAbortedError,
   GitOutputLimitError,
+  NotGitRepositoryError,
   parseLog,
   parseStashes,
   parseRefs,
@@ -198,6 +199,63 @@ describe("ref parser", () => {
       },
     ]);
   });
+});
+
+test("opening a non-repository reports a useful launch error", async () => {
+  const root = await mkdtemp(join(tmpdir(), "tuig-not-repo-"));
+  cleanup.push(root);
+
+  const opening = GitRepositoryService.open(root);
+  await expect(opening).rejects.toBeInstanceOf(NotGitRepositoryError);
+  await expect(opening).rejects.toThrow(
+    `No Git repository found at "${root}".\n\nHint: Run tuig from inside a Git repository or pass the path to one.`,
+  );
+});
+
+test("opening a folder suggests up to three repositories inside it", async () => {
+  const root = await mkdtemp(join(tmpdir(), "tuig-parent-"));
+  cleanup.push(root);
+  for (const name of ["delta", "alpha", "charlie", "bravo"])
+    await runGit(["init", join(root, name)], root);
+
+  await expect(GitRepositoryService.open(root)).rejects.toThrow(
+    `Repositories found nearby:\n  tuig ${join(root, "alpha")}\n  tuig ${join(root, "bravo")}\n  tuig ${join(root, "charlie")}`,
+  );
+});
+
+test("a misspelled path suggests a similarly named sibling repository", async () => {
+  const root = await mkdtemp(join(tmpdir(), "tuig-siblings-"));
+  cleanup.push(root);
+  await runGit(["init", join(root, "project")], root);
+
+  await expect(
+    GitRepositoryService.open(join(root, "porject")),
+  ).rejects.toThrow(
+    `Path "${join(root, "porject")}" does not exist.\n\nRepositories found nearby:\n  tuig ${join(root, "project")}`,
+  );
+});
+
+test("repository suggestions are validated and shell-quoted", async () => {
+  const root = await mkdtemp(join(tmpdir(), "tuig-suggestions-"));
+  cleanup.push(root);
+  await runGit(["init", join(root, "valid repo")], root);
+  await mkdir(join(root, "not-a-repo"));
+  await Bun.write(join(root, "not-a-repo", ".git"), "not git metadata");
+
+  await expect(GitRepositoryService.open(root)).rejects.toThrow(
+    `Repositories found nearby:\n  tuig '${join(root, "valid repo")}'`,
+  );
+});
+
+test("opening a file reports that it is not a directory", async () => {
+  const root = await mkdtemp(join(tmpdir(), "tuig-file-"));
+  cleanup.push(root);
+  const file = join(root, "README.md");
+  await Bun.write(file, "content");
+
+  await expect(GitRepositoryService.open(file)).rejects.toThrow(
+    `Path "${file}" is not a directory.`,
+  );
 });
 
 test("repository stages, commits, and reports an odd filename", async () => {

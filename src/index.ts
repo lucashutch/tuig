@@ -1,5 +1,5 @@
 #!/usr/bin/env bun
-import { createGitRepository } from "./git/index.js";
+import { createGitRepository, NotGitRepositoryError } from "./git/index.js";
 import { runTuig } from "./ui/runtime.js";
 import { HELP, VERSION, parseArgs } from "./cli.js";
 import { updateTuig } from "./update.js";
@@ -17,8 +17,14 @@ try {
     await runTuig(repository);
   }
 } catch (error) {
-  console.error(
-    `tuig: ${error instanceof Error ? error.message : String(error)}`,
-  );
+  if (error instanceof NotGitRepositoryError) {
+    const [problem, ...guidance] = error.message.split("\n");
+    console.error(`tuig: ${problem}`);
+    if (guidance.length) console.log(guidance.join("\n"));
+  } else {
+    console.error(
+      `tuig: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
   process.exitCode = 1;
 }
