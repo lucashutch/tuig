@@ -55,17 +55,46 @@ describe("graph context menu", () => {
     const menu = buildGraphMenu({ sha: "a", branch: refs[0]! }, snapshot);
     expect(menu.items[0]?.action).toBe("checkout-branch");
     expect(menu.items[0]?.disabled).toBe(true);
-    const remove = menu.items.find((item) => item.action === "delete-branch");
+    const remove = menu.items.find((item) => item.label.startsWith("Delete"));
     expect(remove?.destructive).toBe(true);
-    expect(remove?.disabled).toBe(true);
+    expect(
+      remove?.submenu?.find((item) => item.action === "delete-branch-local")
+        ?.disabled,
+    ).toBe(true);
+    expect(
+      remove?.submenu?.find((item) => item.action === "delete-branch-both")
+        ?.disabled,
+    ).toBe(true);
   });
 
-  test("allows deleting remote-tracking branches", () => {
+  test("allows remote-only deletion even when the local copy is checked out", () => {
     const remote = refs[1]!;
     const menu = buildGraphMenu({ sha: remote.sha, branch: remote }, snapshot);
     expect(
-      menu.items.find((item) => item.action === "delete-branch")?.disabled,
-    ).toBe(false);
+      menu.items
+        .find((item) => item.label.startsWith("Delete"))
+        ?.submenu?.find((item) => item.action === "delete-branch-remote")
+        ?.disabled,
+    ).not.toBe(true);
+  });
+
+  test("offers all deletion scopes from either copy, even with different tips", () => {
+    const branches = refs.map((ref) => ({ ...ref, current: false }));
+    for (const branch of branches.slice(0, 2)) {
+      const menu = buildGraphMenu(
+        { sha: branch.sha, branch },
+        { ...snapshot, branches },
+      );
+      const choices = menu.items.find((item) =>
+        item.label.startsWith("Delete"),
+      )?.submenu;
+      expect(choices?.map((item) => item.action)).toEqual([
+        "delete-branch-local",
+        "delete-branch-remote",
+        "delete-branch-both",
+      ]);
+      expect(choices?.some((item) => item.disabled)).toBe(false);
+    }
   });
 
   test("offers stash apply, pop, and drop", () => {

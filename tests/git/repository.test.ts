@@ -19,6 +19,43 @@ import {
 import { splitPatchHunks } from "../../src/git/hunks.js";
 
 const cleanup: string[] = [];
+test("remote deletion removes the server branch but preserves the local copy", async () => {
+  const root = await mkdtemp(join(tmpdir(), "tuig-delete-"));
+  const remote = await mkdtemp(join(tmpdir(), "tuig-delete-remote-"));
+  cleanup.push(root, remote);
+  await runGit(["init", "-b", "main"], root);
+  await runGit(["init", "--bare"], remote);
+  await runGit(
+    [
+      "-c",
+      "user.name=Test",
+      "-c",
+      "user.email=test@example.com",
+      "commit",
+      "--allow-empty",
+      "-m",
+      "initial",
+    ],
+    root,
+  );
+  await runGit(["remote", "add", "origin", remote], root);
+  await runGit(["branch", "feature/topic"], root);
+  await runGit(["push", "-u", "origin", "feature/topic"], root);
+  const repo = await GitRepositoryService.open(root);
+  await repo.deleteRemoteBranch("origin/feature/topic");
+  expect(
+    (
+      await runGit(
+        ["for-each-ref", "--format=%(refname)", "refs/heads/feature/topic"],
+        remote,
+      )
+    ).stdout.trim(),
+  ).toBe("");
+  expect(
+    (await runGit(["show-ref", "--verify", "refs/heads/feature/topic"], root))
+      .exitCode,
+  ).toBe(0);
+});
 afterEach(async () => {
   await Promise.all(
     cleanup.splice(0).map((path) => rm(path, { recursive: true, force: true })),

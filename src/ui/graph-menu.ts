@@ -6,6 +6,7 @@ import type {
   Worktree,
 } from "../git/types.js";
 import { displayBranchName, shortSha } from "./history.js";
+import { branchDeletionCopies } from "./branch-deletion.js";
 
 export type GraphMenuAction =
   | "checkout-branch"
@@ -18,6 +19,9 @@ export type GraphMenuAction =
   | "create-tag"
   | "cherry-pick"
   | "delete-branch"
+  | "delete-branch-local"
+  | "delete-branch-remote"
+  | "delete-branch-both"
   | "apply-stash"
   | "pop-stash"
   | "drop-stash"
@@ -98,6 +102,7 @@ export function buildGraphMenu(
   }
   if (branch) {
     const name = branch.name;
+    const { local, remote } = branchDeletionCopies(branch, snapshot.branches);
     items.push(
       {
         label: branch.current
@@ -116,9 +121,31 @@ export function buildGraphMenu(
       { label: "Create branch here", action: "create-branch" },
       {
         label: `Delete ${displayBranchName(name)}`,
-        action: "delete-branch",
+        ...(local && remote
+          ? {
+              submenu: [
+                {
+                  label: "Delete local only",
+                  action: "delete-branch-local" as const,
+                  destructive: true,
+                  disabled: local.current,
+                },
+                {
+                  label: `Delete remote only (${remote.name})`,
+                  action: "delete-branch-remote" as const,
+                  destructive: true,
+                },
+                {
+                  label: "Delete both",
+                  action: "delete-branch-both" as const,
+                  destructive: true,
+                  disabled: local.current,
+                },
+              ],
+            }
+          : { action: "delete-branch" as const }),
         destructive: true,
-        disabled: branch.current,
+        disabled: local && remote ? false : branch.current,
       },
       { label: "", separator: true },
     );

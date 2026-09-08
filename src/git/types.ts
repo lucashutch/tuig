@@ -162,6 +162,7 @@ export interface GitRepository {
     checkout?: boolean,
   ): Promise<void>;
   deleteBranch(name: string, force?: boolean, remote?: boolean): Promise<void>;
+  deleteRemoteBranch(name: string, signal?: AbortSignal): Promise<void>;
   fetch(remote?: string, signal?: AbortSignal): Promise<void>;
   pull(rebase?: boolean, signal?: AbortSignal): Promise<void>;
   push(
