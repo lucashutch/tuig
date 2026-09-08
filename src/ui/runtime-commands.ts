@@ -10,6 +10,7 @@ import type {
 } from "../git/types.js";
 import { splitPatchHunks } from "../git/hunks.js";
 import { displayBranchName, shortSha } from "./history.js";
+import { branchDeletionCopies } from "./branch-deletion.js";
 import {
   menuWidth,
   type ConfirmRequest,
@@ -411,22 +412,63 @@ export async function runMenuAction(
     return perform(context, `Rebasing onto ${reference}…`, () =>
       context.repository.rebaseOnto(reference),
     );
-  if (action === "delete-branch") {
+  if (
+    action === "delete-branch" ||
+    action === "delete-branch-local" ||
+    action === "delete-branch-remote" ||
+    action === "delete-branch-both"
+  ) {
     if (!branch) return;
+    const copies = branchDeletionCopies(
+      branch,
+      context.snapshot?.branches ?? [],
+    );
+    const local =
+      action === "delete-branch-remote"
+        ? undefined
+        : action === "delete-branch"
+          ? branch.remote
+            ? undefined
+            : branch
+          : copies.local;
+    const remote =
+      action === "delete-branch-local"
+        ? undefined
+        : action === "delete-branch"
+          ? branch.remote
+            ? branch
+            : undefined
+          : copies.remote;
+    if ((!local && !remote) || local?.current) return;
+    const names = [
+      local && `local branch ${local.name}`,
+      remote && `remote branch ${remote.name}`,
+    ]
+      .filter(Boolean)
+      .join(" and ");
     return confirmThen(
       context,
       {
         title: "Delete branch",
         lines: [
-          `Delete the ${branch.remote ? "remote-tracking " : "local "}branch ${displayBranchName(branch.name)}?`,
+          `Delete ${names}?`,
+          ...(remote ? ["This deletes the branch on the remote server."] : []),
           "Commits only on this branch become unreachable.",
         ],
         confirmLabel: `Delete ${displayBranchName(branch.name)}`,
         destructive: true,
       },
       () =>
-        perform(context, `Deleting ${branch.name}…`, () =>
-          context.repository.deleteBranch(branch.name, true, branch.remote),
+        perform(
+          context,
+          `Deleting ${names}…`,
+          async (signal) => {
+            // Preserve the local copy if the server rejects deletion.
+            if (remote)
+              await context.repository.deleteRemoteBranch(remote.name, signal);
+            if (local) await context.repository.deleteBranch(local.name, true);
+          },
+          !!remote,
         ),
     );
   }

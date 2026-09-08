@@ -1123,6 +1123,19 @@ export class GitRepositoryService implements GitRepository {
   async deleteBranch(n: string, f = false, remote = false) {
     await this.git(["branch", ...(remote ? ["-r"] : []), f ? "-D" : "-d", n]);
   }
+  async deleteRemoteBranch(name: string, signal?: AbortSignal) {
+    const remotes = (await this.git(["remote"])).stdout.trim().split("\n");
+    const remote = remotes
+      .filter((candidate) => candidate && name.startsWith(`${candidate}/`))
+      .sort((a, b) => b.length - a.length)[0];
+    if (!remote) throw new Error(`No configured remote for ${name}`);
+    const branch = name.slice(remote.length + 1);
+    await this.git(["check-ref-format", `refs/heads/${branch}`]);
+    await this.git(
+      ["push", "--delete", "--", remote, `refs/heads/${branch}`],
+      signal,
+    );
+  }
   async fetch(r?: string, signal?: AbortSignal) {
     // Remove remote-tracking refs that disappeared from the remote. Without
     // pruning, the sidebar and graph keep showing branches deleted upstream.

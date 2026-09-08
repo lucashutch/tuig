@@ -3,8 +3,16 @@ import { GitCommandAbortedError, runGit } from "../../src/git/repository.js";
 import {
   cancelActiveMutation,
   perform,
+  runMenuAction,
   type RuntimeCommandsContext,
 } from "../../src/ui/runtime-commands.js";
+import type { GraphMenuItem } from "../../src/ui/graph-menu.js";
+import type {
+  BranchRef,
+  GitRepository,
+  RepositorySnapshot,
+} from "../../src/git/types.js";
+import type { RuntimePopupController } from "../../src/ui/runtime-popup.js";
 
 type StubContext = RuntimeCommandsContext & {
   notifications: Array<{ text: string; tone?: string }>;
@@ -29,6 +37,76 @@ function stubContext(
 }
 
 describe("mutation runner", () => {
+  test("branch deletion confirms the scope and preserves local on remote failure", async () => {
+    const local: BranchRef = {
+      name: "topic",
+      fullName: "refs/heads/topic",
+      sha: "a",
+      current: false,
+      remote: false,
+      upstream: "origin/topic",
+    };
+    const remote: BranchRef = {
+      name: "origin/topic",
+      fullName: "refs/remotes/origin/topic",
+      sha: "b",
+      current: false,
+      remote: true,
+    };
+    for (const scope of ["local", "remote", "both", "failed-both"] as const) {
+      const calls: string[] = [];
+      let confirm: (() => void) | undefined;
+      let settled!: () => void;
+      const done = new Promise<void>((resolve) => {
+        settled = resolve;
+      });
+      const context = stubContext({
+        snapshot: { branches: [local, remote] } as RepositorySnapshot,
+        repository: {
+          async deleteBranch(name: string) {
+            calls.push(`local:${name}`);
+          },
+          async deleteRemoteBranch(name: string) {
+            calls.push(`remote:${name}`);
+            if (scope === "failed-both") throw new Error("rejected");
+          },
+        } as unknown as GitRepository,
+        popupController: {
+          open(
+            _title: string,
+            items: GraphMenuItem[],
+            _x: number,
+            _y: number,
+            select: (item: GraphMenuItem) => void,
+          ) {
+            confirm = () => select(items.find((item) => item.destructive)!);
+          },
+        } as unknown as RuntimePopupController,
+        async refresh() {
+          settled();
+        },
+        fail() {
+          settled();
+        },
+      });
+      await runMenuAction(
+        context,
+        `delete-branch-${scope === "failed-both" ? "both" : scope}`,
+        { sha: local.sha, branch: local },
+      );
+      expect(calls).toEqual([]);
+      expect(confirm).toBeDefined();
+      confirm!();
+      await done;
+      expect(calls).toEqual(
+        scope === "local"
+          ? ["local:topic"]
+          : scope === "both"
+            ? ["remote:origin/topic", "local:topic"]
+            : ["remote:origin/topic"],
+      );
+    }
+  });
   test("refuses a second mutation while one is running", async () => {
     const context = stubContext();
     let release: (() => void) | undefined;
