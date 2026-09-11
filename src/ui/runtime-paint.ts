@@ -20,7 +20,6 @@ import {
   clampGraphScroll,
   graphWindowCells,
   laneVisible,
-  visibleGraphColumns,
 } from "./graph-viewport.js";
 import {
   decorationRefIndexFor,
@@ -46,6 +45,7 @@ import {
   type SidebarSection,
 } from "./runtime-presentation.js";
 import { oneDarkTheme } from "./theme.js";
+import { historyColumnLayout, type HistoryColumns } from "./history-columns.js";
 import { createRuntimeWidgets, type ChangeSection } from "./runtime-widgets.js";
 
 type SidebarWidgets = ReturnType<
@@ -96,6 +96,7 @@ export interface RuntimePaintContext extends RuntimeSidebarPaintContext {
   setHistoryStart(value: number): void;
   historyViewportDetached: boolean;
   historyContentWidth: number;
+  historyColumns?: HistoryColumns;
   historyShaHits: Map<number, { start: number; end: number }>;
   historyLabelHits: Map<
     number,
@@ -236,25 +237,41 @@ export function paintHistory(ctx: RuntimePaintContext) {
   start = Math.max(0, Math.min(Math.max(0, total - visibleUnits(ctx)), start));
   ctx.setHistoryStart(start);
   const visible = visibleUnits(ctx);
+  const columns = ctx.historyColumns ?? { showCommitter: true, showSha: true };
+  const geometry = historyColumnLayout(
+    ctx.historyContentWidth,
+    ctx.graphColumns,
+    columns,
+  );
+  const {
+    branchWidth: labelWidth,
+    messageWidth: subjectWidth,
+    committerWidth: authorWidth,
+  } = geometry;
   const chunks = [
     fg(ctx.focus === "history" ? oneDarkTheme.accent : oneDarkTheme.muted)(
       // The trailing marker distinguishes "all of history" from "as much of
       // it as has been read so far".
-      ` BRANCH / TAG          GRAPH  ${s.commits.length}${s.commitsComplete ? "" : "+"} COMMITS\n`,
+      fitColumns(" BRANCH / TAG", labelWidth) +
+        "│ " +
+        fitColumns("GRAPH", geometry.graphWidth) +
+        " │ " +
+        fitColumns(
+          `MESSAGE (${s.commits.length}${s.commitsComplete ? "" : "+"} COMMITS)`,
+          subjectWidth,
+        ) +
+        (columns.showCommitter
+          ? " │ " + fitColumns("COMMITTER", authorWidth)
+          : "") +
+        (columns.showSha ? " │ SHA     " : "") +
+        (geometry.padding ? "│" + " ".repeat(geometry.padding - 1) : "") +
+        "│\n",
     ),
   ];
   ctx.historyShaHits.clear();
   ctx.historyLabelHits.clear();
-  const labelWidth = Math.min(
-      22,
-      Math.max(14, Math.floor(ctx.historyContentWidth * 0.28)),
-    ),
-    backgrounds = [oneDarkTheme.bg, oneDarkTheme.panelRaised];
-  const graphVisibleColumns = visibleGraphColumns(
-      ctx.graphColumns,
-      ctx.historyContentWidth,
-      labelWidth,
-    ),
+  const backgrounds = [oneDarkTheme.bg, oneDarkTheme.panelRaised];
+  const graphVisibleColumns = geometry.graphColumns,
     graphScroll = clampGraphScroll(
       ctx.graphScroll,
       ctx.graphColumns,
@@ -331,13 +348,6 @@ export function paintHistory(ctx: RuntimePaintContext) {
       stash = row.commit.decorations.some(
         (d) => d === "refs/stash" || d === "stash",
       ),
-      textWidth = Math.max(
-        2,
-        ctx.historyContentWidth -
-          (labelWidth + 2 + graphVisibleColumns * 2 + 15),
-      ),
-      authorWidth = Math.max(1, Math.min(11, textWidth - 8)),
-      subjectWidth = Math.max(1, textWidth - authorWidth),
       subject = fitColumns(row.commit.subject, subjectWidth, true),
       graphWindow = graphWindowCells(
         row.cells,
@@ -346,7 +356,7 @@ export function paintHistory(ctx: RuntimePaintContext) {
         ctx.graphColumns,
         oneDarkTheme.muted,
       ),
-      author = fitColumns(row.commit.author, authorWidth, true);
+      author = fitColumns(row.commit.committer, authorWidth, true);
     chunks.push(
       bg(stash ? oneDarkTheme.panelRaised : rowBg)(
         fg(
@@ -356,12 +366,22 @@ export function paintHistory(ctx: RuntimePaintContext) {
       bg(rowBg)(fg(oneDarkTheme.muted)(selected ? "▸ " : "  ")),
       ...graphWindow.cells.map((c) => bg(rowBg)(fg(c.color)(c.symbol))),
       bg(rowBg)(
+        fg(oneDarkTheme.border)(
+          " ".repeat(geometry.graphWidth - graphVisibleColumns * 2) + " │ ",
+        ),
+      ),
+      bg(rowBg)(
         fg(row.head ? oneDarkTheme.warning : oneDarkTheme.text)(subject),
       ),
-      bg(rowBg)(fg(oneDarkTheme.border)(" │ ")),
-      bg(rowBg)(fg(oneDarkTheme.author)(author)),
-      bg(rowBg)(fg(oneDarkTheme.border)(" │ ")),
-      bg(rowBg)(fg(oneDarkTheme.accent)(shortSha(row.commit.sha))),
+      bg(rowBg)(fg(oneDarkTheme.border)(columns.showCommitter ? " │ " : "")),
+      bg(rowBg)(fg(oneDarkTheme.author)(columns.showCommitter ? author : "")),
+      bg(rowBg)(fg(oneDarkTheme.border)(columns.showSha ? " │ " : "")),
+      bg(rowBg)(
+        fg(oneDarkTheme.accent)(
+          columns.showSha ? shortSha(row.commit.sha) : "",
+        ),
+      ),
+      bg(rowBg)(" ".repeat(geometry.padding)),
       bg(rowBg)(
         fg(thumb(offset) ? oneDarkTheme.accent : oneDarkTheme.border)(
           `${scroll(offset)}\n`,
@@ -388,15 +408,11 @@ export function paintHistory(ctx: RuntimePaintContext) {
         // well, otherwise every avatar is one row low after scrolling past it.
         top: 2 + dotLine,
       });
-    const shaStart =
-      labelWidth +
-      2 +
-      graphVisibleColumns * 2 +
-      subjectWidth +
-      3 +
-      authorWidth +
-      3;
-    ctx.historyShaHits.set(commitRow, { start: shaStart, end: shaStart + 8 });
+    if (columns.showSha)
+      ctx.historyShaHits.set(commitRow, {
+        start: geometry.shaStart,
+        end: geometry.shaStart + 8,
+      });
     if (label)
       ctx.historyLabelHits.set(commitRow, {
         start: 0,

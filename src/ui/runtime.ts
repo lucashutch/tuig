@@ -1,5 +1,6 @@
 import {
   BoxRenderable,
+  MouseButton,
   CliRenderEvents,
   TextareaRenderable,
   ScrollBoxRenderable,
@@ -19,6 +20,11 @@ import type {
   RepositorySnapshot,
 } from "../git/types.js";
 import { type GraphRow } from "./graph.js";
+import {
+  historyColumnLayout,
+  historyDividerAt,
+  type HistoryColumns,
+} from "./history-columns.js";
 import {
   emptyGraphIndex,
   graphWindow,
@@ -242,6 +248,15 @@ class Runtime {
   private historyStart = 0;
   private historyViewportDetached = false;
   private historyContentWidth = 1;
+  private historyColumns: HistoryColumns = {
+    showCommitter: true,
+    showSha: true,
+  };
+  private historyColumnDrag?: {
+    key: "branchWidth" | "graphWidth" | "messageWidth";
+    x: number;
+    width: number;
+  };
   // Mouse events carry absolute terminal columns, so the column the history
   // text starts at is kept to translate them into row offsets.
   private historyContentLeft = 1;
@@ -450,6 +465,21 @@ class Runtime {
       },
       historyClick: (x, y, button) =>
         this.historyClick(x, y - PANE_TOP, button),
+      historyDrag: (x) => {
+        const drag = this.historyColumnDrag;
+        if (!drag) return;
+        this.historyColumns[drag.key] = Math.max(4, drag.width + x - drag.x);
+        const layout = historyColumnLayout(
+          this.historyContentWidth,
+          this.graphIndex.columns,
+          this.historyColumns,
+        );
+        this.historyColumns[drag.key] = layout[drag.key];
+        this.paintHistory();
+      },
+      historyDragEnd: () => {
+        this.historyColumnDrag = undefined;
+      },
       filesScroll: (section, delta) => this.filesScroll(section, delta),
       filesClick: (section, y, button, x) =>
         this.filesClick(section, y, button, x),
@@ -1254,6 +1284,7 @@ class Runtime {
       },
       historyViewportDetached: this.historyViewportDetached,
       historyContentWidth: this.historyContentWidth,
+      historyColumns: this.historyColumns,
       historyShaHits: this.historyShaHits,
       historyLabelHits: this.historyLabelHits,
       historyText: this.historyText,
@@ -1436,6 +1467,45 @@ class Runtime {
     return true;
   }
   private historyClick(x: number, y: number, button: number) {
+    this.historyColumnDrag = undefined;
+    if (y === 1 && !this.commitDiff.visible) {
+      if (button === MouseButton.RIGHT) {
+        const committer = {
+          label: `${this.historyColumns.showCommitter ? "[x]" : "[ ]"} Committer`,
+        };
+        const sha = {
+          label: `${this.historyColumns.showSha ? "[x]" : "[ ]"} SHA`,
+        };
+        this.openPopup(
+          "History columns",
+          [committer, sha],
+          x,
+          y + PANE_TOP,
+          (item) => {
+            if (item === committer)
+              this.historyColumns.showCommitter =
+                !this.historyColumns.showCommitter;
+            if (item === sha)
+              this.historyColumns.showSha = !this.historyColumns.showSha;
+            this.paintHistory();
+          },
+        );
+      } else if (button === MouseButton.LEFT) {
+        const layout = historyColumnLayout(
+          this.historyContentWidth,
+          this.graphIndex.columns,
+          this.historyColumns,
+        );
+        const key = historyDividerAt(x - this.historyContentLeft, layout);
+        if (key)
+          this.historyColumnDrag = {
+            key,
+            x,
+            width: layout[key],
+          };
+      }
+      return;
+    }
     handleHistoryClick(this.historyContext(), x, y, button);
   }
 

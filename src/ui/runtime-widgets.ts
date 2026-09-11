@@ -142,6 +142,8 @@ export type RuntimeWidgetActions = {
   sidebarResize(section: SidebarSection, y: number): void;
   historyScroll(delta: number, axis?: "vertical" | "horizontal"): void;
   historyClick(x: number, y: number, button: number): void;
+  historyDrag(x: number): void;
+  historyDragEnd(): void;
   filesScroll(section: ChangeSection, delta: number): void;
   filesClick(
     section: ChangeSection,
@@ -419,6 +421,9 @@ export function createRuntimeWidgets(
       " ░░░░░░░  ░ ░░░░░░░░░░░░░░░░  ░░░░░░░\n ░░░░░░░  ░ ░░░░░░░░░░░  ░░░░░░░",
     wrapMode: "none",
     onMouseDown: (e) => actions.historyClick(e.x, e.y, e.button),
+    onMouseDrag: (e) => actions.historyDrag(e.x),
+    onMouseUp: () => actions.historyDragEnd(),
+    onMouseDragEnd: () => actions.historyDragEnd(),
   });
   const makeFileList = (section: ChangeSection) =>
     new TextRenderable(renderer, {
