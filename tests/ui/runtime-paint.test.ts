@@ -113,6 +113,44 @@ function paintContext(
 }
 
 describe("history prefetch", () => {
+  test("resized columns align headings and SHA hit targets, and hidden columns leave no targets", () => {
+    const commits = history(1);
+    commits[0]!.sha = "123456789abcdef";
+    commits[0]!.committer = "Integrator";
+    const context = paintContext(commits, {
+      complete: true,
+      historyStart: 0,
+      viewport: 10,
+    });
+    context.historyColumns = {
+      branchWidth: 30,
+      messageWidth: 24,
+      showCommitter: true,
+      showSha: true,
+    };
+    paintHistory(context);
+    let [header, row] = context.text.split("\n");
+    expect(header).toContain("GRAPH │ MESSAGE");
+    const graphDivider = header!.indexOf("MESSAGE") - 2;
+    expect(row![graphDivider]).toBe("│");
+    expect(header!.indexOf("MESSAGE")).toBe(row!.indexOf("commit 0"));
+    expect(header!.indexOf("COMMITTER")).toBe(row!.indexOf("Integrator"));
+    expect(header!.indexOf("SHA")).toBe(row!.indexOf("12345678"));
+    expect(context.historyShaHits.get(0)?.start).toBe(row!.indexOf("12345678"));
+    context.historyColumns.showCommitter = false;
+    paintHistory(context);
+    [header, row] = context.text.split("\n");
+    expect(context.text).not.toContain("Integrator");
+    expect(header!.indexOf("SHA")).toBe(row!.indexOf("12345678"));
+    context.historyColumns.showSha = false;
+    paintHistory(context);
+    expect(context.text).not.toContain("12345678");
+    expect(context.historyShaHits.size).toBe(0);
+    context.historyColumns.showSha = true;
+    paintHistory(context);
+    expect(context.historyShaHits.size).toBe(1);
+  });
+
   test("hides history text behind an open commit diff", () => {
     const context = paintContext(history(10), {
       complete: true,
@@ -209,6 +247,36 @@ function widen(context: Painted, columns: number) {
 }
 
 describe("wide graphs", () => {
+  test("resizing the graph preserves alignment and clamps horizontal scrolling", () => {
+    const context = paintContext(history(5), {
+      complete: true,
+      historyStart: 0,
+      viewport: 10,
+    });
+    widen(context, 40);
+    context.historyColumns = {
+      graphWidth: 10,
+      showCommitter: true,
+      showSha: true,
+    };
+    context.graphScroll = 100;
+    paintHistory(context);
+    expect(context.graphVisibleColumns).toBe(5);
+    expect(context.graphScroll).toBe(35);
+    const narrowMessage = context.text.split("\n")[1]!.indexOf("commit 0");
+    context.historyColumns.graphWidth = 30;
+    paintHistory(context);
+    expect(context.graphVisibleColumns).toBe(15);
+    expect(context.graphScroll).toBe(25);
+    const [header, row] = context.text.split("\n");
+    expect(row!.indexOf("commit 0")).toBe(narrowMessage + 20);
+    expect(header!.indexOf("MESSAGE")).toBe(row!.indexOf("commit 0"));
+    expect(header!.indexOf("SHA")).toBe(context.historyShaHits.get(0)!.start);
+    expect(Bun.stringWidth(row!)).toBeLessThanOrEqual(
+      context.historyContentWidth,
+    );
+  });
+
   test("caps the graph and marks the lanes it hides", () => {
     const context = paintContext(history(5), {
       complete: true,

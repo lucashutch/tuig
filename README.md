@@ -13,10 +13,15 @@ Tuig is built with TypeScript, Bun, OpenTUI, and the Git executable already inst
 A header row spans the top of the screen with the repository name, current branch, ahead/behind counts, dirty file count, and how long ago you last fetched. Under it, a centred toolbar carries Fetch, Pull, Push, Stash, Pop, and Refresh, each greyed out when the repository cannot take that action. Below those sit three resizable panes:
 
 - **Repository.** Local and remote branches, with markers showing checked-out and local/remote state, plus submodules, stashes, and worktrees. The worktree you have open carries the same `◉` marker as the checked-out branch, and a prunable worktree is flagged with `⚠`.
-- **History.** A compact, one-line-per-commit colored graph with branch labels, subjects, authors, and short SHAs. Select a commit to see its changed-file tree, then click a file to open its diff.
+- **History.** A compact, one-line-per-commit colored graph with branch labels, subjects, committers, and short SHAs. Select a commit to see its changed-file tree, then click a file to open its diff.
 - **Changes.** Separate collapsible Unstaged and Staged sections, each showing its file count over a Material-icon file tree, with pane actions to discard or stage everything and a commit composer with a summary, a description, and a commit button. Selecting a commit replaces both sections with that commit's changed files.
 
 The bottom row is split. Keybinding hints for the focused pane stay on the left, and transient messages, progress, and errors appear on the right without overwriting them. `Tab` moves focus between the history and changes panes; the highlighted divider and pane heading show where input is going.
+
+Drag the history header dividers after Branch / Tag, Graph, or Message to resize
+those columns. Hold `Shift` while scrolling over history to pan a wide graph
+left or right. A horizontal mouse wheel also works. Right-click the history
+header to show or hide Committer and SHA. These settings last for the session.
 
 The One Dark theme keeps Git status colors meaningful. Added lines stay green, removed lines stay red, and graph lanes remain easy to follow.
 
