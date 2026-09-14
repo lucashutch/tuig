@@ -58,10 +58,11 @@ export type RepositoryTabHit =
   | { action: "close"; tabId: string }
   | { action: "open" };
 
-const CLOSE_WIDTH = 2;
-const TAB_OVERHEAD = 4;
+const CLOSE_WIDTH = 1;
+const TAB_OVERHEAD = 3;
 const MIN_TAB_WIDTH = TAB_OVERHEAD + 1;
 const OPEN_WIDTH = 3;
+const TAB_GAP = 1;
 
 function terminalWidth(value: number): number {
   return Number.isFinite(value) ? Math.max(0, Math.trunc(value)) : 0;
@@ -98,7 +99,7 @@ function visibleWindow(
   // hit. This gives a useful bound even when every repository name is long.
   const count = Math.min(
     tabs.length,
-    Math.max(1, Math.floor(budget / MIN_TAB_WIDTH)),
+    Math.max(1, Math.floor((budget + TAB_GAP) / (MIN_TAB_WIDTH + TAB_GAP))),
   );
   if (count === tabs.length) return { start: 0, end: tabs.length };
 
@@ -137,7 +138,7 @@ function fitTabWidths(natural: readonly number[], budget: number): number[] {
 /**
  * Lay out repository tabs in terminal columns without touching renderables.
  *
- * The + action is reserved at the right edge. When the tabs do not fit, a
+ * The + action follows the final visible tab. When the tabs do not fit, a
  * contiguous window is returned and the active tab is preferred. Long labels
  * are clipped after the window has been chosen, so every returned hit remains
  * inside the supplied terminal width.
@@ -149,13 +150,19 @@ export function layoutRepositoryTabs(
 ): RepositoryTabsLayout {
   const terminal = terminalWidth(width);
   const openWidth = Math.min(OPEN_WIDTH, terminal);
-  const tabBudget = Math.max(0, terminal - openWidth);
+  const tabBudget = Math.max(
+    0,
+    terminal - openWidth - (tabs.length > 0 ? TAB_GAP : 0),
+  );
   const activeTabId =
     typeof activeId === "number" ? tabs[activeId]?.id : activeId;
   const natural = tabs.map((tab) => naturalTabWidth(labelFor(tab)));
   const { start, end } = visibleWindow(tabs, tabBudget, activeTabId);
   const selectedNatural = natural.slice(start, end);
-  const selectedWidths = fitTabWidths(selectedNatural, tabBudget);
+  const selectedWidths = fitTabWidths(
+    selectedNatural,
+    Math.max(0, tabBudget - Math.max(0, selectedNatural.length - 1) * TAB_GAP),
+  );
   const laidOut: RepositoryTabLayout[] = [];
   let column = 0;
   for (let index = start; index < end; index++) {
@@ -180,11 +187,14 @@ export function layoutRepositoryTabs(
       closeEnd: column + tabWidth,
     });
     column += tabWidth;
+    if (index < end - 1) column += TAB_GAP;
   }
+  const openStart = Math.min(terminal, column + (laidOut.length ? TAB_GAP : 0));
+  const openEnd = Math.min(terminal, openStart + openWidth);
   return {
     width: terminal,
     tabs: laidOut,
-    open: { action: "open", start: terminal - openWidth, end: terminal },
+    open: { action: "open", start: openStart, end: openEnd },
     hiddenBefore: start,
     hiddenAfter: tabs.length - end,
   };

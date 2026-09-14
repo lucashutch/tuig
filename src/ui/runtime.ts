@@ -970,6 +970,11 @@ class Runtime {
     cells.push(
       bg(oneDarkTheme.panelRaised)(fg(oneDarkTheme.accent)(openLabel)),
     );
+    cells.push(
+      bg(oneDarkTheme.panelRaised)(
+        " ".repeat(Math.max(0, width - this.tabLayout.open.end)),
+      ),
+    );
     this.tabBar.width = width;
     this.tabBar.content = new StyledText(cells);
   }
