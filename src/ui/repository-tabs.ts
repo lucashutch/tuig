@@ -221,6 +221,22 @@ export function repositoryTabHit(
 /** Alias with the conventional hit-testing name used by other UI models. */
 export const hitTestRepositoryTabs = repositoryTabHit;
 
+/** Move a tab before the tab currently under the pointer. */
+export function reorderRepositoryTabs<T extends { id: string }>(
+  tabs: readonly T[],
+  movedId: string,
+  targetId: string,
+): T[] {
+  const from = tabs.findIndex((tab) => tab.id === movedId);
+  const target = tabs.findIndex((tab) => tab.id === targetId);
+  if (from < 0 || target < 0 || from === target) return [...tabs];
+  const reordered = [...tabs];
+  const [moved] = reordered.splice(from, 1);
+  if (!moved) return reordered;
+  reordered.splice(target, 0, moved);
+  return reordered;
+}
+
 /** Render one tab to exactly the columns reserved by its layout. */
 export function repositoryTabText(tab: RepositoryTabLayout): string {
   const width = Math.max(0, tab.end - tab.start);

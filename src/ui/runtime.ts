@@ -74,6 +74,7 @@ import {
   layoutRepositoryTabs,
   repositoryTabText,
   repositoryTabHit,
+  reorderRepositoryTabs,
   type RepositoryTabsLayout,
 } from "./repository-tabs.js";
 import {
@@ -395,6 +396,7 @@ class Runtime {
     undefined,
     0,
   );
+  private draggedTabId?: string;
   private repositorySuggestions: DirectorySuggestion[] = [];
   private repositorySuggestionIndex = 0;
   private repositorySuggestionRows = 5;
@@ -505,8 +507,10 @@ class Runtime {
       (tab) => tab.repository.root === repository.root,
     )!.id;
     const widgets = createRuntimeWidgets(renderer, {
-      tabClick: (x, button) => {
-        if (button === 0) void this.handleTabClick(x);
+      tabMouseDown: (x, button) => this.handleTabMouseDown(x, button),
+      tabDrag: (x) => this.handleTabDrag(x),
+      tabDragEnd: () => {
+        this.draggedTabId = undefined;
       },
       sidebarClick: (x, y, button) =>
         this.sidebarClick(x, y - PANE_TOP, button),
@@ -1020,12 +1024,24 @@ class Runtime {
     this.tabBar.content = new StyledText(cells);
   }
 
-  private async handleTabClick(x: number) {
+  private handleTabMouseDown(x: number, button: number) {
+    if (button !== 0) return;
     const hit = repositoryTabHit(this.tabLayout, x);
     if (!hit) return;
     if (hit.action === "open") return this.showRepositoryPicker();
-    if (hit.action === "close") return this.closeRepositoryTab(hit.tabId);
-    return this.activateRepositoryTab(hit.tabId);
+    if (hit.action === "close") return void this.closeRepositoryTab(hit.tabId);
+    this.draggedTabId = hit.tabId;
+    void this.activateRepositoryTab(hit.tabId);
+  }
+
+  private handleTabDrag(x: number) {
+    const movedId = this.draggedTabId;
+    if (!movedId) return;
+    const hit = repositoryTabHit(this.tabLayout, x);
+    if (!hit || hit.action === "open" || hit.tabId === movedId) return;
+    this.tabs = reorderRepositoryTabs(this.tabs, movedId, hit.tabId);
+    this.paintTabs();
+    this.persistSessionPreferences();
   }
 
   private showRepositoryPicker() {

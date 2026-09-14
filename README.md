@@ -87,6 +87,7 @@ Tuig is designed for the mouse, with keyboard controls for common actions.
 | Move focus between panes       | Click history or changes     | `Tab`                     |
 | Open another repository        | Click `+` in the tab row     | `Ctrl+T`                  |
 | Switch repository tab          | Click a tab                  | `Ctrl+Tab`                |
+| Reorder repository tabs        | Drag a tab                   |                           |
 | Close repository tab           | Click `×` on a tab           | `Ctrl+W`                  |
 | Move through history           | Wheel over graph             | `j` / `k`, arrow keys     |
 | Check out a branch             | Double-click its graph label |                           |
