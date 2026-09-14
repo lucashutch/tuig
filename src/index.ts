@@ -18,18 +18,10 @@ try {
       ? { repositories: [] }
       : await loadSessionPreferences();
     const requested = await createGitRepository(action.path);
-    const savedPaths = saved.activeRepository
-      ? [
-          saved.activeRepository,
-          ...saved.repositories.filter(
-            (path) => path !== saved.activeRepository,
-          ),
-        ]
-      : saved.repositories;
     const paths = action.pathProvided
-      ? [requested.root, ...savedPaths]
-      : savedPaths.length
-        ? [...savedPaths, requested.root]
+      ? [requested.root, ...saved.repositories]
+      : saved.repositories.length
+        ? [...saved.repositories, requested.root]
         : [requested.root];
     const repositories = [];
     for (const path of [...new Set(paths)]) {
@@ -43,7 +35,10 @@ try {
         // Missing or moved repositories are dropped when the session is saved.
       }
     }
-    await runTuig(repositories);
+    await runTuig(
+      repositories,
+      action.pathProvided ? requested.root : saved.activeRepository,
+    );
   }
 } catch (error) {
   if (error instanceof NotGitRepositoryError) {

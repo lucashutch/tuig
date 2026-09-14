@@ -159,8 +159,13 @@ import {
   type RuntimeCommandsContext,
 } from "./runtime-commands.js";
 
-export async function runTuig(repositories: GitRepository[]): Promise<void> {
-  const repository = repositories[0];
+export async function runTuig(
+  repositories: GitRepository[],
+  activeRepository?: string,
+): Promise<void> {
+  const repository =
+    repositories.find((candidate) => candidate.root === activeRepository) ??
+    repositories[0];
   if (!repository) throw new Error("Tuig requires at least one repository");
   const renderer = await createCliRenderer({
     useMouse: true,
@@ -169,7 +174,7 @@ export async function runTuig(repositories: GitRepository[]): Promise<void> {
     backgroundColor: oneDarkTheme.bg,
   });
   renderer.setTerminalTitle(`tuig · ${repository.root}`);
-  const app = new Runtime(renderer, repositories);
+  const app = new Runtime(renderer, repositories, repository.root);
   await app.start();
 }
 
@@ -485,15 +490,20 @@ class Runtime {
   constructor(
     private renderer: CliRenderer,
     repositories: GitRepository[],
+    activeRepository: string,
   ) {
-    const repository = repositories[0]!;
+    const repository =
+      repositories.find((candidate) => candidate.root === activeRepository) ??
+      repositories[0]!;
     this.repository = repository;
     this.tabs = repositories.map((repository, index) => ({
       id: `repository-${index}`,
       repository,
     }));
     this.nextTabId = repositories.length;
-    this.activeTabId = this.tabs[0]!.id;
+    this.activeTabId = this.tabs.find(
+      (tab) => tab.repository.root === repository.root,
+    )!.id;
     const widgets = createRuntimeWidgets(renderer, {
       tabClick: (x, button) => {
         if (button === 0) void this.handleTabClick(x);
