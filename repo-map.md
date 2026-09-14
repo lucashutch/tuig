@@ -8,6 +8,7 @@ Canonical repository: https://github.com/lucashutch/tuig
 
 - `src/git/` — Git process boundary, parsers, repository service, and domain models.
 - `src/git/parsers.ts` — pure parsers for Git's machine-readable output.
+- `src/git/repository-browser.ts` — directory suggestions for opening repository tabs.
 - `src/ui/` — OpenTUI rendering, interaction state, panes, menus, and dialogs.
 - `src/ui/runtime.ts` — runtime orchestration, state transitions, and repository actions.
 - `src/ui/runtime-commands.ts` — Git-backed commands, confirmations, prompts, and commit mutations.
@@ -19,6 +20,7 @@ Canonical repository: https://github.com/lucashutch/tuig
 - `src/ui/runtime-sidebar.ts` — sidebar interaction, resizing, and branch filtering.
 - `src/ui/runtime-popup.ts` — popup placement, rendering, submenu interaction, and prompt visibility.
 - `src/ui/runtime-widgets.ts` — typed OpenTUI widget factory, pane wiring, and renderable event bindings for the runtime.
+- `src/ui/repository-tabs.ts` — repository tab layout and hit testing.
 - `src/ui/graph-viewport.ts` — horizontal graph window sizing, clamping, and edge markers for wide graphs.
 - `src/ui/graph-menu.ts` — pure model, placement, and hit testing for the graph context menu.
 - `src/ui/runtime-presentation.ts` — compatibility barrel for the focused presentation modules.

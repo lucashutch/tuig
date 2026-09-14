@@ -510,6 +510,14 @@ export async function commit(context: RuntimeCommandsContext) {
     return context.notify("Nothing staged to commit", "error");
   const body = context.composerBody.plainText.trim();
   const message = body ? `${summary}\n\n${body}` : summary;
+  const label = context.editingCommitSha
+    ? "Saving commit message"
+    : context.amend
+      ? "Amending commit"
+      : "Committing";
+  if (context.busy !== undefined)
+    return context.notify(`${context.busy} is still running`, "error");
+  context.busy = label;
   context.composerSummary.blur();
   context.composerBody.blur();
   const reword = context.editingCommitSha;
@@ -531,6 +539,8 @@ export async function commit(context: RuntimeCommandsContext) {
   } catch (error) {
     context.fail(error);
     if (reword) setTimeout(() => context.composerSummary.focus(), 0);
+  } finally {
+    context.busy = undefined;
   }
 }
 

@@ -10,7 +10,7 @@ Tuig is built with TypeScript, Bun, OpenTUI, and the Git executable already inst
 
 ## What it looks like
 
-A header row spans the top of the screen with the repository name, current branch, ahead/behind counts, dirty file count, and how long ago you last fetched. Under it, a centred toolbar carries Fetch, Pull, Push, Stash, Pop, and Refresh, each greyed out when the repository cannot take that action. Below those sit three resizable panes:
+A tab row keeps multiple repositories open in one Tuig session. Under it, a header spans the screen with the active repository name, current branch, ahead/behind counts, dirty file count, and how long ago you last fetched. A centred toolbar carries Fetch, Pull, Push, Stash, Pop, and Refresh, each greyed out when the repository cannot take that action. Below those sit three resizable panes:
 
 - **Repository.** Local and remote branches, with markers showing checked-out and local/remote state, plus submodules, stashes, and worktrees. The worktree you have open carries the same `◉` marker as the checked-out branch, and a prunable worktree is flagged with `⚠`.
 - **History.** A compact, one-line-per-commit colored graph with branch labels, subjects, committers, and short SHAs. Select a commit to see its changed-file tree, then click a file to open its diff.
@@ -84,6 +84,9 @@ Tuig is designed for the mouse, with keyboard controls for common actions.
 | Action                         | Mouse                        | Keyboard                  |
 | ------------------------------ | ---------------------------- | ------------------------- |
 | Move focus between panes       | Click history or changes     | `Tab`                     |
+| Open another repository        | Click `+` in the tab row     | `Ctrl+T`                  |
+| Switch repository tab          | Click a tab                  | `Ctrl+Tab`                |
+| Close repository tab           | Click `×` on a tab           | `Ctrl+W`                  |
 | Move through history           | Wheel over graph             | `j` / `k`, arrow keys     |
 | Check out a branch             | Double-click its graph label |                           |
 | Open graph actions             | Right-click a row or label   |                           |
@@ -110,6 +113,8 @@ Tuig is designed for the mouse, with keyboard controls for common actions.
 | Quit                           |                              | `q`                       |
 
 Clicking a short SHA copies it through OSC 52. Right-click a branch, stash, worktree, changed file, or graph row for actions that apply to that item.
+
+The repository picker starts in the directory where Tuig was launched. It lists non-hidden folders and filters them as you type. Use the arrow keys to select a folder and `Tab` to complete it, or click a folder. Press `Enter` to open the path as a repository and `Esc` to cancel. Closing the final tab exits Tuig.
 
 Double-clicking a branch label in the graph switches to that branch. Double-clicking a remote-only label creates the matching local branch and tracks it; if a local branch of that name already exists and has diverged, Tuig asks before moving it onto the remote tip, because local-only commits are abandoned.
 

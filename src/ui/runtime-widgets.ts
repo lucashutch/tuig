@@ -67,10 +67,11 @@ export const GRAPH_AVATAR_SLOT_LIMIT = 512;
 /** Row the diff starts on inside the details pane. */
 export const COMMIT_DIFF_TOP = 2;
 
-/** First row the panes may use: the header row plus the two toolbar rows. */
-export const PANE_TOP = 3;
+/** First row the panes may use: tabs, header, and the two toolbar rows. */
+export const PANE_TOP = 4;
 
 export type RuntimeWidgets = {
+  tabBar: TextRenderable;
   header: TextRenderable;
   toolbar: TextRenderable;
   sidebar: BoxRenderable;
@@ -136,6 +137,7 @@ export type RuntimeWidgets = {
 };
 
 export type RuntimeWidgetActions = {
+  tabClick(x: number, button: number): void;
   sidebarClick(x: number, y: number, button: number): void;
   sidebarToggle(section: SidebarSection): void;
   sidebarScroll(y: number, delta: number): void;
@@ -837,11 +839,23 @@ export function createRuntimeWidgets(
   composerBox.add(composerBody);
   composerBox.add(amendButton);
   composerBox.add(commitButton);
+  const tabBar = new TextRenderable(renderer, {
+    ...absolute,
+    id: "repository-tabs",
+    left: 0,
+    top: 0,
+    height: 1,
+    zIndex: 20,
+    fg: oneDarkTheme.text,
+    wrapMode: "none",
+    content: "",
+    onMouseDown: (event) => actions.tabClick(event.x, event.button),
+  });
   const header = new TextRenderable(renderer, {
     ...absolute,
     id: "header",
     left: 0,
-    top: 0,
+    top: 1,
     height: 1,
     zIndex: 20,
     fg: oneDarkTheme.text,
@@ -854,7 +868,7 @@ export function createRuntimeWidgets(
     ...absolute,
     id: "toolbar",
     left: 0,
-    top: 1,
+    top: 2,
     height: 2,
     zIndex: 20,
     fg: oneDarkTheme.text,
@@ -1016,6 +1030,7 @@ export function createRuntimeWidgets(
   // A selected file diff is an overlay on the history pane, while commit
   // metadata remains in the details pane. The runtime positions these above
   // the graph only while a diff is open.
+  renderer.root.add(tabBar);
   renderer.root.add(header);
   renderer.root.add(toolbar);
   renderer.root.add(hints);
@@ -1038,6 +1053,7 @@ export function createRuntimeWidgets(
   renderer.keyInput.on("keypress", (key) => actions.keypress(key));
   composerSummary.on(InputRenderableEvents.ENTER, actions.commit);
   return {
+    tabBar,
     header,
     toolbar,
     sidebar,
