@@ -388,6 +388,7 @@ class Runtime {
   );
   private repositorySuggestions: DirectorySuggestion[] = [];
   private repositorySuggestionIndex = 0;
+  private repositorySuggestionRows = 5;
   private repositoryPickerRequest = 0;
   private leftWidth = 28;
   private detailsWidth = 44;
@@ -993,19 +994,18 @@ class Runtime {
       1,
       Math.min(4, this.renderer.terminalHeight - 10),
     );
-    this.repositoryPickerBox.height = Math.max(
+    const pickerHeight = Math.max(
       6,
       Math.min(
         12,
         this.renderer.terminalHeight - Number(this.repositoryPickerBox.top) - 1,
       ),
     );
+    this.repositoryPickerBox.height = pickerHeight;
     this.repositoryPathInput.width = Math.max(8, width - 4);
     this.repositoryPickerText.width = Math.max(8, width - 4);
-    this.repositoryPickerText.height = Math.max(
-      1,
-      Number(this.repositoryPickerBox.height) - 5,
-    );
+    this.repositorySuggestionRows = Math.max(1, pickerHeight - 5);
+    this.repositoryPickerText.height = this.repositorySuggestionRows;
     this.repositoryPathInput.value = "";
     this.repositorySuggestionIndex = 0;
     this.repositoryPickerBox.visible = true;
@@ -1038,7 +1038,7 @@ class Runtime {
   }
 
   private paintRepositorySuggestions() {
-    const count = Math.max(1, Number(this.repositoryPickerText.height));
+    const count = this.repositorySuggestionRows;
     const start = Math.max(
       0,
       Math.min(
@@ -1059,7 +1059,7 @@ class Runtime {
 
   private chooseRepositorySuggestion(row: number) {
     if (row < 0) return;
-    const count = Math.max(1, Number(this.repositoryPickerText.height));
+    const count = this.repositorySuggestionRows;
     const start = Math.max(
       0,
       Math.min(
