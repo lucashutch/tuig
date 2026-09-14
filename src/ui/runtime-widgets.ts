@@ -137,7 +137,9 @@ export type RuntimeWidgets = {
 };
 
 export type RuntimeWidgetActions = {
-  tabClick(x: number, button: number): void;
+  tabMouseDown(x: number, button: number): void;
+  tabDrag(x: number): void;
+  tabDragEnd(): void;
   sidebarClick(x: number, y: number, button: number): void;
   sidebarToggle(section: SidebarSection): void;
   sidebarScroll(y: number, delta: number): void;
@@ -849,7 +851,10 @@ export function createRuntimeWidgets(
     fg: oneDarkTheme.text,
     wrapMode: "none",
     content: "",
-    onMouseDown: (event) => actions.tabClick(event.x, event.button),
+    onMouseDown: (event) => actions.tabMouseDown(event.x, event.button),
+    onMouseDrag: (event) => actions.tabDrag(event.x),
+    onMouseUp: () => actions.tabDragEnd(),
+    onMouseDragEnd: () => actions.tabDragEnd(),
   });
   const header = new TextRenderable(renderer, {
     ...absolute,

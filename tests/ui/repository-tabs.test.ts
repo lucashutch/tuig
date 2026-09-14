@@ -4,6 +4,7 @@ import {
   layoutRepositoryTabs,
   repositoryTabHit,
   repositoryTabText,
+  reorderRepositoryTabs,
 } from "../../src/ui/repository-tabs.js";
 
 describe("repository tab layout", () => {
@@ -70,5 +71,16 @@ describe("repository tab layout", () => {
     expect(
       layout.tabs.map((tab) => Bun.stringWidth(repositoryTabText(tab))),
     ).toEqual(layout.tabs.map((tab) => tab.end - tab.start));
+  });
+
+  test("reorders a dragged tab without losing tab identity", () => {
+    const tabs = [{ id: "one" }, { id: "two" }, { id: "three" }];
+    expect(
+      reorderRepositoryTabs(tabs, "three", "one").map((tab) => tab.id),
+    ).toEqual(["three", "one", "two"]);
+    expect(
+      reorderRepositoryTabs(tabs, "one", "three").map((tab) => tab.id),
+    ).toEqual(["two", "three", "one"]);
+    expect(tabs.map((tab) => tab.id)).toEqual(["one", "two", "three"]);
   });
 });
