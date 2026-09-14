@@ -850,6 +850,7 @@ export function createRuntimeWidgets(
     zIndex: 20,
     fg: oneDarkTheme.text,
     wrapMode: "none",
+    selectable: false,
     content: "",
     onMouseDown: (event) => actions.tabMouseDown(event.x, event.button),
     onMouseDrag: (event) => actions.tabDrag(event.x),
