@@ -8,11 +8,20 @@ import {
   InputRenderableEvents,
   ImageRenderable,
   TextRenderable,
+  StyledText,
+  bg,
+  fg,
   createCliRenderer,
   type CliRenderer,
   type KeyEvent,
   type Selection,
 } from "@opentui/core";
+import {
+  createGitRepository,
+  NotGitRepositoryError,
+  suggestDirectories,
+  type DirectorySuggestion,
+} from "../git/index.js";
 import type {
   BranchRef,
   ChangedFile,
@@ -61,6 +70,12 @@ import {
   type RuntimeSidebarPaintContext,
 } from "./runtime-paint.js";
 import { oneDarkTheme } from "./theme.js";
+import {
+  layoutRepositoryTabs,
+  repositoryTabText,
+  repositoryTabHit,
+  type RepositoryTabsLayout,
+} from "./repository-tabs.js";
 import {
   fileViewportSize,
   clipColumns,
@@ -305,6 +320,7 @@ class Runtime {
   private refreshPending = false;
   private pendingRefreshMessage?: string;
   private readonly header: TextRenderable;
+  private readonly tabBar: TextRenderable;
   private readonly toolbar: TextRenderable;
   private readonly sidebar: BoxRenderable;
   private readonly history: BoxRenderable;
@@ -359,6 +375,20 @@ class Runtime {
   private readonly submenuText: TextRenderable;
   private readonly branchFilterInput: InputRenderable;
   private readonly promptInput: InputRenderable;
+  private readonly repositoryPathInput: InputRenderable;
+  private readonly repositoryPickerBox: BoxRenderable;
+  private readonly repositoryPickerText: TextRenderable;
+  private tabs: Array<{ id: string; repository: GitRepository }>;
+  private activeTabId: string;
+  private nextTabId = 1;
+  private tabLayout: RepositoryTabsLayout = layoutRepositoryTabs(
+    [],
+    undefined,
+    0,
+  );
+  private repositorySuggestions: DirectorySuggestion[] = [];
+  private repositorySuggestionIndex = 0;
+  private repositoryPickerRequest = 0;
   private leftWidth = 28;
   private detailsWidth = 44;
   private leftCollapsed = false;
@@ -450,7 +480,12 @@ class Runtime {
     private renderer: CliRenderer,
     private repository: GitRepository,
   ) {
+    this.tabs = [{ id: "repository-0", repository }];
+    this.activeTabId = this.tabs[0]!.id;
     const widgets = createRuntimeWidgets(renderer, {
+      tabClick: (x, button) => {
+        if (button === 0) void this.handleTabClick(x);
+      },
       sidebarClick: (x, y, button) =>
         this.sidebarClick(x, y - PANE_TOP, button),
       sidebarToggle: (section) => this.toggleSidebarSection(section),
@@ -539,6 +574,7 @@ class Runtime {
       submenuClick: (x, y) => this.popupController.click(x, y, true),
     });
     this.sidebar = widgets.sidebar;
+    this.tabBar = widgets.tabBar;
     this.history = widgets.history;
     this.details = widgets.details;
     this.header = widgets.header;
@@ -615,6 +651,54 @@ class Runtime {
       focusedBackgroundColor: oneDarkTheme.selected,
       textColor: oneDarkTheme.text,
     });
+    this.repositoryPickerBox = new BoxRenderable(renderer, {
+      position: "absolute",
+      id: "repository-picker",
+      left: 2,
+      top: 2,
+      width: 60,
+      height: 10,
+      zIndex: 90,
+      visible: false,
+      border: true,
+      borderColor: oneDarkTheme.border,
+      backgroundColor: oneDarkTheme.panelRaised,
+      shouldFill: true,
+      title: " Open repository ",
+      titleAlignment: "left",
+    });
+    this.repositoryPathInput = new InputRenderable(renderer, {
+      position: "absolute",
+      id: "repository-path",
+      left: 1,
+      top: 1,
+      width: 56,
+      visible: true,
+      zIndex: 92,
+      placeholder: "Path from current directory",
+      backgroundColor: oneDarkTheme.selected,
+      focusedBackgroundColor: oneDarkTheme.selected,
+      textColor: oneDarkTheme.text,
+    });
+    this.repositoryPickerText = new TextRenderable(renderer, {
+      position: "absolute",
+      id: "repository-suggestions",
+      left: 1,
+      top: 3,
+      width: 56,
+      height: 5,
+      visible: true,
+      zIndex: 92,
+      fg: oneDarkTheme.text,
+      wrapMode: "none",
+      content: "",
+      onMouseDown: (event) =>
+        this.chooseRepositorySuggestion(
+          event.y - Number(this.repositoryPickerBox.top) - 3,
+        ),
+    });
+    this.repositoryPickerBox.add(this.repositoryPathInput);
+    this.repositoryPickerBox.add(this.repositoryPickerText);
     this.popupController = new RuntimePopupController({
       terminalSize: () => ({
         width: this.renderer.terminalWidth,
@@ -646,8 +730,17 @@ class Runtime {
       InputRenderableEvents.ENTER,
       () => void this.submitNamePrompt(),
     );
+    this.repositoryPathInput.on(InputRenderableEvents.INPUT, () => {
+      this.repositorySuggestionIndex = 0;
+      void this.updateRepositorySuggestions();
+    });
+    this.repositoryPathInput.on(
+      InputRenderableEvents.ENTER,
+      () => void this.openRepositoryPath(),
+    );
     this.renderer.root.add(this.branchFilterInput);
     this.renderer.root.add(this.promptInput);
+    this.renderer.root.add(this.repositoryPickerBox);
     this.renderer.on(CliRenderEvents.SELECTION, this.copyCompletedSelection);
     this.renderer.once(CliRenderEvents.DESTROY, this.dispose);
   }
@@ -722,7 +815,8 @@ class Runtime {
       focused === this.composerSummary ||
       focused === this.composerBody ||
       focused === this.branchFilterInput ||
-      focused === this.promptInput
+      focused === this.promptInput ||
+      focused === this.repositoryPathInput
     );
   }
   private label(section: ChangeSection): TextRenderable {
@@ -797,6 +891,21 @@ class Runtime {
     if (this.messageTimer) clearTimeout(this.messageTimer);
     this.messageTimer = undefined;
   };
+  private async shutdown() {
+    this.avatarAbort?.abort();
+    cancelRuntimeGraphAvatars(this.dataContext());
+    cancelAvatarWork();
+    this.mutationAbort?.abort();
+    if (this.refreshTimer) clearInterval(this.refreshTimer);
+    if (this.remoteFetchTimer) clearInterval(this.remoteFetchTimer);
+    if (this.scrollTimer) clearTimeout(this.scrollTimer);
+    cancelRuntimeSidebarScroll(this.sidebarContext());
+    if (this.messageTimer) clearTimeout(this.messageTimer);
+    for (const tab of this.tabs) tab.repository.dispose?.();
+    this.dispose();
+    await this.flushLayoutPreferences().catch(() => undefined);
+    return this.renderer.destroy();
+  }
   private fail(error: unknown) {
     this.notify(
       error instanceof Error ? error.message : String(error),
@@ -831,6 +940,239 @@ class Runtime {
       width: Math.max(1, this.renderer.terminalWidth),
     });
   }
+  private paintTabs() {
+    const width = Math.max(1, this.renderer.terminalWidth);
+    this.tabLayout = layoutRepositoryTabs(
+      this.tabs.map((tab) => ({ id: tab.id, path: tab.repository.root })),
+      this.activeTabId,
+      width,
+    );
+    const cells = [];
+    for (const tab of this.tabLayout.tabs) {
+      const background = tab.active
+        ? oneDarkTheme.selected
+        : oneDarkTheme.panelRaised;
+      const label = repositoryTabText(tab);
+      cells.push(
+        bg(background)(
+          fg(tab.active ? oneDarkTheme.accent : oneDarkTheme.muted)(label),
+        ),
+      );
+    }
+    const used = this.tabLayout.tabs.at(-1)?.end ?? 0;
+    const gap = Math.max(0, this.tabLayout.open.start - used);
+    cells.push(bg(oneDarkTheme.panelRaised)(" ".repeat(gap)));
+    const openLabel = " + ".slice(
+      0,
+      this.tabLayout.open.end - this.tabLayout.open.start,
+    );
+    cells.push(
+      bg(oneDarkTheme.panelRaised)(fg(oneDarkTheme.accent)(openLabel)),
+    );
+    this.tabBar.width = width;
+    this.tabBar.content = new StyledText(cells);
+  }
+
+  private async handleTabClick(x: number) {
+    const hit = repositoryTabHit(this.tabLayout, x);
+    if (!hit) return;
+    if (hit.action === "open") return this.showRepositoryPicker();
+    if (hit.action === "close") return this.closeRepositoryTab(hit.tabId);
+    return this.activateRepositoryTab(hit.tabId);
+  }
+
+  private showRepositoryPicker() {
+    this.popupController.close();
+    const width = Math.max(30, Math.min(70, this.renderer.terminalWidth - 4));
+    this.repositoryPickerBox.width = width;
+    this.repositoryPickerBox.left = Math.max(
+      0,
+      Math.floor((this.renderer.terminalWidth - width) / 2),
+    );
+    this.repositoryPickerBox.top = Math.max(
+      1,
+      Math.min(4, this.renderer.terminalHeight - 10),
+    );
+    this.repositoryPickerBox.height = Math.max(
+      6,
+      Math.min(
+        12,
+        this.renderer.terminalHeight - Number(this.repositoryPickerBox.top) - 1,
+      ),
+    );
+    this.repositoryPathInput.width = Math.max(8, width - 4);
+    this.repositoryPickerText.width = Math.max(8, width - 4);
+    this.repositoryPickerText.height = Math.max(
+      1,
+      Number(this.repositoryPickerBox.height) - 5,
+    );
+    this.repositoryPathInput.value = "";
+    this.repositorySuggestionIndex = 0;
+    this.repositoryPickerBox.visible = true;
+    void this.updateRepositorySuggestions();
+    setTimeout(() => this.repositoryPathInput.focus(), 0);
+  }
+
+  private closeRepositoryPicker() {
+    this.repositoryPickerRequest++;
+    this.repositoryPathInput.blur();
+    this.repositoryPickerBox.visible = false;
+  }
+
+  private async updateRepositorySuggestions() {
+    const request = ++this.repositoryPickerRequest;
+    const suggestions = await suggestDirectories(
+      this.repositoryPathInput.value,
+    );
+    if (
+      request !== this.repositoryPickerRequest ||
+      !this.repositoryPickerBox.visible
+    )
+      return;
+    this.repositorySuggestions = suggestions;
+    this.repositorySuggestionIndex = Math.min(
+      this.repositorySuggestionIndex,
+      Math.max(0, suggestions.length - 1),
+    );
+    this.paintRepositorySuggestions();
+  }
+
+  private paintRepositorySuggestions() {
+    const count = Math.max(1, Number(this.repositoryPickerText.height));
+    const start = Math.max(
+      0,
+      Math.min(
+        this.repositorySuggestionIndex - count + 1,
+        this.repositorySuggestions.length - count,
+      ),
+    );
+    const visible = this.repositorySuggestions.slice(start, start + count);
+    this.repositoryPickerText.content = visible.length
+      ? visible
+          .map(
+            (entry, index) =>
+              `${start + index === this.repositorySuggestionIndex ? ">" : " "} ${entry.name}/`,
+          )
+          .join("\n")
+      : "  No matching folders";
+  }
+
+  private chooseRepositorySuggestion(row: number) {
+    if (row < 0) return;
+    const count = Math.max(1, Number(this.repositoryPickerText.height));
+    const start = Math.max(
+      0,
+      Math.min(
+        this.repositorySuggestionIndex - count + 1,
+        this.repositorySuggestions.length - count,
+      ),
+    );
+    const suggestion = this.repositorySuggestions[start + row];
+    if (!suggestion) return;
+    this.repositoryPathInput.value = `${suggestion.path}/`;
+    this.repositorySuggestionIndex = 0;
+    void this.updateRepositorySuggestions();
+    this.repositoryPathInput.focus();
+  }
+
+  private completeRepositorySuggestion() {
+    const suggestion =
+      this.repositorySuggestions[this.repositorySuggestionIndex];
+    if (!suggestion) return;
+    this.repositoryPathInput.value = `${suggestion.path}/`;
+    this.repositorySuggestionIndex = 0;
+    void this.updateRepositorySuggestions();
+  }
+
+  private async openRepositoryPath() {
+    const path = this.repositoryPathInput.value.trim() || process.cwd();
+    try {
+      const repository = await createGitRepository(path);
+      const existing = this.tabs.find(
+        (tab) => tab.repository.root === repository.root,
+      );
+      if (existing) {
+        repository.dispose?.();
+        this.closeRepositoryPicker();
+        return this.activateRepositoryTab(existing.id);
+      }
+      const id = `repository-${this.nextTabId++}`;
+      this.tabs.push({ id, repository });
+      this.closeRepositoryPicker();
+      await this.activateRepositoryTab(id);
+    } catch (error) {
+      this.notify(
+        error instanceof NotGitRepositoryError
+          ? `Not a Git repository: ${path}`
+          : error instanceof Error
+            ? error.message
+            : String(error),
+        "error",
+      );
+    }
+  }
+
+  private async activateRepositoryTab(id: string) {
+    const tab = this.tabs.find((candidate) => candidate.id === id);
+    if (!tab || id === this.activeTabId) return;
+    if (this.mutationBusy)
+      return this.notify("Wait for the current Git operation to finish");
+    this.closePopup();
+    this.closeRepositoryPicker();
+    this.branchFilterInput.blur();
+    this.composerSummary.blur();
+    this.composerBody.blur();
+    this.namePrompt = undefined;
+    this.branchFilterActive = false;
+    this.branchFilter = "";
+    this.composerSummary.value = "";
+    this.composerBody.setText("");
+    this.amend = false;
+    this.amendDraft = undefined;
+    this.editingCommitSha = undefined;
+    this.editReturnState = undefined;
+    cancelRuntimeDiff(this.dataContext());
+    cancelRuntimeGraphAvatars(this.dataContext());
+    this.avatarAbort?.abort();
+    this.snapshotRequest++;
+    this.commitFilesRequest++;
+    this.repository = tab.repository;
+    this.activeTabId = id;
+    this.snapshot = undefined;
+    this.snapshotSignature = undefined;
+    this.historyLimit = HISTORY_PAGE;
+    this.commitIndex = 0;
+    this.historySelection = "working";
+    this.fileIndex = 0;
+    this.fileStart = 0;
+    this.historyStart = 0;
+    this.view = "history";
+    this.commitFiles = [];
+    this.commitDiff.visible = false;
+    this.commitDiffEmpty.visible = false;
+    this.commitInfoBox.visible = false;
+    this.commitBodyBox.visible = false;
+    this.renderer.setTerminalTitle(`tuig · ${this.repository.root}`);
+    this.paintTabs();
+    this.paint();
+    await this.refresh();
+    this.layout();
+  }
+
+  private async closeRepositoryTab(id: string) {
+    const index = this.tabs.findIndex((tab) => tab.id === id);
+    if (index < 0) return;
+    if (id === this.activeTabId && this.mutationBusy)
+      return this.notify("Wait for the current Git operation to finish");
+    if (this.tabs.length === 1) return this.shutdown();
+    const wasActive = id === this.activeTabId;
+    const [removed] = this.tabs.splice(index, 1);
+    removed?.repository.dispose?.();
+    if (wasActive) {
+      const next = this.tabs[Math.min(index, this.tabs.length - 1)]!;
+      await this.activateRepositoryTab(next.id);
+    } else this.paintTabs();
+  }
   private paintToolbar() {
     const width = Math.max(1, this.renderer.terminalWidth);
     const toolbar = renderToolbar(toolbarButtons(this.snapshot), width, {
@@ -862,6 +1204,7 @@ class Runtime {
     this.paint();
   }
   private layout() {
+    this.paintTabs();
     layoutRuntime(this.layoutContext());
   }
   private layoutChanges(height: number) {
@@ -1727,6 +2070,31 @@ class Runtime {
       return;
     }
     const focusedEditor = this.renderer.currentFocusedEditor;
+    if (focusedEditor === this.repositoryPathInput) {
+      if (key.name === "escape") return this.closeRepositoryPicker();
+      if (key.name === "up" || key.name === "down") {
+        const delta = key.name === "up" ? -1 : 1;
+        this.repositorySuggestionIndex = Math.max(
+          0,
+          Math.min(
+            this.repositorySuggestions.length - 1,
+            this.repositorySuggestionIndex + delta,
+          ),
+        );
+        return this.paintRepositorySuggestions();
+      }
+      if (key.name === "tab") return this.completeRepositorySuggestion();
+      return;
+    }
+    if (key.ctrl && key.name === "t") return this.showRepositoryPicker();
+    if (key.ctrl && key.name === "w")
+      return void this.closeRepositoryTab(this.activeTabId);
+    if (key.ctrl && key.name === "tab") {
+      const index = this.tabs.findIndex((tab) => tab.id === this.activeTabId);
+      const delta = key.shift ? -1 : 1;
+      const next = (index + delta + this.tabs.length) % this.tabs.length;
+      return void this.activateRepositoryTab(this.tabs[next]!.id);
+    }
     const composingCommit =
       focusedEditor === this.composerSummary ||
       focusedEditor === this.composerBody;
@@ -1762,23 +2130,7 @@ class Runtime {
       return;
     }
     if (key.name === "q" || (key.ctrl && key.name === "c")) {
-      this.avatarAbort?.abort();
-      cancelRuntimeGraphAvatars(this.dataContext());
-      // Shared avatar requests outlive their callers by design, so exiting
-      // has to stop them explicitly or the process lingers until they time
-      // out.
-      cancelAvatarWork();
-      // A background fetch can run far longer than any avatar request, so it
-      // is cancelled rather than waited out.
-      this.mutationAbort?.abort();
-      if (this.refreshTimer) clearInterval(this.refreshTimer);
-      if (this.remoteFetchTimer) clearInterval(this.remoteFetchTimer);
-      if (this.scrollTimer) clearTimeout(this.scrollTimer);
-      cancelRuntimeSidebarScroll(this.sidebarContext());
-      if (this.messageTimer) clearTimeout(this.messageTimer);
-      this.dispose();
-      await this.flushLayoutPreferences().catch(() => undefined);
-      return this.renderer.destroy();
+      return this.shutdown();
     }
     if (key.name === "tab") {
       this.setFocus(this.focus === "history" ? "changes" : "history");

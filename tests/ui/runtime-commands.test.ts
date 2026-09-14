@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { GitCommandAbortedError, runGit } from "../../src/git/repository.js";
 import {
   cancelActiveMutation,
+  commit,
   perform,
   runMenuAction,
   type RuntimeCommandsContext,
@@ -9,6 +10,7 @@ import {
 import type { GraphMenuItem } from "../../src/ui/graph-menu.js";
 import type {
   BranchRef,
+  ChangedFile,
   GitRepository,
   RepositorySnapshot,
 } from "../../src/git/types.js";
@@ -130,6 +132,48 @@ describe("mutation runner", () => {
     expect(
       context.notifications.some((n) => n.text.includes("still running")),
     ).toBe(false);
+  });
+
+  test("holds the mutation lock until a commit and its refresh finish", async () => {
+    let releaseCommit!: () => void;
+    let releaseRefresh!: () => void;
+    const commitGate = new Promise<void>(
+      (resolve) => (releaseCommit = resolve),
+    );
+    const refreshGate = new Promise<void>(
+      (resolve) => (releaseRefresh = resolve),
+    );
+    const context = stubContext({
+      repository: {
+        commit: () => commitGate,
+      } as unknown as GitRepository,
+      composerSummary: {
+        value: "subject",
+        blur() {},
+      } as RuntimeCommandsContext["composerSummary"],
+      composerBody: {
+        plainText: "",
+        blur() {},
+        setText() {},
+      } as unknown as RuntimeCommandsContext["composerBody"],
+      files: (section) =>
+        section === "staged"
+          ? ([{ path: "file.ts" }] as unknown as ChangedFile[])
+          : [],
+      async refresh() {
+        await refreshGate;
+      },
+      paintComposer() {},
+    });
+    const running = commit(context);
+    await Promise.resolve();
+    expect(context.busy).toBe("Committing");
+    releaseCommit();
+    await Promise.resolve();
+    expect(context.busy).toBe("Committing");
+    releaseRefresh();
+    await running;
+    expect(context.busy).toBeUndefined();
   });
 
   test("aborts a cancellable remote mutation and reports it", async () => {

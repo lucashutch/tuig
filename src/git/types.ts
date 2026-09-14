@@ -116,6 +116,8 @@ export interface CommandResult {
 }
 
 export interface GitRepository {
+  /** Cancel repository-specific background work when no tab owns this service. */
+  dispose?(): void;
   readonly root: string;
   remoteUrl?(): Promise<string | undefined>;
   snapshot(limit?: number): Promise<RepositorySnapshot>;
