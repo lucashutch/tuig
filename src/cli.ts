@@ -3,7 +3,7 @@ import packageJson from "../package.json" with { type: "json" };
 export const VERSION = packageJson.version;
 
 export type CliAction =
-  | { kind: "run"; path: string }
+  | { kind: "run"; path: string; clean: boolean; pathProvided: boolean }
   | { kind: "help" }
   | { kind: "version" }
   | { kind: "update" };
@@ -17,6 +17,7 @@ Options:
   -h, --help       Show this help
   -v, --version    Show the installed version
   -C, --directory  Open a repository at this path
+  --clean           Open only the requested repository
 
 Commands:
   update           Install the latest Tuig release from Git
@@ -24,12 +25,17 @@ Commands:
 
 export function parseArgs(args: string[], cwd = process.cwd()): CliAction {
   let path: string | undefined;
+  let clean = false;
 
   for (let i = 0; i < args.length; i += 1) {
     const arg = args[i];
     if (arg === undefined) continue;
     if (arg === "-h" || arg === "--help") return { kind: "help" };
     if (arg === "-v" || arg === "--version") return { kind: "version" };
+    if (arg === "--clean") {
+      clean = true;
+      continue;
+    }
     if (arg === "update") {
       if (args.length !== 1)
         throw new Error("update does not accept options or a path");
@@ -47,5 +53,10 @@ export function parseArgs(args: string[], cwd = process.cwd()): CliAction {
     path = arg;
   }
 
-  return { kind: "run", path: path ?? cwd };
+  return {
+    kind: "run",
+    path: path ?? cwd,
+    clean,
+    pathProvided: path !== undefined,
+  };
 }

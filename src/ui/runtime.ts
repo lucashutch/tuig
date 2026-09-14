@@ -102,6 +102,7 @@ import {
   type RuntimeFilesContext,
 } from "./runtime-files.js";
 import { loadLayoutPreferences, saveLayoutPreferences } from "./preferences.js";
+import { saveSessionPreferences } from "./session-preferences.js";
 import {
   PANE_TOP,
   createRuntimeWidgets,
@@ -158,7 +159,9 @@ import {
   type RuntimeCommandsContext,
 } from "./runtime-commands.js";
 
-export async function runTuig(repository: GitRepository): Promise<void> {
+export async function runTuig(repositories: GitRepository[]): Promise<void> {
+  const repository = repositories[0];
+  if (!repository) throw new Error("Tuig requires at least one repository");
   const renderer = await createCliRenderer({
     useMouse: true,
     enableMouseMovement: true,
@@ -166,7 +169,7 @@ export async function runTuig(repository: GitRepository): Promise<void> {
     backgroundColor: oneDarkTheme.bg,
   });
   renderer.setTerminalTitle(`tuig · ${repository.root}`);
-  const app = new Runtime(renderer, repository);
+  const app = new Runtime(renderer, repositories);
   await app.start();
 }
 
@@ -378,6 +381,7 @@ class Runtime {
   private readonly repositoryPathInput: InputRenderable;
   private readonly repositoryPickerBox: BoxRenderable;
   private readonly repositoryPickerText: TextRenderable;
+  private repository: GitRepository;
   private tabs: Array<{ id: string; repository: GitRepository }>;
   private activeTabId: string;
   private nextTabId = 1;
@@ -467,6 +471,7 @@ class Runtime {
   private preferredUnstagedHeight?: number;
   private preferredComposerHeight?: number;
   private preferencesTimer?: ReturnType<typeof setTimeout>;
+  private sessionPreferencesTimer?: ReturnType<typeof setTimeout>;
   private amend = false;
   private amendDraft?: { summary: string; body: string };
   private editingCommitSha?: string;
@@ -479,9 +484,15 @@ class Runtime {
 
   constructor(
     private renderer: CliRenderer,
-    private repository: GitRepository,
+    repositories: GitRepository[],
   ) {
-    this.tabs = [{ id: "repository-0", repository }];
+    const repository = repositories[0]!;
+    this.repository = repository;
+    this.tabs = repositories.map((repository, index) => ({
+      id: `repository-${index}`,
+      repository,
+    }));
+    this.nextTabId = repositories.length;
     this.activeTabId = this.tabs[0]!.id;
     const widgets = createRuntimeWidgets(renderer, {
       tabClick: (x, button) => {
@@ -763,6 +774,7 @@ class Runtime {
     this.remoteFetchIntervalMinutes =
       preferences.remoteFetchIntervalMinutes ??
       DEFAULT_REMOTE_FETCH_INTERVAL_MINUTES;
+    await this.flushSessionPreferences();
     // OpenTUI starts demand-driven. start() would render at 30 FPS even when
     // nothing changes; widget invalidations and spinner ticks request frames.
     this.renderer.requestRender();
@@ -807,6 +819,24 @@ class Runtime {
       composerHeight: this.preferredComposerHeight,
       sidebarHeights: this.sidebarPreferred,
       sidebarCollapsed: this.sidebarCollapsed,
+    });
+  }
+  private persistSessionPreferences() {
+    if (this.sessionPreferencesTimer)
+      clearTimeout(this.sessionPreferencesTimer);
+    this.sessionPreferencesTimer = setTimeout(() => {
+      this.sessionPreferencesTimer = undefined;
+      void this.flushSessionPreferences().catch(() => undefined);
+    }, 100);
+  }
+  private async flushSessionPreferences() {
+    if (this.sessionPreferencesTimer) {
+      clearTimeout(this.sessionPreferencesTimer);
+      this.sessionPreferencesTimer = undefined;
+    }
+    await saveSessionPreferences({
+      repositories: this.tabs.map((tab) => tab.repository.root),
+      activeRepository: this.repository.root,
     });
   }
   /** True while either commit-message editor holds the keyboard. */
@@ -902,6 +932,7 @@ class Runtime {
     if (this.scrollTimer) clearTimeout(this.scrollTimer);
     cancelRuntimeSidebarScroll(this.sidebarContext());
     if (this.messageTimer) clearTimeout(this.messageTimer);
+    await this.flushSessionPreferences().catch(() => undefined);
     for (const tab of this.tabs) tab.repository.dispose?.();
     this.dispose();
     await this.flushLayoutPreferences().catch(() => undefined);
@@ -1103,6 +1134,7 @@ class Runtime {
       }
       const id = `repository-${this.nextTabId++}`;
       this.tabs.push({ id, repository });
+      this.persistSessionPreferences();
       this.closeRepositoryPicker();
       await this.activateRepositoryTab(id);
     } catch (error) {
@@ -1143,6 +1175,7 @@ class Runtime {
     this.commitFilesRequest++;
     this.repository = tab.repository;
     this.activeTabId = id;
+    this.persistSessionPreferences();
     this.snapshot = undefined;
     this.snapshotSignature = undefined;
     this.historyLimit = HISTORY_PAGE;
@@ -1176,7 +1209,10 @@ class Runtime {
     if (wasActive) {
       const next = this.tabs[Math.min(index, this.tabs.length - 1)]!;
       await this.activateRepositoryTab(next.id);
-    } else this.paintTabs();
+    } else {
+      this.paintTabs();
+      this.persistSessionPreferences();
+    }
   }
   private paintToolbar() {
     const width = Math.max(1, this.renderer.terminalWidth);

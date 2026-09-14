@@ -21,6 +21,7 @@ Canonical repository: https://github.com/lucashutch/tuig
 - `src/ui/runtime-popup.ts` — popup placement, rendering, submenu interaction, and prompt visibility.
 - `src/ui/runtime-widgets.ts` — typed OpenTUI widget factory, pane wiring, and renderable event bindings for the runtime.
 - `src/ui/repository-tabs.ts` — repository tab layout and hit testing.
+- `src/ui/session-preferences.ts` — persisted open repository tabs and active tab.
 - `src/ui/graph-viewport.ts` — horizontal graph window sizing, clamping, and edge markers for wide graphs.
 - `src/ui/graph-menu.ts` — pure model, placement, and hit testing for the graph context menu.
 - `src/ui/runtime-presentation.ts` — compatibility barrel for the focused presentation modules.

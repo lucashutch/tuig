@@ -72,6 +72,7 @@ Command-line options:
 tuig --help                  Show usage
 tuig --version               Show the installed version
 tuig -C ~/code/my-project    Open a repository without changing directories
+tuig --clean [path]          Open only one repository and replace saved tabs
 tuig update                  Install the latest Tuig release from Git
 ```
 
@@ -115,6 +116,8 @@ Tuig is designed for the mouse, with keyboard controls for common actions.
 Clicking a short SHA copies it through OSC 52. Right-click a branch, stash, worktree, changed file, or graph row for actions that apply to that item.
 
 The repository picker starts in the directory where Tuig was launched. It lists non-hidden folders and filters them as you type. Use the arrow keys to select a folder and `Tab` to complete it, or click a folder. Press `Enter` to open the path as a repository and `Esc` to cancel. Closing the final tab exits Tuig.
+
+Tuig saves the open repositories and active tab in `~/.config/tuig/session.json` and restores them on the next normal launch. An explicit path becomes the active tab alongside the restored tabs. Use `--clean` to start with only the supplied path, or the current directory when no path is supplied. The clean session replaces the previously saved tab list.
 
 Double-clicking a branch label in the graph switches to that branch. Double-clicking a remote-only label creates the matching local branch and tracks it; if a local branch of that name already exists and has diverged, Tuig asks before moving it onto the remote tip, because local-only commits are abandoned.
 

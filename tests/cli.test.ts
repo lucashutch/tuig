@@ -6,6 +6,8 @@ describe("CLI arguments", () => {
     expect(parseArgs([], "/tmp/project")).toEqual({
       kind: "run",
       path: "/tmp/project",
+      clean: false,
+      pathProvided: false,
     });
   });
 
@@ -19,6 +21,17 @@ describe("CLI arguments", () => {
     expect(parseArgs(["-C", "/tmp/project"])).toEqual({
       kind: "run",
       path: "/tmp/project",
+      clean: false,
+      pathProvided: true,
+    });
+  });
+
+  test("supports a clean session launch", () => {
+    expect(parseArgs(["--clean", "/tmp/project"])).toEqual({
+      kind: "run",
+      path: "/tmp/project",
+      clean: true,
+      pathProvided: true,
     });
   });
 
