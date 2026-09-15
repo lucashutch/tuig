@@ -81,6 +81,21 @@ function labelFor(tab: RepositoryTab): string {
   return tab.id;
 }
 
+/** Label a nested repository while retaining the parent repository context. */
+export function submoduleTabLabel(root: string, parentRoot: string): string {
+  const name =
+    root
+      .replace(/[\\/]+$/, "")
+      .split(/[\\/]/)
+      .at(-1) || root;
+  const parent =
+    parentRoot
+      .replace(/[\\/]+$/, "")
+      .split(/[\\/]/)
+      .at(-1) || parentRoot;
+  return `${name} · submodule of ${parent}`;
+}
+
 function columnWidth(value: string): number {
   return Bun.stringWidth(value);
 }

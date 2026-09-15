@@ -5,6 +5,7 @@ import type {
   GitRepository,
   RepositorySnapshot,
   ResetMode,
+  Submodule,
 } from "../git/types.js";
 import { splitPatchHunks } from "../git/hunks.js";
 import { displayBranchName, shortSha } from "./history.js";
@@ -59,6 +60,7 @@ export interface RuntimeCommandsContext {
   paintComposer(): void;
   notify(text: string, tone?: "info" | "error" | "busy"): void;
   fail(error: unknown): void;
+  openSubmodule(submodule: Submodule): Promise<void>;
 }
 
 /**
@@ -263,6 +265,10 @@ export async function runMenuAction(
   const tag = target.tag;
   const submodule = target.submodule;
   const reference = branch ? branch.name : target.sha;
+  if (action === "open-submodule") {
+    if (submodule) await context.openSubmodule(submodule);
+    return;
+  }
   if (action === "copy-path") {
     const path = file?.path ?? worktree?.path ?? submodule?.path;
     return void (

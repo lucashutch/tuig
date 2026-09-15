@@ -1,5 +1,5 @@
 import { InputRenderable, MouseButton } from "@opentui/core";
-import type { BranchRef, RepositorySnapshot } from "../git/types.js";
+import type { BranchRef, RepositorySnapshot, Submodule } from "../git/types.js";
 import {
   branchRefsForSection,
   clampBranchSelection,
@@ -37,6 +37,8 @@ export interface RuntimeSidebarContext {
     ReturnType<typeof setTimeout> | undefined
   >;
   branchSelection: Record<"local" | "remote", number>;
+  lastSubmoduleClick?: { path: string; at: number };
+  doubleClickMs: number;
   branchFilterInput: InputRenderable;
   layout(): void;
   paint(): void;
@@ -45,6 +47,7 @@ export interface RuntimeSidebarContext {
   persistLayoutPreferences(): void;
   notify(text: string): void;
   checkoutBranch(branch: BranchRef): Promise<void>;
+  openSubmodule(submodule: Submodule): Promise<void>;
   openGraphMenu(x: number, y: number, target: GraphMenuTarget): void;
 }
 
@@ -78,6 +81,8 @@ export function sidebarClick(
     },
   );
   if (!section) return;
+  if (section !== "submodules" || button !== MouseButton.LEFT)
+    context.lastSubmoduleClick = undefined;
   const row = context.sidebarStart[section] + y - rects[section].contentTop;
   if (section === "submodules") {
     const submodule = snapshot.submodules[Math.floor(row / 2)];
@@ -86,6 +91,18 @@ export function sidebarClick(
         sha: submodule.sha,
         submodule,
       });
+    else if (button === MouseButton.LEFT && submodule) {
+      const now = Date.now();
+      const previous = context.lastSubmoduleClick;
+      context.lastSubmoduleClick = { path: submodule.path, at: now };
+      if (
+        previous?.path === submodule.path &&
+        now - previous.at < context.doubleClickMs
+      ) {
+        context.lastSubmoduleClick = undefined;
+        void context.openSubmodule(submodule);
+      }
+    }
     return;
   }
   if (section === "stashes") {

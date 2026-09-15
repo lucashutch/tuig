@@ -16,6 +16,7 @@ import {
   type KeyEvent,
   type Selection,
 } from "@opentui/core";
+import { resolve } from "node:path";
 import {
   createGitRepository,
   NotGitRepositoryError,
@@ -27,6 +28,7 @@ import type {
   ChangedFile,
   GitRepository,
   RepositorySnapshot,
+  Submodule,
 } from "../git/types.js";
 import { type GraphRow } from "./graph.js";
 import {
@@ -75,6 +77,7 @@ import {
   repositoryTabText,
   repositoryTabHit,
   reorderRepositoryTabs,
+  submoduleTabLabel,
   type RepositoryTabsLayout,
 } from "./repository-tabs.js";
 import {
@@ -388,7 +391,11 @@ class Runtime {
   private readonly repositoryPickerBox: BoxRenderable;
   private readonly repositoryPickerText: TextRenderable;
   private repository: GitRepository;
-  private tabs: Array<{ id: string; repository: GitRepository }>;
+  private tabs: Array<{
+    id: string;
+    repository: GitRepository;
+    submoduleOf?: { root: string; path: string };
+  }>;
   private activeTabId: string;
   private nextTabId = 1;
   private tabLayout: RepositoryTabsLayout = layoutRepositoryTabs(
@@ -397,6 +404,7 @@ class Runtime {
     0,
   );
   private draggedTabId?: string;
+  private lastSubmoduleClick?: { path: string; at: number };
   private repositorySuggestions: DirectorySuggestion[] = [];
   private repositorySuggestionIndex = 0;
   private repositorySuggestionRows = 5;
@@ -989,7 +997,13 @@ class Runtime {
   private paintTabs() {
     const width = Math.max(1, this.renderer.terminalWidth);
     this.tabLayout = layoutRepositoryTabs(
-      this.tabs.map((tab) => ({ id: tab.id, path: tab.repository.root })),
+      this.tabs.map((tab) => ({
+        id: tab.id,
+        path: tab.repository.root,
+        label: tab.submoduleOf
+          ? submoduleTabLabel(tab.repository.root, tab.submoduleOf.root)
+          : undefined,
+      })),
       this.activeTabId,
       width,
     );
@@ -1175,6 +1189,41 @@ class Runtime {
       this.notify(
         error instanceof NotGitRepositoryError
           ? `Not a Git repository: ${path}`
+          : error instanceof Error
+            ? error.message
+            : String(error),
+        "error",
+      );
+    }
+  }
+
+  private async openSubmodule(submodule: Submodule) {
+    const parentRoot = this.repository.root;
+    const path = resolve(parentRoot, submodule.path);
+    try {
+      const repository = await createGitRepository(path);
+      const existing = this.tabs.find(
+        (tab) => tab.repository.root === repository.root,
+      );
+      if (existing) {
+        repository.dispose?.();
+        if (!existing.submoduleOf)
+          existing.submoduleOf = { root: parentRoot, path: submodule.path };
+        this.paintTabs();
+        return this.activateRepositoryTab(existing.id);
+      }
+      const id = `repository-${this.nextTabId++}`;
+      this.tabs.push({
+        id,
+        repository,
+        submoduleOf: { root: parentRoot, path: submodule.path },
+      });
+      this.persistSessionPreferences();
+      await this.activateRepositoryTab(id);
+    } catch (error) {
+      this.notify(
+        submodule.state === "uninitialized"
+          ? `Initialize ${submodule.path} before opening it`
           : error instanceof Error
             ? error.message
             : String(error),
@@ -1978,6 +2027,13 @@ class Runtime {
       sidebarPendingScroll: this.sidebarPendingScroll,
       sidebarScrollTimers: this.sidebarScrollTimers,
       branchSelection: this.branchSelection,
+      get lastSubmoduleClick() {
+        return runtime.lastSubmoduleClick;
+      },
+      set lastSubmoduleClick(value) {
+        runtime.lastSubmoduleClick = value;
+      },
+      doubleClickMs: DOUBLE_CLICK_MS,
       branchFilterInput: this.branchFilterInput,
       layout: () => this.layout(),
       paint: () => this.paint(),
@@ -1986,6 +2042,7 @@ class Runtime {
       persistLayoutPreferences: () => this.persistLayoutPreferences(),
       notify: (text) => this.notify(text),
       checkoutBranch: (branch) => this.checkoutBranch(branch),
+      openSubmodule: (submodule) => this.openSubmodule(submodule),
       openGraphMenu: (x, y, target) => this.openGraphMenu(x, y, target),
     };
   }
@@ -2448,6 +2505,7 @@ class Runtime {
       paintComposer: () => this.paintComposer(),
       notify: (text, tone) => this.notify(text, tone),
       fail: (error) => this.fail(error),
+      openSubmodule: (submodule) => this.openSubmodule(submodule),
     };
   }
   private perform(

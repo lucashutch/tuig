@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import type { BranchRef, RepositorySnapshot } from "../../src/git/types.js";
 import {
   cancelSidebarScroll,
+  sidebarClick,
   sidebarScroll,
   toggleSidebarSection,
   SIDEBAR_SCROLL_INTERVAL_MS,
@@ -47,7 +48,7 @@ const zeroed = <T>(value: T) =>
   >;
 
 function makeContext(branchCount = 40) {
-  const counts = { paint: 0, paintSidebar: 0 };
+  const counts = { paint: 0, paintSidebar: 0, openedSubmodules: 0 };
   const context = {
     snapshot: snapshotWith(branchCount),
     contentHeight: 40,
@@ -66,6 +67,7 @@ function makeContext(branchCount = 40) {
       undefined,
     ),
     branchSelection: { local: 0, remote: 0 },
+    doubleClickMs: 400,
     branchFilterInput: { value: "" } as never,
     layout: () => {},
     paint: () => {
@@ -78,6 +80,9 @@ function makeContext(branchCount = 40) {
     persistLayoutPreferences: () => {},
     notify: () => {},
     checkoutBranch: async () => {},
+    openSubmodule: async () => {
+      counts.openedSubmodules++;
+    },
     openGraphMenu: () => {},
   } satisfies RuntimeSidebarContext;
   return { context, counts };
@@ -95,6 +100,33 @@ function rowIn(context: RuntimeSidebarContext, section: SidebarSection) {
 
 const settle = () =>
   new Promise((resolve) => setTimeout(resolve, SIDEBAR_SCROLL_INTERVAL_MS * 3));
+
+describe("submodule sidebar actions", () => {
+  test("opens a submodule on a second click of the same row", async () => {
+    const { context, counts } = makeContext(0);
+    context.snapshot!.submodules = [
+      { path: "modules/library", sha: "abc", state: "clean" },
+    ];
+    const y = rowIn(context, "submodules");
+    sidebarClick(context, 2, y, 0);
+    sidebarClick(context, 2, y, 0);
+    await Promise.resolve();
+    expect(counts.openedSubmodules).toBe(1);
+  });
+
+  test("an unrelated click interrupts a submodule double click", async () => {
+    const { context, counts } = makeContext(1);
+    context.snapshot!.submodules = [
+      { path: "modules/library", sha: "abc", state: "clean" },
+    ];
+    const submoduleY = rowIn(context, "submodules");
+    sidebarClick(context, 2, submoduleY, 0);
+    sidebarClick(context, 2, rowIn(context, "local"), 0);
+    sidebarClick(context, 2, submoduleY, 0);
+    await Promise.resolve();
+    expect(counts.openedSubmodules).toBe(0);
+  });
+});
 
 describe("sidebar scrolling", () => {
   test("batches a wheel burst into one sidebar repaint", async () => {
