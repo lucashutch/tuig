@@ -538,6 +538,12 @@ export class GitRepositoryService implements GitRepository {
       this.invalidateHistory();
     return runGit(args, this.root, undefined, signal, maxBytes);
   }
+  private async gitWithEnv(args: string[], env: Record<string, string>) {
+    const subcommand = args.find((arg) => !arg.startsWith("-"));
+    if (subcommand && HISTORY_MUTATING.has(subcommand))
+      this.invalidateHistory();
+    return runGit(args, this.root, env);
+  }
   async remoteUrl() {
     return (
       (
@@ -1111,6 +1117,26 @@ export class GitRepositoryService implements GitRepository {
       ...(target !== undefined ? [target] : []),
     ]);
   }
+  async pushTag(name: string, remote?: string, signal?: AbortSignal) {
+    await this.validateTagName(name);
+    await this.git(
+      ["push", ...(remote ? [remote] : []), "--", `refs/tags/${name}`],
+      signal,
+    );
+  }
+  async deleteTag(name: string) {
+    await this.validateTagName(name);
+    await this.git(["tag", "--delete", "--", name]);
+  }
+  private async validateTagName(name: string) {
+    if (!name.trim() || name.includes("\0"))
+      throw new Error("A tag name is required");
+    await this.git([
+      "check-ref-format",
+      "--allow-onelevel",
+      `refs/tags/${name}`,
+    ]);
+  }
   async createBranch(n: string, s?: string, c = false) {
     await this.git([
       "branch",
@@ -1163,6 +1189,127 @@ export class GitRepositoryService implements GitRepository {
   }
   async dropStash(r: string) {
     await this.git(["stash", "drop", r]);
+  }
+  async renameStash(ref: string, message: string) {
+    const match = /^stash@\{(\d+)\}$/.exec(ref);
+    if (!match) throw new Error(`Invalid stash reference: ${ref}`);
+    if (!message.trim() || message.includes("\0"))
+      throw new Error("A stash name is required");
+    const output = (await this.git(["stash", "list", "--format=%H%x00%gs%x00"]))
+      .stdout;
+    const fields = output.split("\0");
+    const entries: { sha: string; message: string }[] = [];
+    for (let index = 0; index + 1 < fields.length; index += 2) {
+      const sha = fields[index]?.trim();
+      if (!sha) continue;
+      const subject = fields[index + 1] ?? "";
+      entries.push({ sha, message: subject });
+    }
+    const target = Number(match[1]);
+    if (!entries[target]) throw new Error(`Stash not found: ${ref}`);
+    const original = entries[target]!.sha;
+    const originalMessage = entries[target]!.message;
+    const tree = (
+      await this.git(["rev-parse", "--verify", `${original}^{tree}`])
+    ).stdout.trim();
+    const parents = (
+      await this.git(["rev-list", "--parents", "-n", "1", original])
+    ).stdout
+      .trim()
+      .split(" ")
+      .slice(1);
+    const identity = (
+      await this.git([
+        "show",
+        "-s",
+        "--format=%an%x00%ae%x00%aI%x00%cn%x00%ce%x00%cI",
+        original,
+      ])
+    ).stdout.split("\0");
+    const prefix = /^(?:(?:WIP on|On) [^:]*: )/.exec(
+      entries[target]!.message,
+    )?.[0];
+    const renamedMessage = `${prefix ?? ""}${message}`;
+    entries[target]!.sha = (
+      await this.gitWithEnv(
+        [
+          "commit-tree",
+          tree,
+          ...parents.flatMap((parent) => ["-p", parent]),
+          "-m",
+          renamedMessage,
+        ],
+        {
+          GIT_AUTHOR_NAME: identity[0] ?? "",
+          GIT_AUTHOR_EMAIL: identity[1] ?? "",
+          GIT_AUTHOR_DATE: identity[2] ?? "",
+          GIT_COMMITTER_NAME: identity[3] ?? "",
+          GIT_COMMITTER_EMAIL: identity[4] ?? "",
+          GIT_COMMITTER_DATE: identity[5]?.trim() ?? "",
+        },
+      )
+    ).stdout.trim();
+    entries[target]!.message = renamedMessage;
+    const originals = entries.map((entry, index) => ({
+      ...entry,
+      sha: index === target ? original : entry.sha,
+      message: index === target ? originalMessage : entry.message,
+    }));
+    const backupPrefix = `refs/tuig/stash-rename-${process.pid}-${Date.now()}`;
+    for (const [index, entry] of entries.entries())
+      await this.git(["update-ref", `${backupPrefix}/${index}`, entry.sha]);
+    const rebuild = async (
+      stack: readonly { sha: string; message: string }[],
+    ) => {
+      await this.git(["reflog", "expire", "--expire=all", "refs/stash"]).catch(
+        () => undefined,
+      );
+      await this.git(["update-ref", "-d", "refs/stash"]);
+      for (const entry of stack.toReversed())
+        await this.git(["stash", "store", "-m", entry.message, entry.sha]);
+    };
+    let cleanupBackups = false;
+    try {
+      // Rebuild oldest first because Git provides no reflog-message edit. The
+      // temporary refs keep every stash reachable while refs/stash is absent.
+      await rebuild(entries);
+      cleanupBackups = true;
+    } catch (error) {
+      try {
+        await rebuild(originals);
+        cleanupBackups = true;
+      } catch {
+        // Keep the backup refs when restoration fails so no stash is lost.
+      }
+      throw error;
+    } finally {
+      if (cleanupBackups)
+        for (const index of entries.keys())
+          await this.git([
+            "update-ref",
+            "-d",
+            `${backupPrefix}/${index}`,
+          ]).catch(() => undefined);
+    }
+  }
+  async updateSubmodule(path: string, init = false) {
+    this.validateSubmodulePath(path);
+    await this.git([
+      "submodule",
+      "update",
+      ...(init ? ["--init"] : []),
+      "--recursive",
+      "--",
+      path,
+    ]);
+  }
+  async syncSubmodule(path: string) {
+    this.validateSubmodulePath(path);
+    await this.git(["submodule", "sync", "--recursive", "--", path]);
+  }
+  private validateSubmodulePath(path: string) {
+    if (!path.trim() || path.includes("\0"))
+      throw new Error("A submodule path is required");
   }
   async addWorktree(path: string, branch?: string, create = false) {
     await this.git([

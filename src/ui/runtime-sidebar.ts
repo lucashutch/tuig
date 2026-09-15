@@ -68,6 +68,7 @@ export function sidebarClick(
       return (
         (candidate === "local" ||
           candidate === "remote" ||
+          candidate === "submodules" ||
           candidate === "stashes" ||
           candidate === "worktrees") &&
         !context.sidebarCollapsed[candidate] &&
@@ -78,6 +79,15 @@ export function sidebarClick(
   );
   if (!section) return;
   const row = context.sidebarStart[section] + y - rects[section].contentTop;
+  if (section === "submodules") {
+    const submodule = snapshot.submodules[Math.floor(row / 2)];
+    if (button === MouseButton.RIGHT && submodule)
+      context.openGraphMenu(x, y + context.paneTop, {
+        sha: submodule.sha,
+        submodule,
+      });
+    return;
+  }
   if (section === "stashes") {
     // Stashes render as two rows (subject, then muted branch and age).
     const stash = snapshot.stashes[Math.floor(row / 2)];

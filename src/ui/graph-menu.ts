@@ -3,6 +3,7 @@ import type {
   ChangedFile,
   RepositorySnapshot,
   Stash,
+  Submodule,
   Worktree,
 } from "../git/types.js";
 import { displayBranchName, shortSha } from "./history.js";
@@ -17,6 +18,8 @@ export type GraphMenuAction =
   | "rebase-onto"
   | "create-branch"
   | "create-tag"
+  | "push-tag"
+  | "delete-tag"
   | "cherry-pick"
   | "delete-branch"
   | "delete-branch-local"
@@ -25,6 +28,7 @@ export type GraphMenuAction =
   | "apply-stash"
   | "pop-stash"
   | "drop-stash"
+  | "rename-stash"
   /** Kept as an alias for callers built against the pre-Phase 2 menu. */
   | "delete-stash"
   | "copy-sha"
@@ -35,7 +39,10 @@ export type GraphMenuAction =
   | "copy-path"
   | "remove-worktree"
   | "lock-worktree"
-  | "unlock-worktree";
+  | "unlock-worktree"
+  | "update-submodule"
+  | "init-submodule"
+  | "sync-submodule";
 
 export interface GraphMenuItem {
   label: string;
@@ -51,6 +58,8 @@ export interface GraphMenuTarget {
   sha: string;
   branch?: BranchRef;
   stash?: Stash;
+  tag?: string;
+  submodule?: Submodule;
   worktree?: Worktree;
   file?: ChangedFile;
   /** Which changes list the file came from; drives stage vs unstage. */
@@ -81,11 +90,26 @@ export function buildGraphMenu(
   const items: GraphMenuItem[] = [];
   const branch = target.branch;
   if (target.worktree) return worktreeMenu(target.worktree, snapshot.root);
+  if (target.submodule) return submoduleMenu(target.submodule);
   if (target.file) return fileMenu(target.file, target.fileStaged === true);
+  if (target.tag) {
+    return {
+      title: `tag · ${target.tag}`,
+      items: [
+        { label: `Push ${target.tag}`, action: "push-tag" },
+        {
+          label: `Delete ${target.tag}`,
+          action: "delete-tag",
+          destructive: true,
+        },
+      ],
+    };
+  }
   if (target.stash) {
     return {
       title: `stash · ${shortSha(target.sha)}`,
       items: [
+        { label: `Rename ${target.stash.ref}`, action: "rename-stash" },
         { label: `Apply ${target.stash.ref}`, action: "apply-stash" },
         {
           label: `Pop ${target.stash.ref}`,
@@ -164,6 +188,22 @@ export function buildGraphMenu(
       ? `${displayBranchName(branch.name)} · ${shortSha(target.sha)}`
       : shortSha(target.sha),
     items,
+  };
+}
+
+function submoduleMenu(submodule: Submodule): {
+  title: string;
+  items: GraphMenuItem[];
+} {
+  const name = submodule.name ?? submodule.path;
+  return {
+    title: name,
+    items: [
+      { label: `Update ${name}`, action: "update-submodule" },
+      { label: `Update and initialize ${name}`, action: "init-submodule" },
+      { label: `Sync URL for ${name}`, action: "sync-submodule" },
+      { label: "Copy path", action: "copy-path" },
+    ],
   };
 }
 

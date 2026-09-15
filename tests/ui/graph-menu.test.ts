@@ -97,7 +97,7 @@ describe("graph context menu", () => {
     }
   });
 
-  test("offers stash apply, pop, and drop", () => {
+  test("offers stash rename, apply, pop, and drop", () => {
     const stash = {
       ref: "stash@{0}",
       sha: "d",
@@ -106,12 +106,43 @@ describe("graph context menu", () => {
     };
     const menu = buildGraphMenu({ sha: stash.sha, stash }, snapshot);
     expect(menu.items.map((item) => item.action)).toEqual([
+      "rename-stash",
       "apply-stash",
       "pop-stash",
       "drop-stash",
     ]);
-    expect(menu.items[1]?.destructive).toBe(true);
     expect(menu.items[2]?.destructive).toBe(true);
+    expect(menu.items[3]?.destructive).toBe(true);
+  });
+
+  test("offers push and delete for a tag label", () => {
+    const menu = buildGraphMenu({ sha: "a", tag: "v1.2.3" }, snapshot);
+    expect(menu.items.map((item) => item.action)).toEqual([
+      "push-tag",
+      "delete-tag",
+    ]);
+    expect(menu.items[1]?.destructive).toBe(true);
+  });
+
+  test("offers update, init, sync, and copy for a submodule", () => {
+    const menu = buildGraphMenu(
+      {
+        sha: "a",
+        submodule: {
+          name: "library",
+          path: "modules/library",
+          sha: "a",
+          state: "uninitialized",
+        },
+      },
+      snapshot,
+    );
+    expect(menu.items.map((item) => item.action)).toEqual([
+      "update-submodule",
+      "init-submodule",
+      "sync-submodule",
+      "copy-path",
+    ]);
   });
 
   test("offers worktree lock, unlock, remove, and copy path", () => {
