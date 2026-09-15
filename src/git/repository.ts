@@ -815,6 +815,7 @@ export class GitRepositoryService implements GitRepository {
     };
   }
   async diff(r: DiffRequest) {
+    if (r.base || r.target) return this.comparisonDiff(r);
     if (r.commit) return this.commitDiff(r);
     const result = await this.git(
       [
@@ -855,7 +856,24 @@ export class GitRepositoryService implements GitRepository {
     }
     return "";
   }
-  async commitFiles(sha: string) {
+  async commitFiles(sha: string, base?: string) {
+    if (base) {
+      this.validateCommitRef(base);
+      this.validateCommitRef(sha);
+      return parseNameStatus(
+        (
+          await this.git([
+            "diff",
+            "--name-status",
+            "-z",
+            "-M",
+            "--end-of-options",
+            base,
+            sha,
+          ])
+        ).stdout,
+      );
+    }
     const { resolved, parents, untrackedParent } =
       await this.commitDetails(sha);
     const outputs = [
@@ -894,8 +912,7 @@ export class GitRepositoryService implements GitRepository {
     );
   }
   private async commitDetails(sha: string, signal?: AbortSignal) {
-    if (!sha.trim() || sha.includes("\0"))
-      throw new Error("A commit is required");
+    this.validateCommitRef(sha);
     const [resolved = "", parentLine = ""] = (
       await this.git(
         [
@@ -929,6 +946,32 @@ export class GitRepositoryService implements GitRepository {
         untrackedParent = parents[2];
     }
     return { resolved, parents, untrackedParent };
+  }
+  private validateCommitRef(sha: string) {
+    if (!sha.trim() || sha.includes("\0") || sha.startsWith("-"))
+      throw new Error("A commit is required");
+  }
+  private async comparisonDiff(r: DiffRequest): Promise<string> {
+    if (!r.base || !r.target)
+      throw new Error("Both comparison commits are required");
+    this.validateCommitRef(r.base);
+    this.validateCommitRef(r.target);
+    return (
+      await this.git(
+        [
+          "diff",
+          "--no-ext-diff",
+          ...(r.context !== undefined ? [`-U${r.context}`] : []),
+          "--end-of-options",
+          r.base,
+          r.target,
+          "--",
+          ...diffPaths(r),
+        ],
+        r.signal,
+        r.maxBytes,
+      )
+    ).stdout;
   }
   private async commitDiff(r: DiffRequest): Promise<string> {
     const { resolved, parents, untrackedParent } = await this.commitDetails(
@@ -1344,5 +1387,10 @@ export class GitRepositoryService implements GitRepository {
   async discard(paths: string[]) {
     await this.git(["restore", "--worktree", "--", ...paths]);
   }
+}
+function diffPaths(request: DiffRequest): string[] {
+  return [
+    ...new Set([request.originalPath, request.path].filter(Boolean)),
+  ] as string[];
 }
 export const createGitRepository = GitRepositoryService.open;

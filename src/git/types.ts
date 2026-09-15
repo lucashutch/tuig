@@ -104,8 +104,14 @@ export interface WorkingStatus {
 
 export interface DiffRequest {
   path?: string;
+  /** Previous path when the selected entry is a rename or copy. */
+  originalPath?: string;
   staged?: boolean;
   commit?: string;
+  /** Older endpoint for a direct two-commit comparison. Requires `target`. */
+  base?: string;
+  /** Newer endpoint for a direct two-commit comparison. Requires `base`. */
+  target?: string;
   context?: number;
   signal?: AbortSignal;
   maxBytes?: number;
@@ -138,7 +144,7 @@ export interface GitRepository {
    */
   workingStatus?(): Promise<WorkingStatus>;
   diff(request: DiffRequest): Promise<string>;
-  commitFiles(sha: string): Promise<ChangedFile[]>;
+  commitFiles(sha: string, base?: string): Promise<ChangedFile[]>;
   stage(paths: string[]): Promise<void>;
   unstage(paths: string[]): Promise<void>;
   applyPatch(patch: string, reverse?: boolean): Promise<void>;

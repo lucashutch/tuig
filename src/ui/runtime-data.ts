@@ -92,6 +92,8 @@ export interface RuntimeDataContext {
   fileIndex: number;
   fileStart: number;
   commitFiles: ChangedFile[];
+  comparisonBaseSha?: string;
+  comparisonStartSha?: string;
   /** Lane layout for the loaded history, replayed per paint rather than held. */
   graphIndex: GraphIndex;
   /** Commits currently asked of Git. Grows as the viewport nears the end. */
@@ -379,10 +381,6 @@ export async function refresh(
   }
   ctx.busy = true;
   const request = ++ctx.snapshotRequest;
-  const preserveCommitDiff =
-    ctx.view === "commit" && ctx.widgets.commitDiff.visible;
-  const selectedSha = ctx.snapshot?.commits[ctx.commitIndex]?.sha;
-  const selectedPath = ctx.selectedFile()?.path;
   if (!automatic && message) ctx.notify(message, "busy");
   try {
     // A page can land while this read is in flight. Re-read at the deeper
@@ -410,6 +408,13 @@ export async function refresh(
       ctx.notify("");
       return;
     }
+    // Navigation can change while Git is reading. Restore the state that is
+    // current when the snapshot lands, not the state from the request start.
+    const preserveCommitDiff =
+      ctx.view === "commit" && ctx.widgets.commitDiff.visible;
+    const comparisonBaseSha = ctx.comparisonBaseSha;
+    const selectedSha = ctx.snapshot?.commits[ctx.commitIndex]?.sha;
+    const selectedPath = ctx.selectedFile()?.path;
     ctx.snapshotSignature = signature;
     // Replacing the snapshot invalidates every load that guards on its
     // identity, so the in-flight diff and commit files are dropped here rather
@@ -454,7 +459,8 @@ export async function refresh(
     ctx.ensureFileVisible();
     ctx.paint();
     if (ctx.view === "commit") {
-      await openCommit(ctx);
+      if (comparisonBaseSha) await openComparison(ctx, comparisonBaseSha);
+      else await openCommit(ctx);
       if (preserveCommitDiff && ctx.selectedFile()) {
         ctx.diffOrigin = "commit";
         ctx.widgets.commitDiff.visible = true;
@@ -500,6 +506,7 @@ export async function loadDiff(ctx: RuntimeDataContext, allowLarge = false) {
     view = ctx.view,
     mode = ctx.mode,
     path = file?.path;
+  const comparisonBase = ctx.comparisonBaseSha;
   const abort = new AbortController();
   ctx.diffAbort = abort;
   const current = () =>
@@ -508,6 +515,7 @@ export async function loadDiff(ctx: RuntimeDataContext, allowLarge = false) {
     ctx.snapshot === snapshot &&
     ctx.view === view &&
     ctx.mode === mode &&
+    ctx.comparisonBaseSha === comparisonBase &&
     ctx.selectedFile()?.path === path &&
     (view !== "commit" ||
       ctx.snapshot?.commits[ctx.commitIndex]?.sha === selected?.sha);
@@ -516,13 +524,20 @@ export async function loadDiff(ctx: RuntimeDataContext, allowLarge = false) {
   try {
     const options = {
       path,
+      originalPath: file?.originalPath,
       context: 6,
       signal: abort.signal,
       maxBytes: allowLarge ? undefined : DIFF_DISPLAY_MAX_BYTES,
     };
     const value =
       view === "commit" && selected
-        ? await ctx.repository.diff({ ...options, commit: selected.sha })
+        ? comparisonBase
+          ? await ctx.repository.diff({
+              ...options,
+              base: comparisonBase,
+              target: selected.sha,
+            })
+          : await ctx.repository.diff({ ...options, commit: selected.sha })
         : file
           ? await ctx.repository.diff({ ...options, staged: mode === "staged" })
           : "";
@@ -570,11 +585,12 @@ export async function openCommit(ctx: RuntimeDataContext) {
   const snapshot = ctx.snapshot,
     selectedPath = ctx.selectedFile()?.path;
   ctx.view = "commit";
+  ctx.comparisonBaseSha = undefined;
   ctx.diffOrigin = undefined;
   ctx.historySelection = "commit";
   ctx.fileIndex = 0;
   ctx.fileStart = 0;
-  ctx.widgets.history.title = undefined;
+  ctx.widgets.history.title = comparisonTitle(ctx);
   ctx.widgets.historyText.visible = true;
   ctx.widgets.commitDiff.visible = false;
   ctx.widgets.commitDiffEmpty.visible = false;
@@ -616,11 +632,77 @@ export async function openCommit(ctx: RuntimeDataContext) {
   }
 }
 
+/** Open a direct tree comparison from `baseSha` to the selected commit. */
+export async function openComparison(ctx: RuntimeDataContext, baseSha: string) {
+  const target = ctx.snapshot?.commits[ctx.commitIndex];
+  if (!target || target.sha === baseSha) return;
+  const base = ctx.snapshot?.commits.find((commit) => commit.sha === baseSha);
+  const token = ++ctx.commitFilesRequest;
+  cancelDiff(ctx);
+  ctx.widgets.commitDiff.clear();
+  const snapshot = ctx.snapshot;
+  ctx.view = "commit";
+  ctx.comparisonBaseSha = baseSha;
+  ctx.diffOrigin = undefined;
+  ctx.historySelection = "commit";
+  ctx.fileIndex = 0;
+  ctx.fileStart = 0;
+  ctx.widgets.history.title = comparisonTitle(ctx);
+  ctx.widgets.historyText.visible = true;
+  ctx.widgets.commitDiff.visible = false;
+  ctx.widgets.commitDiffEmpty.visible = false;
+  showCommitMeta(ctx, target);
+  ctx.widgets.commitHeader.content = `Compare ${shortCommit(baseSha)} → ${shortCommit(target.sha)}`;
+  ctx.commitHeaderValue = `Compare ${shortCommit(baseSha)} → ${shortCommit(target.sha)}`;
+  const comparisonBody = `${base?.subject ?? "Comparison start"}\n→ ${target.subject}`;
+  ctx.widgets.commitBody.content = comparisonBody;
+  ctx.commitBodyValue = comparisonBody;
+  ctx.widgets.commitBody.height = wrappedLineCount(
+    comparisonBody,
+    Math.max(10, ctx.detailsPaneWidth - 8),
+  );
+  ctx.widgets.workingBanner.content = workingChangesBannerLines(
+    ctx.snapshot?.files.length ?? 0,
+    Math.max(1, ctx.detailsPaneWidth - 2),
+  ).join("\n");
+  ctx.layout();
+  ctx.notify(
+    `Comparing ${shortCommit(baseSha)} → ${shortCommit(target.sha)} · select a file`,
+  );
+  ctx.commitFiles = [];
+  ctx.widgets.unstagedText.content = new StyledText([
+    fg(oneDarkTheme.muted)("  ░░░░░░░░░░░░░░░\n  ░░░░░░░░░░\n  ░░░░░░░░░░░░"),
+  ]);
+  try {
+    const files = await ctx.repository.commitFiles(target.sha, baseSha);
+    if (
+      token !== ctx.commitFilesRequest ||
+      ctx.snapshot !== snapshot ||
+      ctx.comparisonBaseSha !== baseSha ||
+      ctx.snapshot?.commits[ctx.commitIndex]?.sha !== target.sha
+    )
+      return;
+    ctx.commitFiles = files;
+    ctx.ensureFileVisible();
+    ctx.paintFiles();
+    ctx.widgets.commitDiffEmpty.content = files.length
+      ? "Select a changed file to open its diff."
+      : "These commits have no changed files.";
+  } catch (error) {
+    if (token !== ctx.commitFilesRequest || ctx.snapshot !== snapshot) return;
+    ctx.fail(error);
+  }
+}
+
+function shortCommit(sha: string) {
+  return sha.slice(0, 8);
+}
+
 export async function openWorkingDiff(ctx: RuntimeDataContext) {
   if (!ctx.selectedFile()) return;
   ctx.view = "working";
   ctx.diffOrigin = "working";
-  ctx.widgets.history.title = undefined;
+  ctx.widgets.history.title = comparisonTitle(ctx);
   ctx.widgets.commitDiff.visible = true;
   ctx.widgets.commitDiffEmpty.visible = false;
   setCommitMetaVisible(ctx, false);
@@ -642,7 +724,7 @@ export function closeDiff(ctx: RuntimeDataContext) {
   if (returnToCommit) {
     ctx.view = "commit";
     ctx.historySelection = "commit";
-    ctx.widgets.history.title = undefined;
+    ctx.widgets.history.title = comparisonTitle(ctx);
     ctx.widgets.historyText.visible = true;
     ctx.widgets.commitDiff.visible = false;
     ctx.widgets.commitDiffEmpty.visible = false;
@@ -654,10 +736,11 @@ export function closeDiff(ctx: RuntimeDataContext) {
     return;
   }
   ctx.view = "history";
+  ctx.comparisonBaseSha = undefined;
   ctx.historySelection = "working";
   ctx.commitFiles = [];
   ctx.fileIndex = 0;
-  ctx.widgets.history.title = undefined;
+  ctx.widgets.history.title = comparisonTitle(ctx);
   ctx.widgets.historyText.visible = true;
   ctx.widgets.commitDiff.visible = false;
   ctx.widgets.commitDiffEmpty.visible = false;
@@ -1010,4 +1093,10 @@ function setCommitMetaVisible(ctx: RuntimeDataContext, visible: boolean) {
   }
   ctx.widgets.commitInfoBox.visible = visible;
   ctx.widgets.commitBodyBox.visible = visible;
+}
+
+function comparisonTitle(ctx: RuntimeDataContext) {
+  return ctx.comparisonStartSha
+    ? ` Comparison start: ${shortCommit(ctx.comparisonStartSha)} `
+    : undefined;
 }

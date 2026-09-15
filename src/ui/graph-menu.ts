@@ -10,6 +10,9 @@ import { displayBranchName, shortSha } from "./history.js";
 import { branchDeletionCopies } from "./branch-deletion.js";
 
 export type GraphMenuAction =
+  | "select-comparison-start"
+  | "compare-with-selected"
+  | "clear-comparison-start"
   | "checkout-branch"
   | "checkout-commit"
   | "reset-soft"
@@ -86,6 +89,7 @@ const SUBMENU_MARKER = " ▸";
 export function buildGraphMenu(
   target: GraphMenuTarget,
   snapshot: Pick<RepositorySnapshot, "branch" | "branches" | "root">,
+  comparisonStart?: string,
 ): { title: string; items: GraphMenuItem[] } {
   const current = snapshot.branch ?? "HEAD";
   const items: GraphMenuItem[] = [];
@@ -176,6 +180,35 @@ export function buildGraphMenu(
     );
   }
   items.push(
+    ...(comparisonStart
+      ? target.sha === comparisonStart
+        ? [
+            {
+              label: "Clear comparison start",
+              action: "clear-comparison-start" as const,
+            },
+          ]
+        : [
+            {
+              label: `Compare ${shortSha(comparisonStart)} → ${shortSha(target.sha)}`,
+              action: "compare-with-selected" as const,
+            },
+            {
+              label: "Replace comparison start",
+              action: "select-comparison-start" as const,
+            },
+            {
+              label: "Clear comparison start",
+              action: "clear-comparison-start" as const,
+            },
+          ]
+      : [
+          {
+            label: "Select for comparison",
+            action: "select-comparison-start" as const,
+          },
+        ]),
+    { label: "", separator: true },
     { label: "Checkout this commit (detached)", action: "checkout-commit" },
     { label: `Rebase ${current} onto this commit`, action: "rebase-onto" },
     resetSubmenu(current, "this commit"),
