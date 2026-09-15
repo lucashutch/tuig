@@ -26,4 +26,20 @@ describe("session preferences", () => {
       }),
     ).toEqual({ repositories: ["/one"] });
   });
+
+  test("keeps valid submodule tab relationships", () => {
+    expect(
+      parseSessionPreferences({
+        repositories: ["/parent", "/parent/sub"],
+        submodules: {
+          "/parent/sub": { root: "/parent", path: "sub" },
+          "/missing": { root: "/parent", path: "missing" },
+          "/parent": { root: 3, path: "bad" },
+        },
+      }),
+    ).toEqual({
+      repositories: ["/parent", "/parent/sub"],
+      submodules: { "/parent/sub": { root: "/parent", path: "sub" } },
+    });
+  });
 });

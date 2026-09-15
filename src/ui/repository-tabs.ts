@@ -59,12 +59,12 @@ export type RepositoryTabHit =
   | { action: "open" };
 
 const CLOSE_WIDTH = 1;
-// One leading cell, one cell between the label and close button, the close
-// button, and one trailing cell.
-const TAB_OVERHEAD = 4;
+// Two leading cells, one cell between the label and close button, the close
+// button, and two trailing cells give each repository a roomier hit target.
+const TAB_OVERHEAD = 6;
 const MIN_TAB_WIDTH = TAB_OVERHEAD + 1;
 const OPEN_WIDTH = 3;
-const TAB_GAP = 1;
+const TAB_GAP = 2;
 
 function terminalWidth(value: number): number {
   return Number.isFinite(value) ? Math.max(0, Math.trunc(value)) : 0;
@@ -187,8 +187,8 @@ export function layoutRepositoryTabs(
     const fullLabel = labelFor(tab);
     const tabWidth = selectedWidths[index - start] ?? MIN_TAB_WIDTH;
     const closeWidth = Math.min(CLOSE_WIDTH, tabWidth);
-    const closeStart = column + tabWidth - closeWidth - 1;
-    const labelWidth = Math.max(0, closeStart - column - 2);
+    const closeStart = column + tabWidth - closeWidth - 2;
+    const labelWidth = Math.max(0, closeStart - column - 3);
     const active = tab.id === activeTabId;
     laidOut.push({
       id: tab.id,
@@ -258,8 +258,8 @@ export function reorderRepositoryTabs<T extends { id: string }>(
 export function repositoryTabText(tab: RepositoryTabLayout): string {
   const width = Math.max(0, tab.end - tab.start);
   if (width === 0) return "";
-  const suffix = width >= 3 ? " × " : "";
-  const prefix = width >= 1 ? " " : "";
+  const suffix = width >= 4 ? " ×  " : "";
+  const prefix = width >= 2 ? "  " : width >= 1 ? " " : "";
   const contentWidth = Math.max(0, width - Bun.stringWidth(prefix + suffix));
   const label = clipColumns(tab.label, contentWidth);
   return `${prefix}${label}${" ".repeat(Math.max(0, contentWidth - Bun.stringWidth(label)))}${suffix}`;

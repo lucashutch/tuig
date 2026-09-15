@@ -5,6 +5,7 @@ import { homedir } from "node:os";
 export type SessionPreferences = {
   repositories: string[];
   activeRepository?: string;
+  submodules?: Record<string, { root: string; path: string }>;
 };
 
 export function sessionPreferencesPath(env = process.env): string {
@@ -30,7 +31,32 @@ export function parseSessionPreferences(value: unknown): SessionPreferences {
     repositories.includes(input.activeRepository)
       ? input.activeRepository
       : undefined;
-  return { repositories, ...(activeRepository ? { activeRepository } : {}) };
+  const rawSubmodules =
+    input.submodules && typeof input.submodules === "object"
+      ? (input.submodules as Record<string, unknown>)
+      : {};
+  const submodules = Object.fromEntries(
+    Object.entries(rawSubmodules).filter(
+      (entry): entry is [string, { root: string; path: string }] => {
+        const [repository, value] = entry;
+        if (
+          !repositories.includes(repository) ||
+          !value ||
+          typeof value !== "object"
+        )
+          return false;
+        const relation = value as Record<string, unknown>;
+        return (
+          typeof relation.root === "string" && typeof relation.path === "string"
+        );
+      },
+    ),
+  );
+  return {
+    repositories,
+    ...(activeRepository ? { activeRepository } : {}),
+    ...(Object.keys(submodules).length ? { submodules } : {}),
+  };
 }
 
 export async function loadSessionPreferences(

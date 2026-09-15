@@ -168,6 +168,7 @@ function historySignature(commits: Commit[]): string {
 export function snapshotSignature(snapshot: RepositorySnapshot): string {
   const parts: string[] = [
     snapshot.root,
+    snapshot.headSha ?? "",
     snapshot.branch ?? "",
     snapshot.upstream ?? "",
     `${snapshot.ahead}/${snapshot.behind}`,

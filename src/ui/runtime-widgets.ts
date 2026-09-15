@@ -67,8 +67,8 @@ export const GRAPH_AVATAR_SLOT_LIMIT = 512;
 /** Row the diff starts on inside the details pane. */
 export const COMMIT_DIFF_TOP = 2;
 
-/** First row the panes may use: tabs, header, and the two toolbar rows. */
-export const PANE_TOP = 4;
+/** First row the panes may use: tabs and the two compact toolbar rows. */
+export const PANE_TOP = 3;
 
 export type RuntimeWidgets = {
   tabBar: TextRenderable;
@@ -634,7 +634,7 @@ export function createRuntimeWidgets(
     left: 1,
     top: 1,
     width: 6,
-    height: 3,
+    height: 1,
     wrapMode: "none",
     fg: oneDarkTheme.author,
     content: "",
@@ -792,7 +792,7 @@ export function createRuntimeWidgets(
     ...absolute,
     id: "composer-body",
     left: 1,
-    top: 2,
+    top: 1,
     width: "94%",
     height: 3,
     placeholder: "Description",
@@ -868,7 +868,7 @@ export function createRuntimeWidgets(
     left: 0,
     top: 1,
     height: 1,
-    zIndex: 20,
+    zIndex: 21,
     fg: oneDarkTheme.text,
     wrapMode: "none",
     content: "",
@@ -894,7 +894,7 @@ export function createRuntimeWidgets(
     ...absolute,
     id: "toolbar",
     left: 0,
-    top: 2,
+    top: 1,
     height: 2,
     zIndex: 20,
     fg: oneDarkTheme.text,

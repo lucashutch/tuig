@@ -72,6 +72,8 @@ export interface Submodule {
 
 export interface RepositorySnapshot {
   root: string;
+  /** Commit currently checked out, including detached HEAD. */
+  headSha?: string;
   branch?: string;
   upstream?: string;
   ahead: number;

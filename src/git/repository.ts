@@ -642,6 +642,10 @@ export class GitRepositoryService implements GitRepository {
       .split("\0")
       .find((record) => record.startsWith("# branch.head "))
       ?.slice(14);
+    const headSha = st.stdout
+      .split("\0")
+      .find((record) => record.startsWith("# branch.oid "))
+      ?.slice(13);
     const worktreeHeads = wt.stdout
       .split("\n")
       .filter((line) => line.startsWith("HEAD ") || line.startsWith("branch "))
@@ -661,6 +665,10 @@ export class GitRepositoryService implements GitRepository {
       submoduleNames,
       branch:
         branchHead && branchHead !== "(detached)" ? branchHead : undefined,
+      headSha:
+        headSha && headSha !== "(initial)" && headSha !== "(unknown)"
+          ? headSha
+          : undefined,
       historySignature: [
         allRefs.stdout,
         st.stdout
@@ -680,10 +688,12 @@ export class GitRepositoryService implements GitRepository {
     commits: Commit[],
     commitsComplete: boolean,
   ): RepositorySnapshot {
-    const { st, refs, stash, wt, sm, submoduleNames, branch } = metadata;
+    const { st, refs, stash, wt, sm, submoduleNames, branch, headSha } =
+      metadata;
     const tracking = parseTracking(st.stdout);
     return {
       root: this.root,
+      headSha,
       branch,
       upstream: tracking.upstream,
       ahead: tracking.ahead,
