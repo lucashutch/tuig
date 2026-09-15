@@ -211,8 +211,9 @@ export function layoutRuntime(context: RuntimeLayoutContext) {
   context.authorPhoto.width = 8;
   context.authorPhoto.height = 4;
   context.authorBadge.left = 1;
-  context.authorBadge.top = 2;
-  context.authorBadge.width = 8;
+  context.authorBadge.top = 1;
+  context.authorBadge.width = 6;
+  context.authorBadge.height = 3;
   context.commitCoAuthorProvider.left = 1;
   context.commitCoAuthorProvider.top = coAuthorsTop;
   context.commitCoAuthorProvider.width = 4;

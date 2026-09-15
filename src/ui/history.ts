@@ -53,6 +53,12 @@ export function authorAvatar(author: string, email = ""): string {
   return `[${authorInitials(author, email)}]`;
 }
 
+/** A fixed-size text replacement for the commit-detail photo. */
+export function boxedAuthorAvatar(author: string, email = ""): string {
+  const initials = authorInitials(author, email).padEnd(2);
+  return `┌────┐\n│ ${initials} │\n└────┘`;
+}
+
 /** Format a commit timestamp without depending on the machine's locale. */
 export function formatRelativeTime(value: string, now = Date.now()): string {
   const timestamp = Date.parse(value);

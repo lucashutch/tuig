@@ -17,7 +17,33 @@ import {
   getGitHubCommitAvatar,
   getGitHubCommitUrl,
   loadCachedAvatar,
+  terminalGraphicsSupported,
 } from "../../src/ui/avatars.js";
+
+describe("terminal graphics support", () => {
+  test("rejects block rendering and WSL relays without a graphics terminal", () => {
+    expect(terminalGraphicsSupported("blocks", {})).toBe(false);
+    expect(
+      terminalGraphicsSupported("kitty", { WSL_DISTRO_NAME: "Ubuntu" }),
+    ).toBe(false);
+  });
+
+  test("allows native protocols and graphics-aware WSL terminals", () => {
+    expect(terminalGraphicsSupported("sixel", {})).toBe(true);
+    expect(
+      terminalGraphicsSupported("kitty", {
+        WSL_DISTRO_NAME: "Ubuntu",
+        KITTY_WINDOW_ID: "1",
+      }),
+    ).toBe(true);
+    expect(
+      terminalGraphicsSupported("kitty", {
+        WSL_INTEROP: "/run/WSL/1_interop",
+        TERM_PROGRAM: "WezTerm",
+      }),
+    ).toBe(true);
+  });
+});
 
 describe("Gravatar URLs", () => {
   test("returns undefined for blank or invalid email addresses", () => {
