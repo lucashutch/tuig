@@ -994,7 +994,15 @@ class Runtime {
       width,
     );
     const cells = [];
-    for (const tab of this.tabLayout.tabs) {
+    for (const [index, tab] of this.tabLayout.tabs.entries()) {
+      const previous = this.tabLayout.tabs[index - 1];
+      if (previous) {
+        cells.push(
+          bg(oneDarkTheme.panelRaised)(
+            " ".repeat(Math.max(0, tab.start - previous.end)),
+          ),
+        );
+      }
       const background = tab.active
         ? oneDarkTheme.selected
         : oneDarkTheme.panelRaised;

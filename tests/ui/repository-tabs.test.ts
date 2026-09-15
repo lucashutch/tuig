@@ -32,6 +32,7 @@ describe("repository tab layout", () => {
       action: "open",
     });
     expect(active.closeEnd - active.closeStart).toBe(1);
+    expect(active.end - active.closeEnd).toBe(1);
     expect(layout.tabs[1]!.start - layout.tabs[0]!.end).toBe(1);
     expect(layout.open.start).toBe(layout.tabs.at(-1)!.end + 1);
     expect(layout.open.end).toBeLessThan(layout.width);
@@ -71,6 +72,7 @@ describe("repository tab layout", () => {
     expect(
       layout.tabs.map((tab) => Bun.stringWidth(repositoryTabText(tab))),
     ).toEqual(layout.tabs.map((tab) => tab.end - tab.start));
+    expect(repositoryTabText(layout.tabs[0]!)).toBe(" one × ");
   });
 
   test("reorders a dragged tab without losing tab identity", () => {
