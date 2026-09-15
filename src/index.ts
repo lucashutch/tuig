@@ -38,6 +38,7 @@ try {
     await runTuig(
       repositories,
       action.pathProvided ? requested.root : saved.activeRepository,
+      saved.submodules,
     );
   }
 } catch (error) {

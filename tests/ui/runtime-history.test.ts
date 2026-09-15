@@ -2,9 +2,22 @@ import { MouseButton } from "@opentui/core";
 import { describe, expect, test } from "bun:test";
 import {
   commitRowAtLine,
+  historyStartForCommit,
   historyClick,
   type RuntimeHistoryContext,
 } from "../../src/ui/runtime-history.js";
+
+describe("checked-out commit positioning", () => {
+  test("centres a deep checked-out commit without scrolling past either end", () => {
+    expect(historyStartForCommit(50, false, 23, 100)).toBe(40);
+    expect(historyStartForCommit(1, false, 23, 100)).toBe(0);
+    expect(historyStartForCommit(99, false, 23, 100)).toBe(80);
+  });
+
+  test("accounts for the working changes row", () => {
+    expect(historyStartForCommit(50, true, 23, 100)).toBe(41);
+  });
+});
 
 describe("graph row hit testing", () => {
   test("maps each graph line to one commit", () => {

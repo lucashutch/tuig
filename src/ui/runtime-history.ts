@@ -39,6 +39,23 @@ export interface RuntimeHistoryContext {
   notify: (text: string) => void;
 }
 
+/** Place a selected commit near the middle of the visible history viewport. */
+export function historyStartForCommit(
+  commitIndex: number,
+  hasWorkingChanges: boolean,
+  contentHeight: number,
+  totalCommits: number,
+): number {
+  const rows = Math.max(1, contentHeight - 3);
+  const leadingWorkingRow = hasWorkingChanges ? 1 : 0;
+  const selectedRow = commitIndex + leadingWorkingRow;
+  const totalRows = totalCommits + leadingWorkingRow;
+  return Math.max(
+    0,
+    Math.min(Math.max(0, totalRows - rows), selectedRow - Math.floor(rows / 2)),
+  );
+}
+
 export function moveCommit(context: RuntimeHistoryContext, delta: number) {
   if (!context.snapshot || context.commitDiffVisible) return;
   context.historyViewportDetached = false;
