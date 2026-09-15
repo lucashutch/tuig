@@ -612,3 +612,12 @@ export function primaryDecorationRef(
     return undefined;
   return index.get(name);
 }
+
+/** Return the tag represented by the row's primary label, when it is a tag. */
+export function primaryDecorationTag(
+  decorations: readonly string[],
+): string | undefined {
+  const hasBranch = decorations.some((label) => !label.startsWith("tag: "));
+  if (hasBranch) return undefined;
+  return decorations.find((label) => label.startsWith("tag: "))?.slice(5);
+}

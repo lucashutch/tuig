@@ -375,7 +375,9 @@ export function paintHistory(ctx: RuntimePaintContext) {
           stash ? oneDarkTheme.muted : label ? graphColor : oneDarkTheme.muted,
         )(labelText),
       ),
-      bg(rowBg)(fg(oneDarkTheme.muted)(selected ? "▸ " : "  ")),
+      row.head
+        ? bg(rowBg)(fg(oneDarkTheme.warning)("▶ "))
+        : bg(rowBg)(fg(oneDarkTheme.accent)(selected ? "› " : "  ")),
       ...graphWindow.cells.map((c) => bg(rowBg)(fg(c.color)(c.symbol))),
       bg(rowBg)(
         fg(oneDarkTheme.border)(

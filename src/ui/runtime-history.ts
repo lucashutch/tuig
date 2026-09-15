@@ -1,6 +1,6 @@
 import { MouseButton, type CliRenderer } from "@opentui/core";
 import type { BranchRef, RepositorySnapshot, Stash } from "../git/types.js";
-import { shortSha } from "./history.js";
+import { primaryDecorationTag, shortSha } from "./history.js";
 
 export interface RuntimeHistoryContext {
   snapshot?: RepositorySnapshot;
@@ -31,7 +31,7 @@ export interface RuntimeHistoryContext {
   openGraphMenu: (
     x: number,
     y: number,
-    target: { sha: string; branch?: BranchRef; stash?: Stash },
+    target: { sha: string; branch?: BranchRef; stash?: Stash; tag?: string },
   ) => void;
   closeDiff: () => void;
   checkoutBranch: (branch: BranchRef) => unknown;
@@ -148,6 +148,7 @@ export function historyClick(
     context.openGraphMenu(x, y + context.paneTop, {
       sha: commit.sha,
       branch: onLabel ? labelHit?.ref : undefined,
+      tag: onLabel ? primaryDecorationTag(commit.decorations) : undefined,
       stash: context.snapshot?.stashes.find(
         (stash) => stash.sha === commit.sha,
       ),

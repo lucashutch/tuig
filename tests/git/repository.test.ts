@@ -549,10 +549,16 @@ test("snapshot enriches recursively reported submodules with .gitmodules names",
     `[submodule "library repository"]\n\tpath = modules/nested path\n\turl = ${source}\n`,
   );
 
-  const snapshot = await (await GitRepositoryService.open(root)).snapshot();
+  const repo = await GitRepositoryService.open(root);
+  const snapshot = await repo.snapshot();
   expect(snapshot.submodules).toMatchObject([
     { path: "modules/nested path", name: "library repository" },
   ]);
+  await repo.syncSubmodule("modules/nested path");
+  await repo.updateSubmodule("modules/nested path", true);
+  expect(await Bun.file(join(root, "modules/nested path/readme")).text()).toBe(
+    "source\n",
+  );
 });
 
 test("fetch prunes remote-tracking branches deleted on the remote", async () => {
@@ -833,6 +839,18 @@ test("creates branches and lightweight tags, cherry-picks, and manages stashes",
   expect((await runGit(["rev-parse", "head-tag"], root)).stdout.trim()).toBe(
     (await runGit(["rev-parse", "HEAD"], root)).stdout.trim(),
   );
+  const remote = await mkdtemp(join(tmpdir(), "tuig-tag-remote-"));
+  cleanup.push(remote);
+  await runGit(["init", "--bare"], remote);
+  await runGit(["remote", "add", "origin", remote], root);
+  await repo.pushTag("v1", "origin");
+  expect(
+    (await runGit(["rev-parse", "refs/tags/v1"], remote)).stdout.trim(),
+  ).toBe(topicCommit);
+  await repo.deleteTag("head-tag");
+  await expect(
+    runGit(["show-ref", "--verify", "refs/tags/head-tag"], root),
+  ).rejects.toThrow();
 
   await Bun.write(join(root, "file"), "stashed\n");
   await repo.stash("keep this");
@@ -847,7 +865,11 @@ test("creates branches and lightweight tags, cherry-picks, and manages stashes",
   await Bun.write(join(root, "file"), "drop me\n");
   await repo.stash("drop this");
   const dropRef = (await repo.snapshot()).stashes[0]!.ref;
-  await repo.dropStash(dropRef);
+  await repo.renameStash(dropRef, "renamed stash");
+  expect((await repo.snapshot()).stashes[0]?.subject).toContain(
+    "renamed stash",
+  );
+  await repo.dropStash((await repo.snapshot()).stashes[0]!.ref);
   expect((await repo.snapshot()).stashes).toHaveLength(0);
 });
 

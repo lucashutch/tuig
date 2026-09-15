@@ -5,8 +5,6 @@ import type {
   GitRepository,
   RepositorySnapshot,
   ResetMode,
-  Stash,
-  Worktree,
 } from "../git/types.js";
 import { splitPatchHunks } from "../git/hunks.js";
 import { displayBranchName, shortSha } from "./history.js";
@@ -16,6 +14,7 @@ import {
   type ConfirmRequest,
   type GraphMenuAction,
   type GraphMenuItem,
+  type GraphMenuTarget,
 } from "./graph-menu.js";
 import type { ToolbarAction } from "./runtime-presentation.js";
 import type { RuntimePopupController } from "./runtime-popup.js";
@@ -255,22 +254,17 @@ export async function checkoutBranch(
 export async function runMenuAction(
   context: RuntimeCommandsContext,
   action: GraphMenuAction,
-  target: {
-    sha: string;
-    branch?: BranchRef;
-    stash?: Stash;
-    worktree?: Worktree;
-    file?: ChangedFile;
-    fileStaged?: boolean;
-  },
+  target: GraphMenuTarget,
 ) {
   const branch = target.branch;
   const stash = target.stash;
   const worktree = target.worktree;
   const file = target.file;
+  const tag = target.tag;
+  const submodule = target.submodule;
   const reference = branch ? branch.name : target.sha;
   if (action === "copy-path") {
-    const path = file?.path ?? worktree?.path;
+    const path = file?.path ?? worktree?.path ?? submodule?.path;
     return void (
       path &&
       context.copy(path) &&
@@ -334,6 +328,47 @@ export async function runMenuAction(
         ),
     );
   }
+  if (
+    action === "update-submodule" ||
+    action === "init-submodule" ||
+    action === "sync-submodule"
+  ) {
+    if (!submodule) return;
+    const verb = action === "sync-submodule" ? "Syncing" : "Updating";
+    return perform(context, `${verb} ${submodule.path}…`, () =>
+      action === "sync-submodule"
+        ? context.repository.syncSubmodule(submodule.path)
+        : context.repository.updateSubmodule(
+            submodule.path,
+            action === "init-submodule",
+          ),
+    );
+  }
+  if (action === "push-tag") {
+    if (!tag) return;
+    return perform(
+      context,
+      `Pushing tag ${tag}…`,
+      (signal) => context.repository.pushTag(tag, undefined, signal),
+      true,
+    );
+  }
+  if (action === "delete-tag") {
+    if (!tag) return;
+    return confirmThen(
+      context,
+      {
+        title: "Delete tag",
+        lines: [`Delete local tag ${tag}?`],
+        confirmLabel: `Delete ${tag}`,
+        destructive: true,
+      },
+      () =>
+        perform(context, `Deleting tag ${tag}…`, () =>
+          context.repository.deleteTag(tag),
+        ),
+    );
+  }
   if (action === "delete-stash" || action === "drop-stash") {
     if (!stash) return;
     const verb = action === "delete-stash" ? "Delete" : "Drop";
@@ -351,6 +386,14 @@ export async function runMenuAction(
           `${verb === "Delete" ? "Deleting" : "Dropping"} ${stash.ref}…`,
           () => context.repository.dropStash(stash.ref),
         ),
+    );
+  }
+  if (action === "rename-stash") {
+    if (!stash) return;
+    return openNamePrompt(context, "Rename stash", "stash name", (name) =>
+      perform(context, `Renaming ${stash.ref}…`, () =>
+        context.repository.renameStash(stash.ref, name),
+      ),
     );
   }
   if (action === "apply-stash") {
