@@ -216,6 +216,8 @@ describe("graph context menu", () => {
     expect(menu.items.map((item) => item.action)).toEqual([
       "stage-file",
       "discard-file",
+      undefined,
+      "file-history",
       "copy-path",
     ]);
     expect(menu.items[1]?.destructive).toBe(true);
@@ -226,6 +228,27 @@ describe("graph context menu", () => {
     const menu = buildGraphMenu({ sha: "", file, fileStaged: true }, snapshot);
     expect(menu.items.map((item) => item.action)).toEqual([
       "unstage-file",
+      undefined,
+      "file-history",
+      "copy-path",
+    ]);
+  });
+
+  test("offers blame and line history when a diff line was hit", () => {
+    const file = { path: "src/app.ts", state: "modified" } as never;
+    const menu = buildGraphMenu(
+      { sha: "a", file, fileStaged: true, line: 42 },
+      snapshot,
+    );
+    expect(menu.items.map((item) => item.action)).toContain("blame-line");
+    expect(menu.items.map((item) => item.action)).toContain("line-history");
+  });
+
+  test("does not offer working-tree mutations for a committed file", () => {
+    const file = { path: "src/app.ts", state: "modified" } as never;
+    const menu = buildGraphMenu({ sha: "abc", file }, snapshot);
+    expect(menu.items.map((item) => item.action)).toEqual([
+      "file-history",
       "copy-path",
     ]);
   });

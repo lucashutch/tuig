@@ -177,6 +177,7 @@ export type RuntimeWidgetActions = {
   viewWorkingChanges(): void;
   editMessage(): void;
   copyCommitSha(): void;
+  diffClick(x: number, y: number, button: number): void;
   overlayDismiss(): void;
   menuHover(x: number, y: number): void;
   menuClick(x: number, y: number): void;
@@ -743,6 +744,8 @@ export function createRuntimeWidgets(
     ...diffOptions,
     contextBg: oneDarkTheme.bg,
   });
+  commitDiff.onMouseDown = (event) =>
+    actions.diffClick(event.x, event.y, event.button);
   const commitDiffEmpty = new TextRenderable(renderer, {
     ...absolute,
     id: "commit-diff-empty",
