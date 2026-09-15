@@ -109,6 +109,70 @@ describe("mutation runner", () => {
       );
     }
   });
+  test("branch deletion offers to remove its linked worktree and defaults to both", async () => {
+    const calls: string[] = [];
+    let items: GraphMenuItem[] = [];
+    let select: ((item: GraphMenuItem) => void) | undefined;
+    let selectedRow: number | undefined;
+    const branch: BranchRef = {
+      name: "topic",
+      fullName: "refs/heads/topic",
+      sha: "a",
+      current: false,
+      remote: false,
+    };
+    const context = stubContext({
+      terminalWidth: 80,
+      terminalHeight: 24,
+      snapshot: {
+        root: "/repo",
+        branches: [branch],
+        worktrees: [
+          {
+            path: "/worktrees/topic",
+            sha: "a",
+            branch: "topic",
+            bare: false,
+            detached: false,
+          },
+        ],
+      } as RepositorySnapshot,
+      repository: {
+        async removeWorktree(path: string) {
+          calls.push(`worktree:${path}`);
+        },
+        async deleteBranch(name: string) {
+          calls.push(`branch:${name}`);
+        },
+      } as unknown as GitRepository,
+      popupController: {
+        open(
+          _title: string,
+          popupItems: GraphMenuItem[],
+          _x: number,
+          _y: number,
+          callback: (item: GraphMenuItem) => void,
+          _prompt: boolean,
+          initialRow: number,
+        ) {
+          items = popupItems;
+          select = callback;
+          selectedRow = initialRow;
+        },
+      } as unknown as RuntimePopupController,
+    });
+
+    await runMenuAction(context, "delete-branch", {
+      sha: branch.sha,
+      branch,
+    });
+
+    expect(selectedRow).toBe(3);
+    expect(items[selectedRow!]?.label).toBe("Delete branch and topic");
+    select!(items[selectedRow!]!);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(calls).toEqual(["worktree:/worktrees/topic", "branch:topic"]);
+  });
   test("refuses a second mutation while one is running", async () => {
     const context = stubContext();
     let release: (() => void) | undefined;

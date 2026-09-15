@@ -59,6 +59,7 @@ export class RuntimePopupController {
     y: number,
     select: (item: GraphMenuItem) => void,
     promptActive = false,
+    selectedRow?: number,
   ) {
     const width = menuWidth(items);
     const terminal = this.context.terminalSize();
@@ -70,7 +71,7 @@ export class RuntimePopupController {
       terminal.width,
       terminal.height,
     );
-    this.popup = { title, items, left, top, width, select };
+    this.popup = { title, items, left, top, width, select, hover: selectedRow };
     this.promptActive = promptActive;
     this.paint();
   }
@@ -82,6 +83,30 @@ export class RuntimePopupController {
     this.context.promptInput.visible = false;
     this.context.closed();
     this.paint();
+  }
+
+  /** Activate the hovered item, or the first available item for keyboard use. */
+  activate() {
+    const popup = this.popup;
+    if (!popup || this.promptActive) return;
+    const pane = popup.submenu ?? popup;
+    const hovered =
+      pane.hover === undefined ? undefined : pane.items[pane.hover];
+    const item =
+      hovered && !hovered.disabled && !hovered.separator
+        ? hovered
+        : pane.items.find(
+            (candidate) => !candidate.disabled && !candidate.separator,
+          );
+    if (!item) return;
+    if (item.submenu && pane === popup) {
+      this.openSubmenuFor(popup.items.indexOf(item));
+      this.paint();
+      return;
+    }
+    const select = popup.select;
+    this.close();
+    select(item);
   }
 
   paint() {

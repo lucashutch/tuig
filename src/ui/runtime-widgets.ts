@@ -342,6 +342,7 @@ export function createRuntimeWidgets(
       width: "100%",
       height: 1,
       wrapMode: "none",
+      selectable: false,
       fg: oneDarkTheme.text,
       content: "",
       onMouseScroll: (e) =>
@@ -424,6 +425,7 @@ export function createRuntimeWidgets(
     content:
       " ░░░░░░░  ░ ░░░░░░░░░░░░░░░░  ░░░░░░░\n ░░░░░░░  ░ ░░░░░░░░░░░  ░░░░░░░",
     wrapMode: "none",
+    selectable: false,
     onMouseDown: (e) => actions.historyClick(e.x, e.y, e.button),
     onMouseDrag: (e) => actions.historyDrag(e.x),
     onMouseUp: () => actions.historyDragEnd(),
@@ -438,6 +440,7 @@ export function createRuntimeWidgets(
       width: "97%",
       height: 6,
       wrapMode: "none",
+      selectable: false,
       fg: oneDarkTheme.text,
       content: "",
       onMouseScroll: (e) =>
@@ -959,6 +962,7 @@ export function createRuntimeWidgets(
       zIndex: zIndex + 1,
       visible: false,
       wrapMode: "none",
+      selectable: false,
       fg: oneDarkTheme.text,
       content: "",
       onMouseMove: (e) => hover(e.x, e.y),
