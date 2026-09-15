@@ -39,6 +39,9 @@ export type GraphMenuAction =
   | "stage-file"
   | "unstage-file"
   | "discard-file"
+  | "file-history"
+  | "line-history"
+  | "blame-line"
   | "copy-path"
   | "remove-worktree"
   | "lock-worktree"
@@ -68,6 +71,8 @@ export interface GraphMenuTarget {
   file?: ChangedFile;
   /** Which changes list the file came from; drives stage vs unstage. */
   fileStaged?: boolean;
+  /** One-based line in the file at `sha`, when a diff line was hit. */
+  line?: number;
 }
 
 /** A menu pane placed in terminal coordinates. */
@@ -96,7 +101,13 @@ export function buildGraphMenu(
   const branch = target.branch;
   if (target.worktree) return worktreeMenu(target.worktree, snapshot.root);
   if (target.submodule) return submoduleMenu(target.submodule);
-  if (target.file) return fileMenu(target.file, target.fileStaged === true);
+  if (target.file)
+    return fileMenu(
+      target.file,
+      target.fileStaged === true,
+      target.line,
+      Boolean(target.sha),
+    );
   if (target.tag) {
     return {
       title: `tag · ${target.tag}`,
@@ -273,19 +284,36 @@ function worktreeMenu(
 function fileMenu(
   file: ChangedFile,
   staged: boolean,
+  line?: number,
+  historical = false,
 ): { title: string; items: GraphMenuItem[] } {
   const name = file.path.split("/").at(-1) ?? file.path;
-  const items: GraphMenuItem[] = staged
-    ? [{ label: `Unstage ${name}`, action: "unstage-file" }]
-    : [
-        { label: `Stage ${name}`, action: "stage-file" },
-        {
-          label: `Discard changes in ${name}`,
-          action: "discard-file",
-          destructive: true,
-        },
-      ];
-  items.push({ label: "Copy path", action: "copy-path" });
+  const items: GraphMenuItem[] = historical
+    ? []
+    : staged
+      ? [{ label: `Unstage ${name}`, action: "unstage-file" }]
+      : [
+          { label: `Stage ${name}`, action: "stage-file" },
+          {
+            label: `Discard changes in ${name}`,
+            action: "discard-file",
+            destructive: true,
+          },
+        ];
+  if (items.length) items.push({ label: "", separator: true });
+  items.push(
+    { label: "Show file history", action: "file-history" },
+    ...(line === undefined
+      ? []
+      : [
+          { label: `Blame line ${line}`, action: "blame-line" as const },
+          {
+            label: `Show history for line ${line}`,
+            action: "line-history" as const,
+          },
+        ]),
+    { label: "Copy path", action: "copy-path" },
+  );
   return { title: file.path, items };
 }
 

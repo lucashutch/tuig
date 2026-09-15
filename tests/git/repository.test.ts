@@ -337,6 +337,87 @@ test("repository stages, commits, and reports an odd filename", async () => {
   });
 });
 
+test("file history follows a renamed option-like path from an optional ref", async () => {
+  const root = await mkdtemp(join(tmpdir(), "tuig-file-history-"));
+  cleanup.push(root);
+  await runGit(["init", "-b", "main"], root);
+  await runGit(["config", "user.name", "Test User"], root);
+  await runGit(["config", "user.email", "test@example.com"], root);
+  await Bun.write(join(root, "old name.txt"), "one\n");
+  await runGit(["add", "--", "old name.txt"], root);
+  await runGit(["commit", "-m", "add file"], root);
+  const added = (await runGit(["rev-parse", "HEAD"], root)).stdout.trim();
+  await runGit(["mv", "--", "old name.txt", "--new name.txt"], root);
+  await runGit(["commit", "-m", "rename file"], root);
+  const renamed = (await runGit(["rev-parse", "HEAD"], root)).stdout.trim();
+  await Bun.write(join(root, "--new name.txt"), "one\ntwo\n");
+  await runGit(["add", "--", "--new name.txt"], root);
+  await runGit(["commit", "-m", "edit renamed file"], root);
+
+  const repo = await GitRepositoryService.open(root);
+  const history = await repo.fileHistory("--new name.txt");
+  expect(history.map((commit) => commit.subject)).toEqual([
+    "edit renamed file",
+    "rename file",
+    "add file",
+  ]);
+  expect(history[2]).toMatchObject({
+    sha: added,
+    author: "Test User",
+    committer: "Test User",
+  });
+  expect(
+    (await repo.fileHistory("--new name.txt", renamed)).map(
+      (commit) => commit.subject,
+    ),
+  ).toEqual(["rename file", "add file"]);
+  await expect(repo.fileHistory("--new name.txt", "--all")).rejects.toThrow(
+    "A commit is required",
+  );
+});
+
+test("line blame reports commit and original location across edits and a rename", async () => {
+  const root = await mkdtemp(join(tmpdir(), "tuig-line-blame-"));
+  cleanup.push(root);
+  await runGit(["init", "-b", "main"], root);
+  await runGit(["config", "user.name", "Test User"], root);
+  await runGit(["config", "user.email", "test@example.com"], root);
+  await Bun.write(join(root, "before name.txt"), "alpha\nbeta\n");
+  await runGit(["add", "--", "before name.txt"], root);
+  await runGit(["commit", "-m", "write beta"], root);
+  const source = (await runGit(["rev-parse", "HEAD"], root)).stdout.trim();
+  await runGit(["mv", "--", "before name.txt", "--after name.txt"], root);
+  await Bun.write(join(root, "--after name.txt"), "intro\nalpha\nbeta\n");
+  await runGit(["add", "--", "--after name.txt"], root);
+  await runGit(["commit", "-m", "move lines"], root);
+  const moved = (await runGit(["rev-parse", "HEAD"], root)).stdout.trim();
+
+  const repo = await GitRepositoryService.open(root);
+  expect(await repo.blameLine("--after name.txt", 3)).toMatchObject({
+    commit: { sha: source, subject: "write beta", author: "Test User" },
+    originalPath: "before name.txt",
+    originalLine: 2,
+    finalPath: "--after name.txt",
+    finalLine: 3,
+  });
+  expect(await repo.blameLine("--after name.txt", 1, moved)).toMatchObject({
+    commit: { sha: moved, subject: "move lines" },
+    originalLine: 1,
+    finalLine: 1,
+  });
+  expect(
+    (await repo.lineHistory("--after name.txt", 3)).map(
+      (commit) => commit.subject,
+    ),
+  ).toEqual(["write beta"]);
+  await expect(repo.blameLine("--after name.txt", 0)).rejects.toBeInstanceOf(
+    RangeError,
+  );
+  await expect(
+    repo.blameLine("--after name.txt", 1, "--contents=/etc/passwd"),
+  ).rejects.toThrow("A commit is required");
+});
+
 test("snapshot keeps stash internal commits out of history", async () => {
   const root = await mkdtemp(join(tmpdir(), "tuig-stash-history-test-"));
   cleanup.push(root);

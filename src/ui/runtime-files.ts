@@ -25,6 +25,7 @@ export interface RuntimeFilesContext {
   contentHeight: number;
   commitFilesTop: number;
   diffOrigin?: "working" | "commit";
+  selectedCommitSha?: string;
   widgets: {
     unstagedText: TextRenderable;
     stagedText: TextRenderable;
@@ -166,13 +167,13 @@ export function filesClick(
   const node = sectionRows(context, section)[row]?.node;
   if (!node) return;
   if (button === MouseButton.RIGHT) {
-    if (context.view !== "history" || node.kind !== "file") return;
-    const file = files(context).find(
+    if (node.kind !== "file") return;
+    const file = files(context, section).find(
       (candidate) => candidate.path === node.path,
     );
     if (!file) return;
     context.openFileMenu(x ?? 0, y, {
-      sha: "",
+      sha: context.view === "commit" ? (context.selectedCommitSha ?? "") : "",
       file,
       fileStaged: section === "staged",
     });

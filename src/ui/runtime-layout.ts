@@ -68,8 +68,10 @@ export interface RuntimeLayoutContext extends LayoutWidgets {
   branchFilterActive: boolean;
   view: "history" | "commit" | "working";
   editingCommitSha?: string;
+  historyFilterActive: boolean;
   snapshot?: RepositorySnapshot;
   commitIndex: number;
+  selectedCommitSha?: string;
   commitHeaderValue: string;
   commitBodyValue: string;
   commitInfoValue: string;
@@ -225,7 +227,9 @@ export function layoutRuntime(context: RuntimeLayoutContext) {
     context.detailsPaneWidth - context.commitCoAuthors.left - 2,
   );
   const sha = shortSha(
-    context.snapshot?.commits[context.commitIndex]?.sha ?? "",
+    context.selectedCommitSha ??
+      context.snapshot?.commits[context.commitIndex]?.sha ??
+      "",
   );
   const labelWidth = Math.max(1, context.detailsPaneWidth - 2);
   context.commitInfoLabel.width = labelWidth;
@@ -304,6 +308,28 @@ export function layoutChanges(context: RuntimeLayoutContext, height: number) {
       widget.visible = false;
     context.unstagedLabel.visible = true;
     context.unstagedText.visible = true;
+    if (context.historyFilterActive) {
+      for (const widget of [context.workingBanner, context.editMessageButton])
+        widget.visible = false;
+      // File-history navigation must stay under the pointer while selections
+      // change. Give details a fixed share instead of deriving the split from
+      // each commit's wrapped message and metadata height.
+      const historyTop = Math.max(
+        8,
+        Math.min(Math.max(1, height - 6), Math.floor(height * 0.58)),
+      );
+      const messageHeight = Math.max(4, Math.floor(historyTop * 0.45));
+      context.commitBodyBox.top = 0;
+      context.commitBodyBox.height = messageHeight;
+      context.commitInfoBox.top = messageHeight + 1;
+      context.commitInfoBox.height = Math.max(
+        4,
+        historyTop - messageHeight - 2,
+      );
+      context.unstagedLabel.top = historyTop;
+      context.unstagedText.top = historyTop + 1;
+      context.unstagedText.height = Math.max(1, height - historyTop - 2);
+    }
     context.amendButton.visible = false;
     return;
   }

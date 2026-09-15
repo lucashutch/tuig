@@ -89,6 +89,8 @@ export interface RuntimeDataContext {
   diffOrigin?: "working" | "commit";
   historySelection: "working" | "commit";
   commitIndex: number;
+  /** Commit selected by an alternate history surface. */
+  selectedCommitSha?: string;
   fileIndex: number;
   fileStart: number;
   commitFiles: ChangedFile[];
@@ -501,7 +503,11 @@ export async function loadDiff(ctx: RuntimeDataContext, allowLarge = false) {
   if (ctx.view === "history") return;
   const token = ctx.diffRequest,
     file = ctx.selectedFile(),
-    selected = ctx.snapshot?.commits[ctx.commitIndex];
+    selectedSha =
+      ctx.selectedCommitSha ?? ctx.snapshot?.commits[ctx.commitIndex]?.sha,
+    selected = ctx.snapshot?.commits.find(
+      (commit) => commit.sha === selectedSha,
+    );
   const snapshot = ctx.snapshot,
     view = ctx.view,
     mode = ctx.mode,
@@ -518,7 +524,8 @@ export async function loadDiff(ctx: RuntimeDataContext, allowLarge = false) {
     ctx.comparisonBaseSha === comparisonBase &&
     ctx.selectedFile()?.path === path &&
     (view !== "commit" ||
-      ctx.snapshot?.commits[ctx.commitIndex]?.sha === selected?.sha);
+      (ctx.selectedCommitSha ?? ctx.snapshot?.commits[ctx.commitIndex]?.sha) ===
+        selectedSha);
   ctx.widgets.commitDiffEmpty.content = "Loading diff…";
   ctx.widgets.commitDiffEmpty.visible = true;
   try {
@@ -553,7 +560,7 @@ export async function loadDiff(ctx: RuntimeDataContext, allowLarge = false) {
     ctx.widgets.commitDiff.setDiff(
       value,
       highlight && path ? pathToFiletype(path) : undefined,
-      highlight ? "word" : "none",
+      "none",
     );
     ctx.widgets.commitDiffEmpty.content = "No textual diff to display.";
     ctx.widgets.commitDiffEmpty.visible = value.length === 0;

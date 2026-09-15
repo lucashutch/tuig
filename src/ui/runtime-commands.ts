@@ -258,6 +258,14 @@ export async function runMenuAction(
   action: GraphMenuAction,
   target: GraphMenuTarget,
 ) {
+  // These view-only actions are owned by Runtime, which has the graph and diff
+  // presentation state. Keep this boundary defensive for direct callers.
+  if (
+    action === "file-history" ||
+    action === "line-history" ||
+    action === "blame-line"
+  )
+    return;
   const branch = target.branch;
   const stash = target.stash;
   const worktree = target.worktree;

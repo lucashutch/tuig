@@ -5,6 +5,7 @@ import type {
   CommitPage,
   Commit,
   CommandResult,
+  LineBlame,
   ResetMode,
   WorkingStatus,
 } from "./types";
@@ -814,6 +815,112 @@ export class GitRepositoryService implements GitRepository {
       files: parseStatus(st.stdout),
     };
   }
+  /** Reads the history of one path on the current branch or from `start`. */
+  async fileHistory(path: string, start?: string): Promise<Commit[]> {
+    this.validateHistoryPath(path);
+    if (start !== undefined) this.validateCommitRef(start);
+    const result = await this.git([
+      "log",
+      "--follow",
+      "--decorate",
+      "-z",
+      LOG_FORMAT,
+      ...(start !== undefined ? ["--end-of-options", start] : []),
+      "--",
+      path,
+    ]);
+    return parseLog(result.stdout);
+  }
+  /** Reads commits that changed the ancestry of one line. */
+  async lineHistory(
+    path: string,
+    line: number,
+    start = "HEAD",
+  ): Promise<Commit[]> {
+    this.validateHistoryPath(path);
+    if (!Number.isSafeInteger(line) || line < 1)
+      throw new RangeError("A positive 1-based line number is required");
+    this.validateCommitRef(start);
+    const result = await this.git([
+      "log",
+      "--decorate",
+      "-z",
+      LOG_FORMAT,
+      `-L${line},${line}:${path}`,
+      start,
+    ]);
+    // -L necessarily emits patches between formatted records. Keep only the
+    // machine-formatted commit portions before passing them to the log parser.
+    const records: string[] = [];
+    for (const chunk of result.stdout.split("\u001e")) {
+      let field = chunk.indexOf("\u001f");
+      while (field >= 40) {
+        let start = field;
+        while (start > 0 && /[0-9a-f]/.test(chunk[start - 1]!)) start--;
+        const sha = chunk.slice(start, field);
+        if (sha.length >= 40) {
+          records.push(`${chunk.slice(start)}\u001e`);
+          break;
+        }
+        field = chunk.indexOf("\u001f", field + 1);
+      }
+    }
+    return parseLog(records.join(""));
+  }
+  /** Blames one line at a commit, defaulting to HEAD. */
+  async blameLine(
+    path: string,
+    line: number,
+    commit = "HEAD",
+  ): Promise<LineBlame> {
+    this.validateHistoryPath(path);
+    if (!Number.isSafeInteger(line) || line < 1)
+      throw new RangeError("A positive 1-based line number is required");
+    this.validateCommitRef(commit);
+    // Unlike log/show, blame does not accept --end-of-options. Validating the
+    // ref keeps it from becoming an option, and -- disambiguates the path.
+    const blame = await this.git([
+      "blame",
+      "--line-porcelain",
+      `-L${line},${line}`,
+      commit,
+      "--",
+      path,
+    ]);
+    const header = /^([0-9a-f]+) (\d+) (\d+)(?: \d+)?$/m.exec(blame.stdout);
+    if (!header)
+      throw new Error(`Git returned no blame information for ${path}:${line}`);
+    const sha = header[1]!;
+    const originalLine = Number(header[2]);
+    const finalLine = Number(header[3]);
+    const filename = blame.stdout
+      .split("\n")
+      .find((entry) => entry.startsWith("filename "))
+      ?.slice("filename ".length);
+    const details = await this.git([
+      "show",
+      "-s",
+      "--decorate",
+      "-z",
+      LOG_FORMAT,
+      "--end-of-options",
+      `${sha}^{commit}`,
+    ]);
+    const blamedCommit = parseLog(details.stdout)[0];
+    if (!blamedCommit)
+      throw new Error(`Git returned no commit information for ${sha}`);
+    return {
+      commit: blamedCommit,
+      originalPath: filename ? parseGitQuotedPath(filename) : path,
+      originalLine,
+      finalPath: path,
+      finalLine,
+    };
+  }
+  private validateHistoryPath(path: string) {
+    if (!path || path.includes("\0"))
+      throw new Error("A file path is required");
+  }
   async diff(r: DiffRequest) {
     if (r.base || r.target) return this.comparisonDiff(r);
     if (r.commit) return this.commitDiff(r);
@@ -1392,5 +1499,45 @@ function diffPaths(request: DiffRequest): string[] {
   return [
     ...new Set([request.originalPath, request.path].filter(Boolean)),
   ] as string[];
+}
+
+/** Decodes the C-style path quoting used by blame's porcelain output. */
+function parseGitQuotedPath(path: string): string {
+  if (!path.startsWith('"') || !path.endsWith('"')) return path;
+  const bytes: number[] = [];
+  const escapes: Record<string, number> = {
+    a: 7,
+    b: 8,
+    t: 9,
+    n: 10,
+    v: 11,
+    f: 12,
+    r: 13,
+    '"': 34,
+    "\\": 92,
+  };
+  const inner = path.slice(1, -1);
+  for (let index = 0; index < inner.length; index++) {
+    const character = inner[index]!;
+    if (character !== "\\") {
+      const literal = String.fromCodePoint(inner.codePointAt(index)!);
+      bytes.push(...new TextEncoder().encode(literal));
+      index += literal.length - 1;
+      continue;
+    }
+    const escaped = inner[++index];
+    if (escaped === undefined) break;
+    if (/[0-7]/.test(escaped)) {
+      let octal = escaped;
+      while (octal.length < 3 && /[0-7]/.test(inner[index + 1] ?? ""))
+        octal += inner[++index]!;
+      bytes.push(Number.parseInt(octal, 8));
+    } else {
+      const decoded = escapes[escaped];
+      if (decoded !== undefined) bytes.push(decoded);
+      else bytes.push(...new TextEncoder().encode(escaped));
+    }
+  }
+  return new TextDecoder().decode(new Uint8Array(bytes));
 }
 export const createGitRepository = GitRepositoryService.open;

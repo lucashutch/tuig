@@ -50,6 +50,8 @@ import {
   emptyBranchHintIndex,
   moveBranchSelection,
   resolveHeadSha,
+  authorAvatar,
+  formatRelativeTime,
   shortSha,
 } from "./history.js";
 import {
@@ -252,6 +254,11 @@ export function createBrailleSpinner(
 
 /** Window in which a second click on the same graph row counts as a double. */
 const DOUBLE_CLICK_MS = 400;
+const FILE_HISTORY_CARD_ROWS = 4;
+const fileHistoryDate = new Intl.DateTimeFormat(undefined, {
+  dateStyle: "medium",
+  timeStyle: "short",
+});
 
 class Runtime {
   /** OpenTUI emits this only when the mouse button ends a selection drag. */
@@ -280,6 +287,19 @@ class Runtime {
   /** Older endpoint for the comparison surface currently open. */
   private comparisonBaseSha?: string;
   private graphIndex: GraphIndex = emptyGraphIndex();
+  private historyFilter?: {
+    path: string;
+    file: ChangedFile;
+    commits: RepositorySnapshot["commits"];
+    index: number;
+    line?: number;
+  };
+  private get historyFilterActive() {
+    return this.historyFilter !== undefined;
+  }
+  private get selectedCommitSha() {
+    return this.historyFilter?.commits[this.historyFilter.index]?.sha;
+  }
 
   // Horizontal graph offset, in lanes, used once the graph is wider than the
   // share of the history pane it is allowed to take.
@@ -318,6 +338,7 @@ class Runtime {
   private diffAbort?: AbortController;
   private diffTooLarge = false;
   private commitFilesRequest = 0;
+  private historyFilterRequest = 0;
   private snapshotRequest = 0;
   private refreshTimer?: ReturnType<typeof setInterval>;
   private remoteFetchTimer?: ReturnType<typeof setInterval>;
@@ -638,6 +659,7 @@ class Runtime {
       viewWorkingChanges: () => this.closeDiff(),
       editMessage: () => this.editMessage(),
       copyCommitSha: () => this.copyCommitSha(),
+      diffClick: (x, y, button) => this.diffClick(x, y, button),
       overlayDismiss: () => this.dismissOverlay(),
       menuHover: (x, y) => this.popupController.hover(x, y, false),
       menuClick: (x, y) => this.popupController.click(x, y, false),
@@ -2033,6 +2055,9 @@ class Runtime {
       set diffOrigin(value) {
         runtime.diffOrigin = value;
       },
+      get selectedCommitSha() {
+        return runtime.snapshot?.commits[runtime.commitIndex]?.sha;
+      },
       widgets: {
         unstagedText: this.unstagedText,
         stagedText: this.stagedText,
@@ -2068,6 +2093,22 @@ class Runtime {
     resizeRuntimeComposer(this.filesContext(), y);
   }
   private filesScroll(section: ChangeSection, delta: number) {
+    if (this.historyFilter) {
+      const max = Math.max(0, this.historyFilter.commits.length - 1);
+      this.historyFilter.index = Math.max(
+        0,
+        Math.min(max, this.historyFilter.index + delta),
+      );
+      const viewport = this.historyFilterViewport();
+      if (this.historyFilter.index < this.fileStart)
+        this.fileStart = this.historyFilter.index;
+      else if (this.historyFilter.index >= this.fileStart + viewport)
+        this.fileStart = this.historyFilter.index - viewport + 1;
+      this.paintHistoryFilter();
+      this.showHistoryFilterCommit();
+      void this.loadDiff().catch((error) => this.fail(error));
+      return;
+    }
     scrollRuntimeFiles(this.filesContext(), section, delta);
   }
   private filesClick(
@@ -2076,6 +2117,17 @@ class Runtime {
     button?: number,
     x?: number,
   ) {
+    if (this.historyFilter) {
+      const row =
+        Math.floor((y - this.unstagedText.y) / FILE_HISTORY_CARD_ROWS) +
+        this.fileStart;
+      if (row < 0 || row >= this.historyFilter.commits.length) return;
+      this.historyFilter.index = row;
+      this.paintHistoryFilter();
+      this.showHistoryFilterCommit();
+      void this.loadDiff().catch((error) => this.fail(error));
+      return;
+    }
     handleRuntimeFilesClick(this.filesContext(), section, y, button, x);
   }
   private selectedFile() {
@@ -2083,6 +2135,10 @@ class Runtime {
   }
 
   private refresh(message?: string, automatic = false) {
+    if (this.historyFilter) {
+      if (automatic) return Promise.resolve();
+      this.clearHistoryFilter();
+    }
     return refreshRuntimeData(this.dataContext(), message, automatic);
   }
 
@@ -2223,6 +2279,9 @@ class Runtime {
       },
       set commitIndex(value) {
         runtime.commitIndex = value;
+      },
+      get selectedCommitSha() {
+        return runtime.historyFilter?.commits[runtime.historyFilter.index]?.sha;
       },
       get fileIndex() {
         return runtime.fileIndex;
@@ -2413,6 +2472,13 @@ class Runtime {
 
   private paint() {
     paintRuntime(this.paintContext());
+    // The shared painter renders the ordinary commit-file picker. File-history
+    // mode reuses that surface, so it must be the final writer on every full
+    // paint rather than only on scroll events.
+    if (this.historyFilter) {
+      layoutChanges(this.layoutContext(), this.contentHeight);
+      this.paintHistoryFilter();
+    }
   }
   private sidebarPaintContext(): RuntimeSidebarPaintContext {
     return {
@@ -2433,7 +2499,70 @@ class Runtime {
     paintRuntimeHistory(this.paintContext());
   }
   private paintFiles() {
+    if (this.historyFilter) {
+      layoutChanges(this.layoutContext(), this.contentHeight);
+      this.paintHistoryFilter();
+      return;
+    }
     paintRuntimeFiles(this.paintContext());
+  }
+
+  private paintHistoryFilter() {
+    const filter = this.historyFilter;
+    if (!filter) return;
+    this.unstagedLabel.content = ` ${filter.line === undefined ? "File" : "Line"} history · Esc to close `;
+    const width = Math.max(12, this.detailsPaneWidth - 3);
+    this.unstagedText.content = new StyledText(
+      filter.commits
+        .slice(this.fileStart, this.fileStart + this.historyFilterViewport())
+        .flatMap((commit, offset) => {
+          const index = this.fileStart + offset;
+          const selected = index === filter.index;
+          const marker = selected ? "›" : " ";
+          const avatar = authorAvatar(commit.author, commit.authorEmail);
+          const subject = clipColumns(commit.subject, Math.max(1, width - 2));
+          const identity = clipColumns(
+            `${avatar} ${commit.author} · ${shortSha(commit.sha)}`,
+            Math.max(1, width - 2),
+          );
+          const metadata = clipColumns(
+            `${formatRelativeTime(commit.committedAt)} · ${fileHistoryDate.format(new Date(commit.committedAt))}`,
+            Math.max(1, width - 2),
+          );
+          const background = selected
+            ? oneDarkTheme.selected
+            : oneDarkTheme.panel;
+          return [
+            bg(background)(
+              fg(oneDarkTheme.text)(
+                `${marker} ${subject}`.padEnd(width) + "\n",
+              ),
+            ),
+            bg(background)(
+              fg(selected ? oneDarkTheme.accent : oneDarkTheme.author)(
+                `  ${identity}`.padEnd(width) + "\n",
+              ),
+            ),
+            bg(background)(
+              fg(oneDarkTheme.muted)(`  ${metadata}`.padEnd(width) + "\n"),
+            ),
+            bg(oneDarkTheme.panel)(" ".repeat(width) + "\n"),
+          ];
+        }),
+    );
+  }
+
+  private historyFilterViewport() {
+    return Math.max(
+      1,
+      Math.floor(Number(this.unstagedText.height) / FILE_HISTORY_CARD_ROWS),
+    );
+  }
+
+  private showHistoryFilterCommit() {
+    const filter = this.historyFilter;
+    const commit = filter?.commits[filter.index];
+    if (commit) showRuntimeCommitMeta(this.dataContext(), commit);
   }
   private paintComposer() {
     paintRuntimeComposer(this.paintContext());
@@ -2708,6 +2837,29 @@ class Runtime {
     action: Parameters<typeof runRuntimeMenuAction>[1],
     target: Parameters<typeof runRuntimeMenuAction>[2],
   ) {
+    if (action === "file-history") {
+      if (target.file)
+        void this.showFileHistory(target.file, target.sha || undefined);
+      return;
+    }
+    if (action === "blame-line") {
+      if (target.file && target.line !== undefined)
+        void this.showLineBlame(
+          target.file.path,
+          target.line,
+          target.sha || undefined,
+        );
+      return;
+    }
+    if (action === "line-history") {
+      if (target.file && target.line !== undefined)
+        void this.showLineHistory(
+          target.file,
+          target.line,
+          target.sha || undefined,
+        );
+      return;
+    }
     if (action === "select-comparison-start") {
       this.comparisonStartSha = target.sha;
       this.history.title = ` Comparison start: ${shortSha(target.sha)} `;
@@ -2734,6 +2886,96 @@ class Runtime {
       return openRuntimeComparison(this.dataContext(), base);
     }
     return runRuntimeMenuAction(this.commandsContext(), action, target);
+  }
+
+  private async showFileHistory(file: ChangedFile, start?: string) {
+    const path = file.path;
+    try {
+      const request = ++this.historyFilterRequest;
+      const repository = this.repository;
+      const snapshot = this.snapshot;
+      this.notify(`Loading history for ${path}…`, "busy");
+      const commits = await repository.fileHistory(path, start);
+      if (
+        request !== this.historyFilterRequest ||
+        repository !== this.repository ||
+        snapshot !== this.snapshot
+      )
+        return;
+      this.installHistoryFilter(file, commits);
+    } catch (error) {
+      this.fail(error);
+    }
+  }
+
+  private installHistoryFilter(
+    file: ChangedFile,
+    commits: RepositorySnapshot["commits"],
+    line?: number,
+  ) {
+    if (!this.snapshot) return;
+    this.historyFilter = { path: file.path, file, commits, index: 0, line };
+    this.commitFiles = [file];
+    this.fileIndex = 0;
+    this.fileStart = 0;
+    this.mode = "unstaged";
+    this.diffOrigin = "commit";
+    this.view = "commit";
+    this.setFocus("changes");
+    this.commitDiff.visible = commits.length > 0;
+    this.commitDiffEmpty.visible = commits.length === 0;
+    this.history.title = undefined;
+    this.showHistoryFilterCommit();
+    this.paintHistoryFilter();
+    this.layout();
+    if (commits.length) void this.loadDiff().catch((error) => this.fail(error));
+    this.paint();
+    this.notify(commits.length ? "" : `No history found for ${file.path}`);
+  }
+
+  private async showLineBlame(path: string, line: number, commit?: string) {
+    try {
+      const blame = await this.repository.blameLine(path, line, commit);
+      this.notify(
+        `${shortSha(blame.commit.sha)} · ${blame.commit.author} · ${blame.commit.subject}`,
+      );
+    } catch (error) {
+      this.fail(error);
+    }
+  }
+
+  private async showLineHistory(
+    file: ChangedFile,
+    line: number,
+    commit?: string,
+  ) {
+    const path = file.path;
+    try {
+      const request = ++this.historyFilterRequest;
+      const repository = this.repository;
+      const snapshot = this.snapshot;
+      this.notify(`Loading history for ${path}:${line}…`, "busy");
+      const commits = await repository.lineHistory(path, line, commit);
+      if (
+        request !== this.historyFilterRequest ||
+        repository !== this.repository ||
+        snapshot !== this.snapshot
+      )
+        return;
+      this.installHistoryFilter(file, commits, line);
+    } catch (error) {
+      this.fail(error);
+    }
+  }
+
+  private clearHistoryFilter() {
+    this.historyFilterRequest++;
+    const saved = this.historyFilter;
+    if (!saved) return false;
+    this.historyFilter = undefined;
+    this.history.title = undefined;
+    this.closeDiff();
+    return true;
   }
   private checkoutBranch(branch: BranchRef) {
     return checkoutRuntimeBranch(this.commandsContext(), branch);
@@ -2942,6 +3184,7 @@ class Runtime {
       // A failed reword can leave the editor blurred; edit mode itself still
       // owns Escape so its saved working draft is never stranded.
       if (this.editingCommitSha) return this.cancelEditMessage();
+      if (this.historyFilter && this.clearHistoryFilter()) return;
       if (this.composing) {
         this.composerSummary.blur();
         this.composerBody.blur();
@@ -3094,6 +3337,7 @@ class Runtime {
     }
   }
   private moveFile(delta: number) {
+    if (this.historyFilter) return this.filesScroll("unstaged", delta);
     moveRuntimeFile(this.filesContext(), delta);
   }
   private async openSelectedFile() {
@@ -3104,6 +3348,39 @@ class Runtime {
     this.commitDiffEmpty.visible = false;
     this.layout();
     await this.loadDiff().catch((e) => this.fail(e));
+  }
+  private diffClick(x: number, y: number, button: number) {
+    if (button !== MouseButton.RIGHT || !this.commitDiff.visible) return;
+    const hit = this.commitDiff.lineTargetAt(y);
+    const file = this.selectedFile();
+    if (!hit || !file) return;
+    const selected =
+      this.historyFilter?.commits[this.historyFilter.index] ??
+      this.snapshot?.commits[this.commitIndex];
+    let sha: string;
+    let path = file.path;
+    if (this.diffOrigin === "commit" && selected) {
+      sha =
+        hit.side === "old"
+          ? (this.comparisonBaseSha ?? selected.parents[0] ?? "")
+          : selected.sha;
+      if (hit.side === "old") path = file.originalPath ?? file.path;
+    } else if (hit.kind !== "added") {
+      sha = this.snapshot?.headSha ?? "";
+      path = file.originalPath ?? file.path;
+    } else {
+      this.notify("Uncommitted added lines cannot be blamed");
+      return;
+    }
+    this.openGraphMenu(x, y, {
+      sha,
+      file: { ...file, path },
+      fileStaged: this.mode === "staged",
+      line:
+        this.diffOrigin !== "commit" && hit.kind === "context"
+          ? (hit.oldLine ?? hit.line)
+          : hit.line,
+    });
   }
   private commandsContext(): RuntimeCommandsContext {
     // eslint-disable-next-line @typescript-eslint/no-this-alias

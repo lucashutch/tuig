@@ -40,6 +40,17 @@ export interface Commit {
   decorations: readonly string[];
 }
 
+/** The commit and source location responsible for one line in a file. */
+export interface LineBlame {
+  commit: Commit;
+  /** Path and line in the blamed commit, before later edits or renames. */
+  originalPath: string;
+  originalLine: number;
+  /** Path and line at the requested commit. */
+  finalPath: string;
+  finalLine: number;
+}
+
 export type ResetMode = "soft" | "mixed" | "hard";
 
 export interface Stash {
@@ -143,6 +154,12 @@ export interface GitRepository {
    * Callers fall back to a full snapshot when an implementation omits it.
    */
   workingStatus?(): Promise<WorkingStatus>;
+  /** Commits that changed one path, newest first, following renames. */
+  fileHistory(path: string, start?: string): Promise<Commit[]>;
+  /** Commits that changed one line's ancestry, newest first. */
+  lineHistory(path: string, line: number, start?: string): Promise<Commit[]>;
+  /** Finds the commit responsible for one 1-based line at a commit or HEAD. */
+  blameLine(path: string, line: number, commit?: string): Promise<LineBlame>;
   diff(request: DiffRequest): Promise<string>;
   commitFiles(sha: string, base?: string): Promise<ChangedFile[]>;
   stage(paths: string[]): Promise<void>;

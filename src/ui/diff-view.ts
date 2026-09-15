@@ -4,6 +4,7 @@ import {
   type DiffRenderableOptions,
   type RenderContext,
 } from "@opentui/core";
+import { renderedDiffLineTarget, type DiffLineTarget } from "./diff-lines.js";
 
 /**
  * Own the displayed diff as a disposable child. OpenTUI 0.5.7 retains its
@@ -67,5 +68,22 @@ export class DiffView extends BoxRenderable {
     this.document.destroyRecursively();
     this.document = undefined;
     this.requestRender();
+  }
+
+  /** Resolve an absolute terminal row to the file line shown there. */
+  lineTargetAt(y: number): DiffLineTarget | undefined {
+    if (!this.document) return undefined;
+    const scroller = this.document
+      .getChildren()
+      .find((child) => "scrollY" in child) as
+      | { scrollY: number; screenY: number }
+      | undefined;
+    return renderedDiffLineTarget(
+      this.document.diff,
+      y -
+        (scroller?.screenY ?? this.document.screenY) +
+        (scroller?.scrollY ?? 0),
+      this.document.getHunkRowOffsets(),
+    );
   }
 }
