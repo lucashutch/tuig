@@ -5,9 +5,16 @@ import {
   repositoryTabHit,
   repositoryTabText,
   reorderRepositoryTabs,
+  submoduleTabLabel,
 } from "../../src/ui/repository-tabs.js";
 
 describe("repository tab layout", () => {
+  test("labels a submodule with its parent repository", () => {
+    expect(submoduleTabLabel("/work/app/vendor/library", "/work/app")).toBe(
+      "library · submodule of app",
+    );
+  });
+
   test("marks the active tab and separates select, close, and open hits", () => {
     const layout = layoutRepositoryTabs(
       [

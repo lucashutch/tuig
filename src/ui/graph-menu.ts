@@ -40,6 +40,7 @@ export type GraphMenuAction =
   | "remove-worktree"
   | "lock-worktree"
   | "unlock-worktree"
+  | "open-submodule"
   | "update-submodule"
   | "init-submodule"
   | "sync-submodule";
@@ -199,6 +200,7 @@ function submoduleMenu(submodule: Submodule): {
   return {
     title: name,
     items: [
+      { label: `Open ${name} repository`, action: "open-submodule" },
       { label: `Update ${name}`, action: "update-submodule" },
       { label: `Update and initialize ${name}`, action: "init-submodule" },
       { label: `Sync URL for ${name}`, action: "sync-submodule" },

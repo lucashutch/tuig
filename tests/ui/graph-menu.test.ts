@@ -124,7 +124,7 @@ describe("graph context menu", () => {
     expect(menu.items[1]?.destructive).toBe(true);
   });
 
-  test("offers update, init, sync, and copy for a submodule", () => {
+  test("offers open, update, init, sync, and copy for a submodule", () => {
     const menu = buildGraphMenu(
       {
         sha: "a",
@@ -138,6 +138,7 @@ describe("graph context menu", () => {
       snapshot,
     );
     expect(menu.items.map((item) => item.action)).toEqual([
+      "open-submodule",
       "update-submodule",
       "init-submodule",
       "sync-submodule",
