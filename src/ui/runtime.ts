@@ -125,6 +125,7 @@ import {
   cancelDiff as cancelRuntimeDiff,
   loadDiff as loadRuntimeDiff,
   openCommit as openRuntimeCommit,
+  openComparison as openRuntimeComparison,
   openWorkingDiff as openRuntimeWorkingDiff,
   HISTORY_PAGE,
   loadMoreCommits as loadMoreRuntimeCommits,
@@ -274,6 +275,10 @@ class Runtime {
   private mode: ChangeSection = "unstaged";
   private view: "history" | "commit" | "working" = "history";
   private commitFiles: ChangedFile[] = [];
+  /** Older endpoint retained while the user browses for a comparison target. */
+  private comparisonStartSha?: string;
+  /** Older endpoint for the comparison surface currently open. */
+  private comparisonBaseSha?: string;
   private graphIndex: GraphIndex = emptyGraphIndex();
 
   // Horizontal graph offset, in lanes, used once the graph is wider than the
@@ -2237,6 +2242,15 @@ class Runtime {
       set commitFiles(value) {
         runtime.commitFiles = value;
       },
+      get comparisonBaseSha() {
+        return runtime.comparisonBaseSha;
+      },
+      set comparisonBaseSha(value) {
+        runtime.comparisonBaseSha = value;
+      },
+      get comparisonStartSha() {
+        return runtime.comparisonStartSha;
+      },
       get graphIndex() {
         return runtime.graphIndex;
       },
@@ -2371,6 +2385,8 @@ class Runtime {
       branchHints: this.branchHints,
       historySelection: this.historySelection,
       commitIndex: this.commitIndex,
+      comparisonStartSha: this.comparisonStartSha,
+      comparisonBaseSha: this.comparisonBaseSha,
       historyStart: this.historyStart,
       setHistoryStart: (value) => {
         this.historyStart = value;
@@ -2678,7 +2694,11 @@ class Runtime {
   private openGraphMenu(x: number, y: number, target: GraphMenuTarget) {
     if (!this.snapshot) return;
     if (this.branchFilterActive) this.finishBranchFilter();
-    const built = buildGraphMenu(target, this.snapshot);
+    const built = buildGraphMenu(
+      target,
+      this.snapshot,
+      this.comparisonStartSha,
+    );
     this.openPopup(built.title, built.items, x, y, (item) => {
       if (item.action) void this.runMenuAction(item.action, target);
     });
@@ -2688,6 +2708,31 @@ class Runtime {
     action: Parameters<typeof runRuntimeMenuAction>[1],
     target: Parameters<typeof runRuntimeMenuAction>[2],
   ) {
+    if (action === "select-comparison-start") {
+      this.comparisonStartSha = target.sha;
+      this.history.title = ` Comparison start: ${shortSha(target.sha)} `;
+      this.paintHistory();
+      this.notify(
+        `Comparison start: ${shortSha(target.sha)} · right-click another commit`,
+      );
+      return;
+    }
+    if (action === "clear-comparison-start") {
+      this.comparisonStartSha = undefined;
+      this.history.title = undefined;
+      this.paintHistory();
+      this.notify("Comparison start cleared");
+      return;
+    }
+    if (action === "compare-with-selected") {
+      const base = this.comparisonStartSha;
+      if (!base || base === target.sha) return;
+      const index = this.snapshot?.commits.findIndex(
+        (commit) => commit.sha === target.sha,
+      );
+      if (index !== undefined && index >= 0) this.commitIndex = index;
+      return openRuntimeComparison(this.dataContext(), base);
+    }
     return runRuntimeMenuAction(this.commandsContext(), action, target);
   }
   private checkoutBranch(branch: BranchRef) {

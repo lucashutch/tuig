@@ -92,6 +92,8 @@ export interface RuntimePaintContext extends RuntimeSidebarPaintContext {
   branchHints: Map<string, string>;
   historySelection: "working" | "commit";
   commitIndex: number;
+  comparisonStartSha?: string;
+  comparisonBaseSha?: string;
   historyStart: number;
   setHistoryStart(value: number): void;
   historyViewportDetached: boolean;
@@ -354,6 +356,7 @@ export function paintHistory(ctx: RuntimePaintContext) {
         ? fitColumns(` ${label} `, labelWidth)
         : "".padEnd(labelWidth),
       graphColor = row.colorAt(row.lane) ?? oneDarkTheme.accent;
+    const comparisonStart = row.commit.sha === ctx.comparisonStartSha;
     const rowBg = selected
         ? oneDarkTheme.selected
         : backgrounds[commitRow % 2]!,
@@ -375,9 +378,11 @@ export function paintHistory(ctx: RuntimePaintContext) {
           stash ? oneDarkTheme.muted : label ? graphColor : oneDarkTheme.muted,
         )(labelText),
       ),
-      row.head
-        ? bg(rowBg)(fg(oneDarkTheme.warning)("▶ "))
-        : bg(rowBg)(fg(oneDarkTheme.accent)(selected ? "› " : "  ")),
+      comparisonStart
+        ? bg(rowBg)(fg(oneDarkTheme.warning)("A "))
+        : row.head
+          ? bg(rowBg)(fg(oneDarkTheme.warning)("▶ "))
+          : bg(rowBg)(fg(oneDarkTheme.accent)(selected ? "› " : "  ")),
       ...graphWindow.cells.map((c) => bg(rowBg)(fg(c.color)(c.symbol))),
       bg(rowBg)(
         fg(oneDarkTheme.border)(
@@ -507,7 +512,11 @@ export function paintSection(ctx: RuntimePaintContext, section: ChangeSection) {
   if (!rows.length) {
     list.content = commit
       ? new StyledText([
-          fg(oneDarkTheme.muted)("  No changed files in this commit\n"),
+          fg(oneDarkTheme.muted)(
+            ctx.comparisonBaseSha
+              ? "  No changed files between these commits\n"
+              : "  No changed files in this commit\n",
+          ),
           fg(oneDarkTheme.muted)("  esc  back to the graph"),
         ])
       : new StyledText([

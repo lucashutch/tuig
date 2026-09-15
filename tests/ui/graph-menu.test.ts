@@ -38,6 +38,8 @@ describe("graph context menu", () => {
     const menu = buildGraphMenu({ sha: "abcdef1234" }, snapshot);
     expect(menu.title).toBe("abcdef12");
     expect(menu.items.map((item) => item.action)).toEqual([
+      "select-comparison-start",
+      undefined,
       "checkout-commit",
       "rebase-onto",
       undefined,
@@ -49,6 +51,24 @@ describe("graph context menu", () => {
     expect(
       menu.items.find((item) => item.submenu)?.submenu?.map((x) => x.action),
     ).toEqual(["reset-soft", "reset-mixed", "reset-hard"]);
+  });
+
+  test("offers explicit comparison actions once a start is selected", () => {
+    const target = buildGraphMenu(
+      { sha: "bbbbbbbbbb" },
+      snapshot,
+      "aaaaaaaaaa",
+    );
+    expect(target.items.slice(0, 4).map((item) => item.action)).toEqual([
+      "compare-with-selected",
+      "select-comparison-start",
+      "clear-comparison-start",
+      undefined,
+    ]);
+    expect(target.items[0]?.label).toBe("Compare aaaaaaaa → bbbbbbbb");
+
+    const start = buildGraphMenu({ sha: "aaaaaaaaaa" }, snapshot, "aaaaaaaaaa");
+    expect(start.items[0]?.action).toBe("clear-comparison-start");
   });
 
   test("leads with branch actions and guards the checked-out branch", () => {

@@ -323,6 +323,12 @@ test("repository stages, commits, and reports an odd filename", async () => {
   expect(await repo.commitFiles(commits[1]!.sha)).toMatchObject([
     { path: "odd name.txt", state: "added" },
   ]);
+  expect(
+    await repo.commitFiles(commits[0]!.sha, commits[1]!.sha),
+  ).toMatchObject([{ path: "odd name.txt", state: "modified" }]);
+  expect(
+    await repo.diff({ base: commits[1]!.sha, target: commits[0]!.sha }),
+  ).toContain("+two");
   await Bun.write(join(root, "odd name.txt"), "stashed\n");
   await repo.stash("visible stash");
   expect((await repo.snapshot()).stashes[0]).toMatchObject({
