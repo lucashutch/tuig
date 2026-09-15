@@ -125,7 +125,7 @@ import {
   type GraphAvatarRequest,
   type RuntimeDataContext,
 } from "./runtime-data.js";
-import { cancelAvatarWork } from "./avatars.js";
+import { cancelAvatarWork, terminalGraphicsSupported } from "./avatars.js";
 import {
   historyClick as handleHistoryClick,
   moveCommit as moveHistoryCommit,
@@ -1625,12 +1625,11 @@ class Runtime {
       graphAvatarKeys: runtime.graphAvatarKeys,
       graphAvatarTokens: runtime.graphAvatarTokens,
       graphAvatarAborts: runtime.graphAvatarAborts,
-      // OpenTUI's block protocol can render images even without Kitty or
-      // Sixel, so keep photo loading enabled on ordinary terminals too. The
-      // pooled graph avatars need real pixels, though: a block-rendered image
-      // this small is an unrecognizable smear.
+      // OpenTUI falls back to colored character blocks when Kitty and Sixel
+      // graphics are unavailable. Those approximations are too coarse for
+      // these small avatars, so use the text fallbacks instead.
       get avatarSupported() {
-        return runtime.authorPhoto.effectiveProtocol !== "blocks";
+        return terminalGraphicsSupported(runtime.authorPhoto.effectiveProtocol);
       },
       files: () => this.files(),
       selectedFile: () => this.selectedFile(),

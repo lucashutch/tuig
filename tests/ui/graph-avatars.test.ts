@@ -88,6 +88,13 @@ describe("graph avatar slots", () => {
     expect(ctx.graphAvatarTokens[0]!).toBeGreaterThan(token);
   });
 
+  test("keeps the graph dot visible while an avatar loads", () => {
+    const { ctx, widgets } = context(true);
+    updateGraphAvatars(ctx, [request(0, "a")]);
+    expect(widgets[0]!.visible).toBe(false);
+    expect(widgets[0]!.source).toBeUndefined();
+  });
+
   test("a lane color change reprocesses the same commit", () => {
     const { ctx } = context(true);
     updateGraphAvatars(ctx, [request(0, "a")]);
@@ -123,7 +130,8 @@ describe("graph avatar slots", () => {
     ctx.avatarSupported = true;
     updateGraphAvatars(ctx, [request(0, "a")]);
     expect(ctx.graphAvatarKeys[0]).toBeDefined();
-    expect(widgets[0]!.visible).toBe(true);
+    expect(ctx.graphAvatarAborts[0]?.signal.aborted).toBe(false);
+    expect(widgets[0]!.visible).toBe(false);
   });
 
   test("cancelGraphAvatars aborts every in-flight load", () => {

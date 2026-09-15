@@ -13,7 +13,7 @@ import type {
   RepositorySnapshot,
 } from "../git/types.js";
 import {
-  authorAvatar,
+  boxedAuthorAvatar,
   branchHints,
   emptyBranchHintIndex,
   extendCommitBranchHints,
@@ -22,7 +22,6 @@ import {
 } from "./history.js";
 import {
   circularAvatar,
-  fallbackAvatar,
   getGitHubCommitAvatar,
   getGravatarUrl,
   getProviderAvatarUrl,
@@ -674,14 +673,18 @@ export function showCommitMeta(ctx: RuntimeDataContext, commit: Commit) {
   ctx.widgets.authorPhoto.visible = false;
   ctx.widgets.authorPhoto.source = undefined;
   ctx.widgets.authorBadge.visible = true;
-  ctx.widgets.authorBadge.content = authorAvatar(
+  ctx.widgets.authorBadge.content = boxedAuthorAvatar(
     commit.author,
     commit.authorEmail,
   );
+  const graphicsSupported = ctx.avatarSupported;
   const parsedCoAuthors = parseCoAuthors(commit.body);
   const providerEmails = new Set(
     parsedCoAuthors
-      .filter((author) => getProviderAvatarUrl(author.name, author.email))
+      .filter(
+        (author) =>
+          graphicsSupported && getProviderAvatarUrl(author.name, author.email),
+      )
       .map((author) => author.email.toLowerCase()),
   );
   const coAuthors = presentCommitCoAuthors(parsedCoAuthors, providerEmails);
@@ -689,15 +692,17 @@ export function showCommitMeta(ctx: RuntimeDataContext, commit: Commit) {
   ctx.commitCoAuthorsValue = coAuthors.chunks
     .map((chunk) => chunk.text)
     .join("");
-  const provider = parsedCoAuthors
-    .map((author) => getProviderAvatarUrl(author.name, author.email))
-    .find(Boolean);
+  const provider = graphicsSupported
+    ? parsedCoAuthors
+        .map((author) => getProviderAvatarUrl(author.name, author.email))
+        .find(Boolean)
+    : undefined;
   ctx.commitCoAuthorsProviderVisible = Boolean(provider);
   ctx.widgets.commitCoAuthorProvider.visible = false;
   ctx.widgets.commitCoAuthorProvider.source = undefined;
   if (provider)
     void loadProviderAvatar(ctx, provider, avatarAbort.signal, avatarRequest);
-  if (ctx.avatarSupported) {
+  if (graphicsSupported) {
     const url = getGravatarUrl(commit.authorEmail);
     if (url)
       void loadAuthorPhoto(ctx, commit, url, avatarRequest, avatarAbort.signal);
@@ -898,17 +903,9 @@ export function updateGraphAvatars(
       showGraphAvatar(widget, cached);
       continue;
     }
-    const fallback = fallbackAvatar(
-      request.commit.authorEmail || request.commit.author || request.commit.sha,
-      {
-        ringColor: request.color,
-        background: request.background,
-        continuesAbove: request.continuesAbove,
-        continuesBelow: request.continuesBelow,
-      },
-    );
-    showGraphAvatar(widget, fallback);
-    fallback.dispose();
+    // Keep the painted Git graph dot visible while the photo loads. A
+    // generated pixel fallback still obscures the graph on terminals that
+    // incorrectly report image support.
     const abort = new AbortController();
     ctx.graphAvatarAborts[slot] = abort;
     void loadGraphAvatar(

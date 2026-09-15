@@ -6,6 +6,30 @@ import { NativeImage } from "@opentui/core";
 import { BoundedCache } from "./bounded-cache.js";
 import { debugLog } from "./debug-log.js";
 
+type PixelProtocol = "kitty" | "sixel" | "blocks";
+
+/**
+ * Reject image protocols that are known to be unusable from this process.
+ *
+ * OpenTUI's capability probe can report Kitty graphics through a WSL relay
+ * even though the Windows terminal cannot display the resulting placements.
+ * Permit WSL only when the hosting terminal identifies itself as one with a
+ * native graphics protocol.
+ */
+export function terminalGraphicsSupported(
+  protocol: PixelProtocol,
+  env: NodeJS.ProcessEnv = process.env,
+): boolean {
+  if (protocol === "blocks") return false;
+  if (!env.WSL_DISTRO_NAME && !env.WSL_INTEROP) return true;
+  return Boolean(
+    env.KITTY_WINDOW_ID ||
+      env.WEZTERM_PANE ||
+      env.TERM_PROGRAM?.toLowerCase() === "wezterm" ||
+      env.TERM?.toLowerCase().includes("kitty"),
+  );
+}
+
 const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const AVATAR_CACHE_TTL = 7 * 24 * 60 * 60 * 1000;
 /** Known misses expire sooner: an author may gain an avatar any day. */

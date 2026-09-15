@@ -35,6 +35,7 @@ import {
 import {
   authorAvatar,
   authorInitials,
+  boxedAuthorAvatar,
   filterBranchRefs,
   formatCommitAuthor,
   formatRelativeTime,
@@ -50,6 +51,9 @@ test("runtime presentation text helpers fit and wrap text", () => {
 test("author badges and relative timestamps are deterministic and terminal-safe", () => {
   expect(authorInitials("Ada Lovelace", "ada@example.test")).toBe("AL");
   expect(authorAvatar("Ada Lovelace", "ada@example.test")).toBe("[AL]");
+  expect(boxedAuthorAvatar("Ada Lovelace", "ada@example.test")).toBe(
+    "┌────┐\n│ AL │\n└────┘",
+  );
   expect(
     formatRelativeTime(
       "2024-01-01T00:00:00Z",
