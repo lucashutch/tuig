@@ -718,24 +718,24 @@ export class GitRepositoryService implements GitRepository {
     //
     // The walk excludes refs/stash, so each stash tip is layered back here as
     // a single row: one WIP entry per stash instead of the tip plus its
-    // internal index/untracked commits. Tips are newest-first and recent, so
-    // the merged sequence is tips followed by the walk.
+    // internal index/untracked commits. A stash can outlive newer commits, so
+    // merge tips by commit time instead of always putting them at the top.
     const tips = await this.stashTipCommits();
-    if (offset >= tips.length) {
-      const commits = await this.walk.read(offset - tips.length, wanted + 1);
-      const complete = commits.length <= wanted;
-      return {
-        commits: complete ? commits : commits.slice(0, wanted),
-        complete,
-      };
-    }
-    const head = tips.slice(offset, offset + wanted + 1);
-    if (head.length > wanted)
-      return { commits: head.slice(0, wanted), complete: false };
-    const rest = await this.walk.read(0, wanted + 1 - head.length);
-    const commits = [...head, ...rest];
-    const complete = commits.length <= wanted;
-    return { commits: complete ? commits : commits.slice(0, wanted), complete };
+    // At most every tip can occur before this page, so this is the earliest
+    // ordinary commit that could occupy `offset`. Including all tips then
+    // gives the merged window a known global starting position.
+    const walkOffset = Math.max(0, offset - tips.length);
+    const localOffset = offset - walkOffset;
+    const walked = await this.walk.read(walkOffset, wanted + tips.length + 1);
+    const merged = [...tips, ...walked].sort(
+      (a, b) => Date.parse(b.committedAt) - Date.parse(a.committedAt),
+    );
+    const page = merged.slice(localOffset, localOffset + wanted + 1);
+    const complete = page.length <= wanted;
+    return {
+      commits: complete ? page : page.slice(0, wanted),
+      complete,
+    };
   }
   /**
    * One history row per stash: the WIP tip with only its first parent, so the

@@ -346,6 +346,10 @@ describe("the working row and the graph window", () => {
     paintHistory(context);
     const lines = context.text.split("\n");
     expect(lines[1]).toContain("Working changes");
+    // Working changes use the same graph column as commits, rather than a
+    // bullet embedded in the branch-label column.
+    expect(lines[1]!.slice(0, 24)).not.toContain("●");
+    expect(lines[1]!.slice(24, 26)).toBe("● ");
     expect(lines[2]).toContain("commit 0");
     expect(context.text).toContain("commit 4");
     expect(context.text).not.toContain("commit 5");

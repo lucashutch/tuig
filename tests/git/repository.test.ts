@@ -397,6 +397,36 @@ test("stash tip pages with history instead of shifting it", async () => {
   expect(second.complete).toBe(true);
 });
 
+test("shows a stash at its creation time in history", async () => {
+  const root = await mkdtemp(join(tmpdir(), "tuig-stash-order-test-"));
+  cleanup.push(root);
+  await runGit(["init", "-b", "main"], root);
+  await runGit(["config", "user.name", "Test User"], root);
+  await runGit(["config", "user.email", "test@example.com"], root);
+  await Bun.write(join(root, "file"), "base\n");
+  await runGit(["add", "file"], root);
+  await runGit(["commit", "-m", "base"], root, {
+    GIT_AUTHOR_DATE: "2026-01-01T00:00:00Z",
+    GIT_COMMITTER_DATE: "2026-01-01T00:00:00Z",
+  });
+  await Bun.write(join(root, "file"), "stashed\n");
+  await runGit(["stash", "push", "-m", "middle stash"], root, {
+    GIT_AUTHOR_DATE: "2026-01-02T00:00:00Z",
+    GIT_COMMITTER_DATE: "2026-01-02T00:00:00Z",
+  });
+  await Bun.write(join(root, "newer"), "newer\n");
+  await runGit(["add", "newer"], root);
+  await runGit(["commit", "-m", "newer"], root, {
+    GIT_AUTHOR_DATE: "2026-01-03T00:00:00Z",
+    GIT_COMMITTER_DATE: "2026-01-03T00:00:00Z",
+  });
+
+  const repo = await GitRepositoryService.open(root);
+  expect(
+    (await repo.snapshot()).commits.map((commit) => commit.subject),
+  ).toEqual(["newer", expect.stringContaining("middle stash"), "base"]);
+});
+
 test("diff enforces byte limits and preserves cancellation errors", async () => {
   const root = await mkdtemp(join(tmpdir(), "tuig-diff-limit-"));
   cleanup.push(root);

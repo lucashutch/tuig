@@ -297,15 +297,27 @@ export function paintHistory(ctx: RuntimePaintContext) {
   if (hasWorking && start === 0 && line < lines) {
     const selected = ctx.historySelection === "working",
       rowBg = selected ? oneDarkTheme.selected : oneDarkTheme.panelRaised,
-      working = selected ? "▸ ● Working changes" : "  ● Working changes",
-      count = `  ${s.files.length} files`,
-      countWidth = Math.max(
-        Bun.stringWidth(count),
-        ctx.historyContentWidth - Bun.stringWidth(working) - 1,
-      );
+      workingGraph =
+        graphScroll === 0
+          ? "● ".padEnd(geometry.graphWidth)
+          : "".padEnd(geometry.graphWidth),
+      subject = fitColumns("Working changes", subjectWidth, true),
+      count = `${s.files.length} files`;
     chunks.push(
-      bg(rowBg)(fg(oneDarkTheme.warning)(working)),
-      bg(rowBg)(fg(oneDarkTheme.muted)(count.padEnd(countWidth))),
+      bg(rowBg)("".padEnd(labelWidth)),
+      bg(rowBg)(fg(oneDarkTheme.muted)(selected ? "▸ " : "  ")),
+      bg(rowBg)(fg(oneDarkTheme.warning)(workingGraph)),
+      bg(rowBg)(fg(oneDarkTheme.border)(" │ ")),
+      bg(rowBg)(fg(oneDarkTheme.warning)(subject)),
+      bg(rowBg)(fg(oneDarkTheme.border)(columns.showCommitter ? " │ " : "")),
+      bg(rowBg)(
+        fg(oneDarkTheme.muted)(
+          columns.showCommitter ? fitColumns(count, authorWidth, true) : "",
+        ),
+      ),
+      bg(rowBg)(fg(oneDarkTheme.border)(columns.showSha ? " │ " : "")),
+      bg(rowBg)(columns.showSha ? "".padEnd(8) : ""),
+      bg(rowBg)(" ".repeat(geometry.padding)),
       bg(rowBg)(
         fg(thumb(0) ? oneDarkTheme.accent : oneDarkTheme.border)(
           `${scroll(0)}\n`,
