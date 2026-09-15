@@ -73,6 +73,7 @@ export const PANE_TOP = 4;
 export type RuntimeWidgets = {
   tabBar: TextRenderable;
   header: TextRenderable;
+  avatarToggle: TextRenderable;
   toolbar: TextRenderable;
   sidebar: BoxRenderable;
   history: BoxRenderable;
@@ -138,6 +139,7 @@ export type RuntimeWidgets = {
 
 export type RuntimeWidgetActions = {
   tabMouseDown(x: number, button: number): void;
+  toggleAvatars(): void;
   tabDrag(x: number): void;
   tabDragEnd(): void;
   sidebarClick(x: number, y: number, button: number): void;
@@ -871,6 +873,21 @@ export function createRuntimeWidgets(
     wrapMode: "none",
     content: "",
   });
+  const avatarToggle = new TextRenderable(renderer, {
+    ...absolute,
+    id: "avatar-toggle",
+    right: 1,
+    top: 1,
+    width: 9,
+    height: 1,
+    zIndex: 21,
+    fg: oneDarkTheme.muted,
+    bg: oneDarkTheme.panelRaised,
+    wrapMode: "none",
+    selectable: false,
+    content: "",
+    ...buttonMouse(actions.toggleAvatars),
+  });
   // Hints and messages share the bottom row but never overwrite each other,
   // and both sit on the root so collapsing a pane cannot hide them.
   const toolbar = new TextRenderable(renderer, {
@@ -1042,6 +1059,7 @@ export function createRuntimeWidgets(
   // the graph only while a diff is open.
   renderer.root.add(tabBar);
   renderer.root.add(header);
+  renderer.root.add(avatarToggle);
   renderer.root.add(toolbar);
   renderer.root.add(hints);
   renderer.root.add(message);
@@ -1065,6 +1083,7 @@ export function createRuntimeWidgets(
   return {
     tabBar,
     header,
+    avatarToggle,
     toolbar,
     sidebar,
     history,

@@ -20,6 +20,7 @@ import { resolve } from "node:path";
 import {
   createGitRepository,
   NotGitRepositoryError,
+  resolveRepositoryPath,
   suggestDirectories,
   type DirectorySuggestion,
 } from "../git/index.js";
@@ -333,6 +334,7 @@ class Runtime {
   private pendingRefreshMessage?: string;
   private readonly header: TextRenderable;
   private readonly tabBar: TextRenderable;
+  private readonly avatarToggle: TextRenderable;
   private readonly toolbar: TextRenderable;
   private readonly sidebar: BoxRenderable;
   private readonly history: BoxRenderable;
@@ -479,6 +481,7 @@ class Runtime {
   private commitCoAuthorsValue = "";
   private commitCoAuthorsProviderVisible = false;
   private avatarRequest = 0;
+  private avatarsEnabled = true;
   private avatarAbort?: AbortController;
   private graphAvatarKeys: Array<string | undefined> = [];
   private graphAvatarTokens: number[] = [];
@@ -516,6 +519,7 @@ class Runtime {
     )!.id;
     const widgets = createRuntimeWidgets(renderer, {
       tabMouseDown: (x, button) => this.handleTabMouseDown(x, button),
+      toggleAvatars: () => this.toggleAvatars(),
       tabDrag: (x) => this.handleTabDrag(x),
       tabDragEnd: () => {
         this.draggedTabId = undefined;
@@ -609,6 +613,7 @@ class Runtime {
     });
     this.sidebar = widgets.sidebar;
     this.tabBar = widgets.tabBar;
+    this.avatarToggle = widgets.avatarToggle;
     this.history = widgets.history;
     this.details = widgets.details;
     this.header = widgets.header;
@@ -781,6 +786,7 @@ class Runtime {
 
   async start() {
     const preferences = await loadLayoutPreferences();
+    this.avatarsEnabled = preferences.avatarsEnabled ?? true;
     this.leftWidth = preferences.leftWidth ?? this.leftWidth;
     this.detailsWidth = preferences.detailsWidth ?? this.detailsWidth;
     this.preferredUnstagedHeight = preferences.unstagedHeight;
@@ -834,6 +840,7 @@ class Runtime {
       this.preferencesTimer = undefined;
     }
     await saveLayoutPreferences({
+      avatarsEnabled: this.avatarsEnabled,
       remoteFetchIntervalMinutes: this.remoteFetchIntervalMinutes,
       leftWidth: this.leftWidth,
       detailsWidth: this.detailsWidth,
@@ -1042,18 +1049,36 @@ class Runtime {
         " ".repeat(Math.max(0, width - this.tabLayout.open.end)),
       ),
     );
+    this.avatarToggle.content = `${this.avatarsEnabled ? "■" : "□"} Avatars`;
     this.tabBar.width = width;
     this.tabBar.content = new StyledText(cells);
   }
 
   private handleTabMouseDown(x: number, button: number) {
-    if (button !== 0) return;
     const hit = repositoryTabHit(this.tabLayout, x);
     if (!hit) return;
+    if (button === MouseButton.MIDDLE) {
+      if (hit.action === "select" || hit.action === "close")
+        void this.closeRepositoryTab(hit.tabId);
+      return;
+    }
+    if (button !== MouseButton.LEFT) return;
     if (hit.action === "open") return this.showRepositoryPicker();
     if (hit.action === "close") return void this.closeRepositoryTab(hit.tabId);
     this.draggedTabId = hit.tabId;
     void this.activateRepositoryTab(hit.tabId);
+  }
+
+  private toggleAvatars() {
+    this.avatarsEnabled = !this.avatarsEnabled;
+    this.avatarAbort?.abort();
+    cancelRuntimeGraphAvatars(this.dataContext());
+    const commit = this.snapshot?.commits[this.commitIndex];
+    if (commit && this.view === "commit")
+      showRuntimeCommitMeta(this.dataContext(), commit);
+    this.persistLayoutPreferences();
+    this.paintTabs();
+    this.paint();
   }
 
   private handleTabDrag(x: number) {
@@ -1169,7 +1194,8 @@ class Runtime {
   }
 
   private async openRepositoryPath() {
-    const path = this.repositoryPathInput.value.trim() || process.cwd();
+    const typedPath = this.repositoryPathInput.value.trim();
+    const path = resolveRepositoryPath(typedPath || process.cwd());
     try {
       const repository = await createGitRepository(path);
       const existing = this.tabs.find(
@@ -1686,7 +1712,10 @@ class Runtime {
       // graphics are unavailable. Those approximations are too coarse for
       // these small avatars, so use the text fallbacks instead.
       get avatarSupported() {
-        return terminalGraphicsSupported(runtime.authorPhoto.effectiveProtocol);
+        return (
+          runtime.avatarsEnabled &&
+          terminalGraphicsSupported(runtime.authorPhoto.effectiveProtocol)
+        );
       },
       files: () => this.files(),
       selectedFile: () => this.selectedFile(),

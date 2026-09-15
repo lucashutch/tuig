@@ -3,6 +3,8 @@ import { dirname, join } from "node:path";
 import { homedir } from "node:os";
 
 export type LayoutPreferences = {
+  /** Whether remote author avatars may be fetched and displayed. */
+  avatarsEnabled?: boolean;
   /** Minutes between automatic `git fetch --prune` runs. Zero disables it. */
   remoteFetchIntervalMinutes?: number;
   leftWidth?: number;
@@ -71,6 +73,10 @@ export function parseLayoutPreferences(value: unknown): LayoutPreferences {
       ? sectionBooleans
       : undefined;
   return {
+    avatarsEnabled:
+      typeof input.avatarsEnabled === "boolean"
+        ? input.avatarsEnabled
+        : undefined,
     remoteFetchIntervalMinutes: positive("remoteFetchIntervalMinutes"),
     leftWidth: positive("leftWidth"),
     detailsWidth: positive("detailsWidth"),
