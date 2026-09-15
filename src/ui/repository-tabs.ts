@@ -59,7 +59,9 @@ export type RepositoryTabHit =
   | { action: "open" };
 
 const CLOSE_WIDTH = 1;
-const TAB_OVERHEAD = 3;
+// One leading cell, one cell between the label and close button, the close
+// button, and one trailing cell.
+const TAB_OVERHEAD = 4;
 const MIN_TAB_WIDTH = TAB_OVERHEAD + 1;
 const OPEN_WIDTH = 3;
 const TAB_GAP = 1;
@@ -170,7 +172,7 @@ export function layoutRepositoryTabs(
     const fullLabel = labelFor(tab);
     const tabWidth = selectedWidths[index - start] ?? MIN_TAB_WIDTH;
     const closeWidth = Math.min(CLOSE_WIDTH, tabWidth);
-    const closeStart = column + tabWidth - closeWidth;
+    const closeStart = column + tabWidth - closeWidth - 1;
     const labelWidth = Math.max(0, closeStart - column - 2);
     const active = tab.id === activeTabId;
     laidOut.push({
@@ -184,7 +186,7 @@ export function layoutRepositoryTabs(
       start: column,
       end: column + tabWidth,
       closeStart,
-      closeEnd: column + tabWidth,
+      closeEnd: closeStart + closeWidth,
     });
     column += tabWidth;
     if (index < end - 1) column += TAB_GAP;
@@ -241,7 +243,7 @@ export function reorderRepositoryTabs<T extends { id: string }>(
 export function repositoryTabText(tab: RepositoryTabLayout): string {
   const width = Math.max(0, tab.end - tab.start);
   if (width === 0) return "";
-  const suffix = width >= 2 ? " ×" : "";
+  const suffix = width >= 3 ? " × " : "";
   const prefix = width >= 1 ? " " : "";
   const contentWidth = Math.max(0, width - Bun.stringWidth(prefix + suffix));
   const label = clipColumns(tab.label, contentWidth);
