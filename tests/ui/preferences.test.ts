@@ -46,4 +46,13 @@ describe("layout preferences", () => {
       composerHeight: undefined,
     });
   });
+
+  test("reads the avatar display preference", () => {
+    expect(parseLayoutPreferences({ avatarsEnabled: false })).toMatchObject({
+      avatarsEnabled: false,
+    });
+    expect(parseLayoutPreferences({ avatarsEnabled: "no" })).toMatchObject({
+      avatarsEnabled: undefined,
+    });
+  });
 });

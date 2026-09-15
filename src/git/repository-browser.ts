@@ -1,11 +1,23 @@
 import { readdir } from "node:fs/promises";
-import { basename, dirname, isAbsolute, join, resolve } from "node:path";
+import { homedir } from "node:os";
+import { basename, dirname, join, resolve } from "node:path";
 
 /** A visible child directory that can be displayed and selected by a picker. */
 export interface DirectorySuggestion {
   name: string;
   /** Absolute path to the directory, ready for opening. */
   path: string;
+}
+
+/** Resolve picker input, including the shell-style home directory shorthand. */
+export function resolveRepositoryPath(
+  typedPath: string,
+  cwd = process.cwd(),
+  home = homedir(),
+): string {
+  if (typedPath === "~") return resolve(home);
+  if (typedPath.startsWith("~/")) return resolve(home, typedPath.slice(2));
+  return resolve(cwd, typedPath);
 }
 
 function sortDirectoryNames(left: string, right: string): number {
@@ -25,9 +37,7 @@ function completionLocation(
   cwd: string,
 ): { directory: string; partial: string } {
   if (typedPath.length === 0) return { directory: resolve(cwd), partial: "" };
-  const absolutePath = isAbsolute(typedPath)
-    ? resolve(typedPath)
-    : resolve(cwd, typedPath);
+  const absolutePath = resolveRepositoryPath(typedPath, cwd);
   const hasTrailingSeparator = typedPath.endsWith("/");
   if (hasTrailingSeparator) return { directory: absolutePath, partial: "" };
   return { directory: dirname(absolutePath), partial: basename(absolutePath) };

@@ -2,7 +2,10 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { suggestDirectories } from "../../src/git/repository-browser.js";
+import {
+  resolveRepositoryPath,
+  suggestDirectories,
+} from "../../src/git/repository-browser.js";
 
 const cleanup: string[] = [];
 
@@ -13,6 +16,15 @@ afterEach(async () => {
 });
 
 describe("directory suggestions", () => {
+  test("resolves home-relative repository paths", () => {
+    expect(resolveRepositoryPath("~", "/work", "/home/tester")).toBe(
+      "/home/tester",
+    );
+    expect(
+      resolveRepositoryPath("~/projects/repo", "/work", "/home/tester"),
+    ).toBe("/home/tester/projects/repo");
+  });
+
   test("lists sorted non-hidden child directories and ignores files", async () => {
     const cwd = await mkdtemp(join(tmpdir(), "tuig-browser-"));
     cleanup.push(cwd);
