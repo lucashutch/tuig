@@ -2195,6 +2195,11 @@ class Runtime {
       } else if (this.view !== "history") this.closeDiff();
       return;
     }
+    if (
+      this.popupController.isOpen &&
+      (key.name === "enter" || key.name === "return")
+    )
+      return this.popupController.activate();
     if (key.name === "q" || (key.ctrl && key.name === "c")) {
       return this.shutdown();
     }

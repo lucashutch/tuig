@@ -166,6 +166,8 @@ export function confirmThen(
     (item) => {
       if (item.label === request.confirmLabel) void run();
     },
+    false,
+    request.lines.length + 1,
   );
 }
 
@@ -440,12 +442,68 @@ export async function runMenuAction(
             : undefined
           : copies.remote;
     if ((!local && !remote) || local?.current) return;
+    const linkedWorktree = local
+      ? context.snapshot?.worktrees?.find(
+          (candidate) =>
+            candidate.branch === local.name &&
+            candidate.path.replace(/\/+$/, "") !==
+              context.snapshot?.root.replace(/\/+$/, ""),
+        )
+      : undefined;
     const names = [
       local && `local branch ${local.name}`,
       remote && `remote branch ${remote.name}`,
     ]
       .filter(Boolean)
       .join(" and ");
+    if (linkedWorktree) {
+      const worktreeName =
+        linkedWorktree.path.replace(/\/+$/, "").split("/").at(-1) ??
+        linkedWorktree.path;
+      const deleteBothLabel = `Delete branch and ${worktreeName}`;
+      const removeOnlyLabel = `Remove ${worktreeName} only`;
+      const items: GraphMenuItem[] = [
+        {
+          label: `${displayBranchName(local!.name)} is checked out at:`,
+          disabled: true,
+        },
+        { label: linkedWorktree.path, disabled: true },
+        { label: "", separator: true },
+        { label: deleteBothLabel, destructive: true },
+        { label: removeOnlyLabel, destructive: true },
+        { label: "Cancel" },
+      ];
+      const width = menuWidth(items);
+      return context.popupController.open(
+        "Branch has a worktree",
+        items,
+        Math.max(0, Math.floor((context.terminalWidth - width) / 2)),
+        Math.max(0, Math.floor((context.terminalHeight - items.length) / 2)),
+        (item) => {
+          if (item.label === removeOnlyLabel)
+            void perform(context, `Removing ${worktreeName}…`, () =>
+              context.repository.removeWorktree(linkedWorktree.path),
+            );
+          if (item.label === deleteBothLabel)
+            void perform(
+              context,
+              `Deleting ${names} and worktree ${worktreeName}…`,
+              async (signal) => {
+                await context.repository.removeWorktree(linkedWorktree.path);
+                if (remote)
+                  await context.repository.deleteRemoteBranch(
+                    remote.name,
+                    signal,
+                  );
+                await context.repository.deleteBranch(local!.name, true);
+              },
+              !!remote,
+            );
+        },
+        false,
+        3,
+      );
+    }
     return confirmThen(
       context,
       {
