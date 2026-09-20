@@ -5,6 +5,8 @@ import {
   cachedFileTree,
   cachedFlattenVisible,
   toggleExpansion,
+  descendantFiles,
+  fileRowActionHits,
   type VisibleFileTreeNode,
 } from "./file-tree.js";
 import { type ChangeSection } from "./runtime-widgets.js";
@@ -20,6 +22,7 @@ export interface RuntimeFilesContext {
   sectionCollapsed: Record<ChangeSection, boolean>;
   sectionStart: Record<ChangeSection, number>;
   expandedFiles: Set<string>;
+  hoveredFileRow?: { section: ChangeSection; row: number };
   preferredUnstagedHeight?: number;
   preferredComposerHeight?: number;
   contentHeight: number;
@@ -52,6 +55,27 @@ export interface RuntimeFilesContext {
       fileStaged: boolean;
     },
   ): void;
+  runFileAction?(
+    action: "stage" | "discard" | "unstage",
+    files: ChangedFile[],
+    directory: boolean,
+  ): void;
+}
+
+export function filesHover(
+  context: RuntimeFilesContext,
+  section: ChangeSection,
+  y?: number,
+) {
+  const row = y === undefined ? -1 : y - list(context, section).y;
+  const next = row >= 0 ? { section, row } : undefined;
+  if (
+    context.hoveredFileRow?.section === next?.section &&
+    context.hoveredFileRow?.row === next?.row
+  )
+    return;
+  context.hoveredFileRow = next;
+  context.paintFiles();
 }
 
 function list(
@@ -164,8 +188,9 @@ export function filesClick(
   // Mouse coordinates and the rendered widget position are screen-relative.
   // `top` is only a layout offset and can differ due to the parent's border.
   const row = y - list(context, section).y + context.sectionStart[section];
-  const node = sectionRows(context, section)[row]?.node;
-  if (!node) return;
+  const rowEntry = sectionRows(context, section)[row];
+  if (!rowEntry) return;
+  const { node, depth } = rowEntry;
   if (button === MouseButton.RIGHT) {
     if (node.kind !== "file") return;
     const file = files(context, section).find(
@@ -178,6 +203,27 @@ export function filesClick(
       fileStaged: section === "staged",
     });
     return;
+  }
+  if (
+    context.view !== "commit" &&
+    button === MouseButton.LEFT &&
+    x !== undefined &&
+    context.hoveredFileRow?.section === section &&
+    context.hoveredFileRow.row === row - context.sectionStart[section]
+  ) {
+    const localX = x - Number(list(context, section).x);
+    const width = Number(list(context, section).width);
+    const hit = fileRowActionHits(section, width, 6 + depth * 2).find(
+      ({ start, end }) => localX >= start && localX < end,
+    );
+    if (hit) {
+      context.runFileAction?.(
+        hit.action,
+        descendantFiles(node),
+        node.kind === "directory",
+      );
+      return;
+    }
   }
   if (node.kind === "directory") {
     context.expandedFiles = toggleExpansion(context.expandedFiles, node.path);
