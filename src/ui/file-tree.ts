@@ -22,6 +22,45 @@ export interface VisibleFileTreeNode {
   depth: number;
 }
 
+/** Return every changed file below a row, independent of expansion state. */
+export function descendantFiles(node: FileTreeNode): FileTreeFile[] {
+  if (node.kind === "file") return [node];
+  return node.children.flatMap(descendantFiles);
+}
+
+export type FileRowAction = "stage" | "discard" | "unstage";
+export interface FileRowActionHit {
+  action: FileRowAction;
+  label: string;
+  start: number;
+  end: number;
+}
+
+/** Right-aligned action geometry shared by painting and mouse hit testing. */
+export function fileRowActionHits(
+  section: "staged" | "unstaged",
+  width: number,
+  prefixWidth = 6,
+): FileRowActionHit[] {
+  const actions: Array<[FileRowAction, string]> =
+    section === "staged"
+      ? [["unstage", " Unstage "]]
+      : [
+          ["stage", " Stage "],
+          ["discard", " Discard "],
+        ];
+  const total = actions.reduce((sum, [, label]) => sum + label.length, 0);
+  // Keep the full tree prefix and at least one column of the row name visible.
+  // The same condition controls painting and hit testing.
+  if (width < prefixWidth + 1 + total) return [];
+  let start = width - total;
+  return actions.map(([action, label]) => {
+    const hit = { action, label, start, end: start + label.length };
+    start = hit.end;
+    return hit;
+  });
+}
+
 // This order is intentional: a directory containing a conflict remains visibly
 // important even when it also contains ordinary modifications.
 const stateRank: Record<FileState, number> = {
@@ -166,10 +205,25 @@ export function selectedFileRow(
 /** Keep each node on one terminal row while retaining both ends of long names. */
 export function fitTreeLabel(label: string, width: number): string {
   if (width <= 0) return "";
-  if (label.length <= width) return label;
+  if (Bun.stringWidth(label) <= width) return label;
   if (width === 1) return "…";
-  if (width < 5) return `${label.slice(0, width - 1)}…`;
+  if (width < 5) return `${takeColumns(label, width - 1)}…`;
   const tail = Math.max(2, Math.floor((width - 1) * 0.4));
   const head = width - tail - 1;
-  return `${label.slice(0, head)}…${label.slice(-tail)}`;
+  return `${takeColumns(label, head)}…${takeColumns(label, tail, true)}`;
+}
+
+function takeColumns(text: string, width: number, fromEnd = false): string {
+  const characters = Array.from(text);
+  if (fromEnd) characters.reverse();
+  const result: string[] = [];
+  let used = 0;
+  for (const character of characters) {
+    const columns = Bun.stringWidth(character);
+    if (used + columns > width) break;
+    result.push(character);
+    used += columns;
+  }
+  if (fromEnd) result.reverse();
+  return result.join("");
 }

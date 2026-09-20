@@ -5,6 +5,7 @@ import {
   commit,
   perform,
   runMenuAction,
+  runFileAction,
   type RuntimeCommandsContext,
 } from "../../src/ui/runtime-commands.js";
 import type { GraphMenuItem } from "../../src/ui/graph-menu.js";
@@ -39,6 +40,71 @@ function stubContext(
 }
 
 describe("mutation runner", () => {
+  test("tracked file discard is immediate", async () => {
+    const discarded: string[][] = [];
+    let opened = false;
+    const context = stubContext({
+      repository: {
+        async discard(paths: string[]) {
+          discarded.push(paths);
+        },
+      } as unknown as GitRepository,
+      popupController: {
+        open() {
+          opened = true;
+        },
+      } as unknown as RuntimePopupController,
+      async refresh() {},
+    });
+    await runMenuAction(context, "discard-file", {
+      sha: "",
+      file: {
+        path: "tracked.txt",
+        state: "modified",
+        staged: false,
+        unstaged: true,
+      },
+    });
+    expect(discarded).toEqual([["tracked.txt"]]);
+    expect(opened).toBe(false);
+  });
+
+  for (const scenario of ["folder", "untracked"] as const) {
+    test(`${scenario} discard requires confirmation`, async () => {
+      const discarded: string[][] = [];
+      let confirm: (() => void) | undefined;
+      const file: ChangedFile = {
+        path: scenario === "folder" ? "dir/a.txt" : "new.txt",
+        state: scenario === "folder" ? "modified" : "untracked",
+        staged: false,
+        unstaged: true,
+      };
+      const context = stubContext({
+        repository: {
+          async discard(paths: string[]) {
+            discarded.push(paths);
+          },
+        } as unknown as GitRepository,
+        popupController: {
+          open(
+            _title: string,
+            items: GraphMenuItem[],
+            _x: number,
+            _y: number,
+            select: (item: GraphMenuItem) => void,
+          ) {
+            confirm = () => select(items.find((item) => item.destructive)!);
+          },
+        } as unknown as RuntimePopupController,
+        async refresh() {},
+      });
+      await runFileAction(context, "discard", [file], scenario === "folder");
+      expect(discarded).toEqual([]);
+      confirm!();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(discarded).toEqual([[file.path]]);
+    });
+  }
   test("branch deletion confirms the scope and preserves local on remote failure", async () => {
     const local: BranchRef = {
       name: "topic",

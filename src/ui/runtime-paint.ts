@@ -14,6 +14,7 @@ import {
   cachedFileTree,
   cachedFlattenVisible,
   fitTreeLabel,
+  fileRowActionHits,
 } from "./file-tree.js";
 import type { GraphRow } from "./graph.js";
 import {
@@ -81,6 +82,7 @@ export interface RuntimePaintContext extends RuntimeSidebarPaintContext {
   sectionViewport(section: ChangeSection): number;
   selectedFile(): ChangedFile | undefined;
   expandedFiles: Set<string>;
+  hoveredFileRow?: { section: ChangeSection; row: number };
   detailsPaneWidth: number;
   /** Rows are replayed from lane checkpoints rather than held per commit. */
   graphRowCount: number;
@@ -528,7 +530,7 @@ export function paintSection(ctx: RuntimePaintContext, section: ChangeSection) {
   }
   const selectedPath = active || commit ? ctx.selectedFile()?.path : undefined,
     chunks = [];
-  for (const { node, depth } of rows) {
+  for (const [rowIndex, { node, depth }] of rows.entries()) {
     const selected = node.kind === "file" && node.path === selectedPath,
       color = fileColor(node),
       icon = resolveMaterialIcon(
@@ -538,10 +540,23 @@ export function paintSection(ctx: RuntimePaintContext, section: ChangeSection) {
       ),
       nameColor =
         node.kind === "directory" ? oneDarkTheme.folder : oneDarkTheme.text,
+      listWidth = Math.max(1, Number(list.width)),
+      actions =
+        !commit &&
+        ctx.hoveredFileRow?.section === section &&
+        ctx.hoveredFileRow.row === rowIndex
+          ? fileRowActionHits(section, listWidth, 6 + depth * 2)
+          : [],
+      actionWidth = actions.reduce(
+        (sum, action) => sum + action.label.length,
+        0,
+      ),
       treeLabel = fitTreeLabel(
         node.name,
-        Math.max(6, ctx.detailsPaneWidth - depth * 2 - 9),
+        Math.max(1, listWidth - depth * 2 - 7 - actionWidth),
       );
+    const used = 2 + depth * 2 + 2 + 2 + Bun.stringWidth(treeLabel);
+    const padding = Math.max(0, listWidth - used - actionWidth);
     chunks.push(
       selected ? bg(oneDarkTheme.selected)("▸ ") : fg(oneDarkTheme.muted)("  "),
       fg(oneDarkTheme.border)("│ ".repeat(depth)),
@@ -554,6 +569,16 @@ export function paintSection(ctx: RuntimePaintContext, section: ChangeSection) {
       selected
         ? bg(oneDarkTheme.selected)(fg(nameColor)(treeLabel))
         : fg(nameColor)(treeLabel),
+      fg(oneDarkTheme.muted)(" ".repeat(padding)),
+      ...actions.map((action) =>
+        fg(
+          action.action === "discard"
+            ? oneDarkTheme.deleted
+            : action.action === "stage"
+              ? oneDarkTheme.added
+              : oneDarkTheme.warning,
+        )(action.label),
+      ),
       fg(oneDarkTheme.muted)("\n"),
     );
   }

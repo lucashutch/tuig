@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdir, mkdtemp, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import {
@@ -19,6 +19,93 @@ import {
 import { splitPatchHunks } from "../../src/git/hunks.js";
 
 const cleanup: string[] = [];
+test("discard removes selected untracked content and preserves staged file content", async () => {
+  const root = await mkdtemp(join(tmpdir(), "tuig-discard-"));
+  cleanup.push(root);
+  await runGit(["init", "-b", "main"], root);
+  await Bun.write(join(root, "tracked.txt"), "base\n");
+  await runGit(["add", "tracked.txt"], root);
+  await runGit(
+    [
+      "-c",
+      "user.name=Test",
+      "-c",
+      "user.email=test@example.com",
+      "commit",
+      "-m",
+      "initial",
+    ],
+    root,
+  );
+  await Bun.write(join(root, "tracked.txt"), "staged\n");
+  await runGit(["add", "tracked.txt"], root);
+  await Bun.write(join(root, "tracked.txt"), "unstaged\n");
+  await mkdir(join(root, "new-dir"));
+  await Bun.write(join(root, "new-dir", "new.txt"), "new\n");
+  await mkdir(join(root, "new-dir", "ignored"));
+  await Bun.write(join(root, ".gitignore"), "ignored.txt\nnew-dir/ignored/\n");
+  await Bun.write(join(root, "ignored.txt"), "keep\n");
+  await Bun.write(join(root, "new-dir", "ignored", "keep.txt"), "keep\n");
+
+  const repo = await GitRepositoryService.open(root);
+  await repo.discard(["tracked.txt", "new-dir"]);
+
+  expect(await readFile(join(root, "tracked.txt"), "utf8")).toBe("staged\n");
+  expect(await Bun.file(join(root, "new-dir", "new.txt")).exists()).toBe(false);
+  expect(
+    await Bun.file(join(root, "new-dir", "ignored", "keep.txt")).exists(),
+  ).toBe(true);
+  expect(await Bun.file(join(root, "ignored.txt")).exists()).toBe(true);
+  expect(
+    (await runGit(["diff", "--cached", "--", "tracked.txt"], root)).stdout,
+  ).toContain("staged");
+});
+test("discard treats wildcard-bearing selected paths literally", async () => {
+  const root = await mkdtemp(join(tmpdir(), "tuig-discard-literal-"));
+  cleanup.push(root);
+  await runGit(["init", "-b", "main"], root);
+  for (const path of ["tracked*.txt", "tracked-neighbor.txt"]) {
+    await Bun.write(join(root, path), "base\n");
+  }
+  await runGit(["add", "--all"], root);
+  await runGit(
+    [
+      "-c",
+      "user.name=Test",
+      "-c",
+      "user.email=test@example.com",
+      "commit",
+      "-m",
+      "initial",
+    ],
+    root,
+  );
+  await Bun.write(join(root, "tracked*.txt"), "discard\n");
+  await Bun.write(join(root, "tracked-neighbor.txt"), "keep\n");
+  await Bun.write(join(root, "untracked?.txt"), "discard\n");
+  await Bun.write(join(root, "untracked1.txt"), "keep\n");
+  await Bun.write(join(root, "bracket[1].txt"), "discard\n");
+  await Bun.write(join(root, "bracket1.txt"), "keep\n");
+  await Bun.write(join(root, ":(glob)magic"), "discard\n");
+  await Bun.write(join(root, "magic"), "keep\n");
+
+  const repo = await GitRepositoryService.open(root);
+  await repo.discard([
+    "tracked*.txt",
+    "untracked?.txt",
+    "bracket[1].txt",
+    ":(glob)magic",
+  ]);
+
+  expect(await readFile(join(root, "tracked*.txt"), "utf8")).toBe("base\n");
+  expect(await readFile(join(root, "tracked-neighbor.txt"), "utf8")).toBe(
+    "keep\n",
+  );
+  for (const path of ["untracked?.txt", "bracket[1].txt", ":(glob)magic"])
+    expect(await Bun.file(join(root, path)).exists()).toBe(false);
+  for (const path of ["untracked1.txt", "bracket1.txt", "magic"])
+    expect(await Bun.file(join(root, path)).exists()).toBe(true);
+});
 test("remote deletion removes the server branch but preserves the local copy", async () => {
   const root = await mkdtemp(join(tmpdir(), "tuig-delete-"));
   const remote = await mkdtemp(join(tmpdir(), "tuig-delete-remote-"));

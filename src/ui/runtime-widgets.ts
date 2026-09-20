@@ -157,6 +157,7 @@ export type RuntimeWidgetActions = {
     button?: number,
     x?: number,
   ): void;
+  filesHover(section: ChangeSection, y?: number): void;
   toggleSection(section: ChangeSection): void;
   resizeChangeSplit(y: number): void;
   resizeComposer(y: number): void;
@@ -449,6 +450,8 @@ export function createRuntimeWidgets(
       onMouseScroll: (e) =>
         actions.filesScroll(section, e.scroll?.direction === "up" ? -3 : 3),
       onMouseDown: (e) => actions.filesClick(section, e.y, e.button, e.x),
+      onMouseMove: (e) => actions.filesHover(section, e.y),
+      onMouseOut: () => actions.filesHover(section),
     });
   const makeFileLabel = (section: ChangeSection) =>
     new TextRenderable(renderer, {

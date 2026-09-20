@@ -1152,9 +1152,8 @@ export class GitRepositoryService implements GitRepository {
     if (c) throw new GitCommandError(a, { stdout: o, stderr: e, exitCode: c });
   }
   async discardAll() {
-    // Untracked files are not restorable, so they are removed separately.
+    // discard restores tracked files and removes untracked content.
     await this.discard(["."]);
-    await this.git(["clean", "-fd"]);
   }
   async commit(m: string) {
     await this.git(["commit", "-m", m]);
@@ -1492,7 +1491,27 @@ export class GitRepositoryService implements GitRepository {
     ]);
   }
   async discard(paths: string[]) {
-    await this.git(["restore", "--worktree", "--", ...paths]);
+    const literalPaths = paths.map((path) =>
+      path === "." ? ":(top)" : `:(top,literal)${path}`,
+    );
+    if (!paths.length) return;
+    // Restore only paths known to the index. Passing an untracked path to
+    // restore makes the whole command fail before the path can be cleaned.
+    const tracked = (
+      await this.git(["ls-files", "-z", "--", ...literalPaths])
+    ).stdout
+      .split("\0")
+      .filter(Boolean);
+    if (tracked.length)
+      await this.git([
+        "restore",
+        "--worktree",
+        "--",
+        ...tracked.map((path) => `:(top,literal)${path}`),
+      ]);
+    // clean ignores tracked files. Restrict it to the requested pathspecs and
+    // deliberately omit -x so ignored content is never deleted.
+    await this.git(["clean", "-fd", "--", ...literalPaths]);
   }
 }
 function diffPaths(request: DiffRequest): string[] {

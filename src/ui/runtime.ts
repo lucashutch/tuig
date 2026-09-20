@@ -106,6 +106,7 @@ import {
   ensureFileVisible as ensureRuntimeFileVisible,
   files as runtimeFiles,
   filesClick as handleRuntimeFilesClick,
+  filesHover as handleRuntimeFilesHover,
   filesScroll as scrollRuntimeFiles,
   moveFile as moveRuntimeFile,
   resizeChangeSplit as resizeRuntimeChangeSplit,
@@ -172,6 +173,7 @@ import {
   stageFirstHunk as stageFirstRuntimeHunk,
   submitNamePrompt as submitRuntimeNamePrompt,
   unstageAll as unstageAllRuntime,
+  runFileAction as runRuntimeFileAction,
   type RuntimeCommandsContext,
 } from "./runtime-commands.js";
 
@@ -353,6 +355,7 @@ class Runtime {
   private readonly popupController: RuntimePopupController;
   private lastGraphClick?: { row: number; at: number; label: boolean };
   private expandedFiles = new Set<string>();
+  private hoveredFileRow?: { section: ChangeSection; row: number };
   private focus: "history" | "changes" = "history";
   private syncedAt?: number;
   private messageTimer?: ReturnType<typeof setTimeout>;
@@ -610,6 +613,8 @@ class Runtime {
       filesScroll: (section, delta) => this.filesScroll(section, delta),
       filesClick: (section, y, button, x) =>
         this.filesClick(section, y, button, x),
+      filesHover: (section, y) =>
+        handleRuntimeFilesHover(this.filesContext(), section, y),
       toggleSection: (section) => this.toggleSection(section),
       resizeChangeSplit: (y) => this.resizeChangeSplit(y),
       resizeComposer: (y) => this.resizeComposer(y),
@@ -2028,6 +2033,12 @@ class Runtime {
       get expandedFiles() {
         return runtime.expandedFiles;
       },
+      get hoveredFileRow() {
+        return runtime.hoveredFileRow;
+      },
+      set hoveredFileRow(value) {
+        runtime.hoveredFileRow = value;
+      },
       set expandedFiles(value) {
         runtime.expandedFiles = value;
       },
@@ -2075,6 +2086,13 @@ class Runtime {
       fail: (error) => this.fail(error),
       persistLayoutPreferences: () => this.persistLayoutPreferences(),
       openFileMenu: (x, y, target) => this.openGraphMenu(x, y, target),
+      runFileAction: (action, files, directory) =>
+        void runRuntimeFileAction(
+          this.commandsContext(),
+          action,
+          files,
+          directory,
+        ),
     };
   }
   private files(section: ChangeSection = this.mode): ChangedFile[] {
@@ -2430,6 +2448,7 @@ class Runtime {
       sectionViewport: (section) => this.sectionViewport(section),
       selectedFile: () => this.selectedFile(),
       expandedFiles: this.expandedFiles,
+      hoveredFileRow: this.hoveredFileRow,
       detailsPaneWidth: this.detailsPaneWidth,
       graphRowCount: this.graphIndex.length,
       graphRowsAt: (from, count) => this.graphRowsAt(from, count),

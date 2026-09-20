@@ -301,21 +301,7 @@ export async function runMenuAction(
   }
   if (action === "discard-file") {
     if (!file) return;
-    return confirmThen(
-      context,
-      {
-        title: "Discard changes",
-        lines: [`Discard unstaged changes in ${file.path}?`],
-        confirmLabel: "Discard changes",
-        destructive: true,
-      },
-      () =>
-        // Discarding can restore a submodule to its recorded commit, which
-        // the working-tree fast path does not re-read.
-        perform(context, `Discarding ${file.path}…`, () =>
-          context.repository.discard([file.path]),
-        ),
-    );
+    return runFileAction(context, "discard", [file]);
   }
   if (action === "lock-worktree" || action === "unlock-worktree") {
     if (!worktree) return;
@@ -708,6 +694,49 @@ export async function discardAll(context: RuntimeCommandsContext) {
   // `git clean -fd` and a worktree restore can both change submodule state,
   // so this takes the full refresh rather than the working-tree fast path.
   await perform(context, "Discarding…", () => context.repository.discardAll());
+}
+
+export async function runFileAction(
+  context: RuntimeCommandsContext,
+  action: "stage" | "unstage" | "discard",
+  files: readonly ChangedFile[],
+  directory = false,
+) {
+  const paths = [...new Set(files.map((file) => file.path))];
+  if (!paths.length) return;
+  const target = directory ? `${paths.length} files` : paths[0]!;
+  if (action === "stage" || action === "unstage")
+    return perform(
+      context,
+      `${action === "stage" ? "Staging" : "Unstaging"} ${target}…`,
+      () =>
+        action === "stage"
+          ? context.repository.stage(paths)
+          : context.repository.unstage(paths),
+      false,
+      "working",
+    );
+  const run = () =>
+    perform(context, `Discarding ${target}…`, () =>
+      context.repository.discard(paths),
+    );
+  const deletesUntracked = files.some((file) => file.state === "untracked");
+  if (!directory && !deletesUntracked) return run();
+  return confirmThen(
+    context,
+    {
+      title: "Discard changes",
+      lines: [
+        directory
+          ? `Discard changes in ${target}?`
+          : `Delete untracked ${target}?`,
+        ...(deletesUntracked ? ["Untracked content will be deleted."] : []),
+      ],
+      confirmLabel: "Discard changes",
+      destructive: true,
+    },
+    run,
+  );
 }
 export async function stageFirstHunk(context: RuntimeCommandsContext) {
   const file = context.selectedFile();

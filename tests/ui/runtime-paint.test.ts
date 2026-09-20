@@ -11,6 +11,7 @@ import {
 } from "../../src/ui/graph.js";
 import {
   paintHistory,
+  paintSection,
   type RuntimePaintContext,
 } from "../../src/ui/runtime-paint.js";
 import { oneDarkTheme } from "../../src/ui/theme.js";
@@ -37,6 +38,51 @@ type Painted = RuntimePaintContext & {
   text: string;
   historyText: { visible: boolean };
 };
+
+test("file painting uses the same deep-row action geometry as hit testing", () => {
+  let text = "";
+  const list = {
+    width: 26,
+    set content(value: string | { chunks: Array<{ text: string }> }) {
+      text =
+        typeof value === "string"
+          ? value
+          : value.chunks.map((chunk) => chunk.text).join("");
+    },
+  };
+  const file = {
+    path: "one/two/file.txt",
+    staged: false,
+    unstaged: true,
+    state: "modified" as const,
+  };
+  const context = {
+    view: "history",
+    mode: "unstaged",
+    focus: "changes",
+    sectionCollapsed: { unstaged: false, staged: false },
+    sectionStart: { unstaged: 0, staged: 0 },
+    fileStart: 0,
+    setFileStart() {},
+    files: () => [file],
+    label: () => ({}),
+    list: () => list,
+    sectionViewport: () => 4,
+    selectedFile: () => file,
+    expandedFiles: new Set(["one", "one/two"]),
+    hoveredFileRow: { section: "unstaged", row: 2 },
+  } as unknown as RuntimePaintContext;
+
+  paintSection(context, "unstaged");
+  expect(text).not.toContain(" Stage ");
+  list.width = 27;
+  paintSection(context, "unstaged");
+  expect(text).toContain(" Stage ");
+  const deepRow = text.split("\n")[2]!;
+  expect(Bun.stringWidth(deepRow.slice(0, deepRow.indexOf(" Stage ")))).toBe(
+    11,
+  );
+});
 
 /** A history pane of `viewport` rows scrolled to `historyStart`. */
 function paintContext(

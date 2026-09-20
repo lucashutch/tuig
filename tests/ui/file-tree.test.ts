@@ -1,6 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import {
   buildFileTree,
+  descendantFiles,
+  fileRowActionHits,
   fitTreeLabel,
   flattenVisible,
   toggleExpansion,
@@ -13,6 +15,23 @@ const changed = (
 ): ChangedFile => ({ path, state, staged: false, unstaged: true });
 
 describe("changed-file tree", () => {
+  test("folder actions include collapsed descendants and use stable right-aligned hits", () => {
+    const tree = buildFileTree([changed("src/a.ts"), changed("src/deep/b.ts")]);
+    const src = tree.children[0]!;
+    expect(descendantFiles(src).map((file) => file.path)).toEqual([
+      "src/deep/b.ts",
+      "src/a.ts",
+    ]);
+    expect(fileRowActionHits("unstaged", 30)).toEqual([
+      { action: "stage", label: " Stage ", start: 14, end: 21 },
+      { action: "discard", label: " Discard ", start: 21, end: 30 },
+    ]);
+    expect(fileRowActionHits("unstaged", 20)).toEqual([]);
+    expect(fileRowActionHits("unstaged", 26, 10)).toEqual([]);
+    expect(
+      fileRowActionHits("unstaged", 27, 10).map((hit) => hit.start),
+    ).toEqual([11, 18]);
+  });
   test("builds shared directories and sorts directories before files", () => {
     const tree = buildFileTree([
       changed("src/z.ts"),
@@ -62,5 +81,8 @@ describe("changed-file tree", () => {
       "a-very-l…st.ts",
     );
     expect(fitTreeLabel("short.ts", 14)).toBe("short.ts");
+    const wide = fitTreeLabel("界界界界界-file.ts", 10);
+    expect(Bun.stringWidth(wide)).toBeLessThanOrEqual(10);
+    expect(wide).toContain("…");
   });
 });
