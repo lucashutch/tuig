@@ -1151,6 +1151,23 @@ export class GitRepositoryService implements GitRepository {
     ]);
     if (c) throw new GitCommandError(a, { stdout: o, stderr: e, exitCode: c });
   }
+  async discardPatch(patch: string) {
+    const a = ["apply", "--reverse"];
+    const x = Bun.spawn(["git", ...a], {
+      cwd: this.root,
+      stdin: "pipe",
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    x.stdin.write(patch);
+    x.stdin.end();
+    const [o, e, c] = await Promise.all([
+      new Response(x.stdout).text(),
+      new Response(x.stderr).text(),
+      x.exited,
+    ]);
+    if (c) throw new GitCommandError(a, { stdout: o, stderr: e, exitCode: c });
+  }
   async discardAll() {
     // discard restores tracked files and removes untracked content.
     await this.discard(["."]);

@@ -165,6 +165,8 @@ export interface GitRepository {
   stage(paths: string[]): Promise<void>;
   unstage(paths: string[]): Promise<void>;
   applyPatch(patch: string, reverse?: boolean): Promise<void>;
+  /** Reverses a partial working-tree patch without changing the index. */
+  discardPatch(patch: string): Promise<void>;
   discardAll(): Promise<void>;
   /** Restores the given paths in the working tree, dropping unstaged edits. */
   discard(paths: string[]): Promise<void>;

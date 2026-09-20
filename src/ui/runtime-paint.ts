@@ -13,6 +13,7 @@ import type {
 import {
   cachedFileTree,
   cachedFlattenVisible,
+  expandNewDirectories,
   fitTreeLabel,
   fileRowActionHits,
 } from "./file-tree.js";
@@ -82,6 +83,7 @@ export interface RuntimePaintContext extends RuntimeSidebarPaintContext {
   sectionViewport(section: ChangeSection): number;
   selectedFile(): ChangedFile | undefined;
   expandedFiles: Set<string>;
+  seenFileDirectories: Set<string>;
   hoveredFileRow?: { section: ChangeSection; row: number };
   detailsPaneWidth: number;
   /** Rows are replayed from lane checkpoints rather than held per commit. */
@@ -497,9 +499,7 @@ export function paintSection(ctx: RuntimePaintContext, section: ChangeSection) {
   const limit = ctx.sectionViewport(section);
   if (commit) list.height = limit;
   const tree = cachedFileTree(files);
-  if (ctx.expandedFiles.size === 0)
-    for (const node of tree.children)
-      if (node.kind === "directory") ctx.expandedFiles.add(node.path);
+  expandNewDirectories(tree, ctx.expandedFiles, ctx.seenFileDirectories);
   const all = cachedFlattenVisible(tree, ctx.expandedFiles),
     start = Math.max(
       0,
