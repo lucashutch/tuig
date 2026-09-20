@@ -4,6 +4,10 @@ export type DiffLineTarget = {
   side: "old" | "new";
   kind: "context" | "added" | "removed";
   oldLine?: number;
+  /** Zero-based row in the raw unified patch. */
+  rawRow: number;
+  /** Zero-based body row used by OpenTUI's unified DiffRenderable. */
+  renderedRow: number;
 };
 
 /**
@@ -21,6 +25,7 @@ export function diffLineTarget(
   let oldLine = 0;
   let newLine = 0;
   let inHunk = false;
+  let renderedRow = 0;
   for (let index = 0; index < lines.length; index++) {
     const text = lines[index]!;
     const hunk = /^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/.exec(text);
@@ -39,16 +44,32 @@ export function diffLineTarget(
       oldLine++;
       newLine++;
     }
+    const currentRenderedRow = renderedRow++;
     if (index !== row) continue;
     if (text.startsWith("-"))
-      return { line: oldAt, side: "old", kind: "removed", oldLine: oldAt };
+      return {
+        line: oldAt,
+        side: "old",
+        kind: "removed",
+        oldLine: oldAt,
+        rawRow: index,
+        renderedRow: currentRenderedRow,
+      };
     if (text.startsWith("+"))
-      return { line: newAt, side: "new", kind: "added" };
+      return {
+        line: newAt,
+        side: "new",
+        kind: "added",
+        rawRow: index,
+        renderedRow: currentRenderedRow,
+      };
     return {
       line: newAt,
       side: "new",
       kind: "context",
       oldLine: oldAt,
+      rawRow: index,
+      renderedRow: currentRenderedRow,
     };
   }
   return undefined;
@@ -91,4 +112,20 @@ export function renderedDiffLineTarget(
     }
   }
   return undefined;
+}
+
+/** Changed raw patch rows crossed by a drag range, inclusive. */
+export function changedDiffRowsInRange(
+  diff: string,
+  from: number,
+  to: number,
+): number[] {
+  const start = Math.max(0, Math.min(from, to));
+  const end = Math.max(from, to);
+  const rows: number[] = [];
+  for (let row = start; row <= end; row++) {
+    const target = diffLineTarget(diff, row);
+    if (target && target.kind !== "context") rows.push(row);
+  }
+  return rows;
 }

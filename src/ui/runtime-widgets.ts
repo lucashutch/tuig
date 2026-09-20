@@ -178,7 +178,15 @@ export type RuntimeWidgetActions = {
   viewWorkingChanges(): void;
   editMessage(): void;
   copyCommitSha(): void;
-  diffClick(x: number, y: number, button: number): void;
+  diffClick(
+    x: number,
+    y: number,
+    button: number,
+    ctrl: boolean,
+    alt: boolean,
+  ): void;
+  diffDrag(y: number): boolean;
+  diffDragEnd(): boolean;
   overlayDismiss(): void;
   menuHover(x: number, y: number): void;
   menuClick(x: number, y: number): void;
@@ -747,8 +755,25 @@ export function createRuntimeWidgets(
     ...diffOptions,
     contextBg: oneDarkTheme.bg,
   });
-  commitDiff.onMouseDown = (event) =>
-    actions.diffClick(event.x, event.y, event.button);
+  commitDiff.onMouseDown = (event) => {
+    if (event.modifiers.ctrl || event.modifiers.alt) event.preventDefault();
+    actions.diffClick(
+      event.x,
+      event.y,
+      event.button,
+      event.modifiers.ctrl,
+      event.modifiers.alt,
+    );
+  };
+  commitDiff.onMouseDrag = (event) => {
+    if (actions.diffDrag(event.y)) event.preventDefault();
+  };
+  commitDiff.onMouseUp = (event) => {
+    if (actions.diffDragEnd()) event.preventDefault();
+  };
+  commitDiff.onMouseDragEnd = (event) => {
+    if (actions.diffDragEnd()) event.preventDefault();
+  };
   const commitDiffEmpty = new TextRenderable(renderer, {
     ...absolute,
     id: "commit-diff-empty",

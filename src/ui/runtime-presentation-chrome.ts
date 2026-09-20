@@ -209,15 +209,25 @@ export type HintContext = {
   focus: "history" | "changes";
   view: "history" | "commit" | "working";
   composing: boolean;
+  lineSelection?: { count: number; action: "stage" | "unstage" };
 };
 
 /**
  * Keybinding hints for the current focus, so the bottom row keeps teaching
  * the keys that actually apply right now.
  */
-export function formatHints({ focus, view, composing }: HintContext): string {
+export function formatHints({
+  focus,
+  view,
+  composing,
+  lineSelection,
+}: HintContext): string {
   if (composing) return "COMPOSER  ↵ commit  ⇥ summary/description  esc cancel";
+  if (lineSelection?.count)
+    return `LINES: ${lineSelection.count} selected  Alt-drag range  Enter ${lineSelection.action}  Right-click actions  Esc clear`;
   const shared = "⇥ pane  [ ] collapse  r refresh  q quit";
+  if (view === "working")
+    return `DIFF  click select  Ctrl/Alt-click add  Alt-drag range  right-click actions  Esc back  ${shared}`;
   if (view !== "history")
     return `${focus === "changes" ? "CHANGES" : "DIFF"}  esc back to graph  ←/→ file  s stage  u unstage  ${shared}`;
   if (focus === "changes")

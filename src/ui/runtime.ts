@@ -118,6 +118,7 @@ import {
 } from "./runtime-files.js";
 import { loadLayoutPreferences, saveLayoutPreferences } from "./preferences.js";
 import { saveSessionPreferences } from "./session-preferences.js";
+import { changedDiffRowsInRange } from "./diff-lines.js";
 import {
   PANE_TOP,
   createRuntimeWidgets,
@@ -176,6 +177,7 @@ import {
   runFileAction as runRuntimeFileAction,
   type RuntimeCommandsContext,
 } from "./runtime-commands.js";
+import { selectPatchLines } from "../git/hunks.js";
 
 export async function runTuig(
   repositories: GitRepository[],
@@ -355,6 +357,7 @@ class Runtime {
   private readonly popupController: RuntimePopupController;
   private lastGraphClick?: { row: number; at: number; label: boolean };
   private expandedFiles = new Set<string>();
+  private seenFileDirectories = new Set<string>();
   private hoveredFileRow?: { section: ChangeSection; row: number };
   private focus: "history" | "changes" = "history";
   private syncedAt?: number;
@@ -520,6 +523,10 @@ class Runtime {
     run: (value: string) => Promise<void>;
   };
   private diffOrigin?: "working" | "commit";
+  private selectedDiffRows = new Set<number>();
+  private selectedDiffSnapshot = "";
+  private diffDragAnchor?: number;
+  private diffDragSelecting = true;
   private suppressEnterUntil = 0;
   private commitFilesTop = 19;
   // Widths read back off renderables can lag by a frame, so panes keep the
@@ -664,7 +671,10 @@ class Runtime {
       viewWorkingChanges: () => this.closeDiff(),
       editMessage: () => this.editMessage(),
       copyCommitSha: () => this.copyCommitSha(),
-      diffClick: (x, y, button) => this.diffClick(x, y, button),
+      diffClick: (x, y, button, ctrl, alt) =>
+        this.diffClick(x, y, button, ctrl, alt),
+      diffDrag: (y) => this.diffDrag(y),
+      diffDragEnd: () => this.diffDragEnd(),
       overlayDismiss: () => this.dismissOverlay(),
       menuHover: (x, y) => this.popupController.hover(x, y, false),
       menuClick: (x, y) => this.popupController.click(x, y, false),
@@ -1110,6 +1120,12 @@ class Runtime {
       focus: this.focus,
       view: this.view,
       composing: this.composing,
+      lineSelection: this.selectedDiffRows.size
+        ? {
+            count: this.selectedDiffRows.size,
+            action: this.mode === "staged" ? "unstage" : "stage",
+          }
+        : undefined,
     });
     const room = Math.max(
       10,
@@ -2135,6 +2151,7 @@ class Runtime {
     button?: number,
     x?: number,
   ) {
+    if (this.selectedDiffRows.size) this.clearLineSelection(false);
     if (this.historyFilter) {
       const row =
         Math.floor((y - this.unstagedText.y) / FILE_HISTORY_CARD_ROWS) +
@@ -2448,6 +2465,7 @@ class Runtime {
       sectionViewport: (section) => this.sectionViewport(section),
       selectedFile: () => this.selectedFile(),
       expandedFiles: this.expandedFiles,
+      seenFileDirectories: this.seenFileDirectories,
       hoveredFileRow: this.hoveredFileRow,
       detailsPaneWidth: this.detailsPaneWidth,
       graphRowCount: this.graphIndex.length,
@@ -3204,6 +3222,10 @@ class Runtime {
       // owns Escape so its saved working draft is never stranded.
       if (this.editingCommitSha) return this.cancelEditMessage();
       if (this.historyFilter && this.clearHistoryFilter()) return;
+      if (this.selectedDiffRows.size) {
+        this.clearLineSelection();
+        return;
+      }
       if (this.composing) {
         this.composerSummary.blur();
         this.composerBody.blur();
@@ -3275,11 +3297,13 @@ class Runtime {
     // OpenTUI reports the Enter key as "return"; both names are accepted so
     // the binding cannot break with a rename upstream.
     if (key.name === "enter" || key.name === "return") {
+      if (this.selectedDiffRows.size) return void this.applySelectedLines();
       if (this.focus === "changes") return void this.openSelectedFile();
       if (this.view === "history") return void this.openCommit();
       return;
     }
     if (key.name === "t") {
+      if (this.selectedDiffRows.size) this.clearLineSelection(false);
       this.mode = this.mode === "staged" ? "unstaged" : "staged";
       this.fileIndex = 0;
       this.fileStart = this.sectionStart[this.mode];
@@ -3356,6 +3380,7 @@ class Runtime {
     }
   }
   private moveFile(delta: number) {
+    if (this.selectedDiffRows.size) this.clearLineSelection(false);
     if (this.historyFilter) return this.filesScroll("unstaged", delta);
     moveRuntimeFile(this.filesContext(), delta);
   }
@@ -3368,11 +3393,83 @@ class Runtime {
     this.layout();
     await this.loadDiff().catch((e) => this.fail(e));
   }
-  private diffClick(x: number, y: number, button: number) {
-    if (button !== MouseButton.RIGHT || !this.commitDiff.visible) return;
+  private diffClick(
+    x: number,
+    y: number,
+    button: number,
+    ctrl: boolean,
+    alt: boolean,
+  ) {
+    if (!this.commitDiff.visible) return;
     const hit = this.commitDiff.lineTargetAt(y);
     const file = this.selectedFile();
-    if (!hit || !file) return;
+    if (!file) return;
+    if (
+      button === MouseButton.LEFT &&
+      this.diffOrigin === "working" &&
+      hit &&
+      hit.kind !== "context"
+    ) {
+      if (this.selectedDiffSnapshot !== this.commitDiff.diff) {
+        this.selectedDiffRows.clear();
+        this.selectedDiffSnapshot = this.commitDiff.diff;
+      }
+      if (!ctrl && !alt) {
+        this.selectedDiffRows.clear();
+        this.selectedDiffRows.add(hit.rawRow);
+      } else if (this.selectedDiffRows.has(hit.rawRow)) {
+        this.selectedDiffRows.delete(hit.rawRow);
+      } else this.selectedDiffRows.add(hit.rawRow);
+      if (alt) {
+        this.diffDragAnchor = hit.rawRow;
+        this.diffDragSelecting = this.selectedDiffRows.has(hit.rawRow);
+      }
+      this.commitDiff.setSelectedRows(this.selectedDiffRows);
+      this.paintHints();
+      const count = this.selectedDiffRows.size;
+      this.notify(
+        count
+          ? `${count} line${count === 1 ? "" : "s"} selected · Enter to ${this.mode === "staged" ? "unstage" : "stage"}`
+          : "Line selection cleared",
+      );
+      return;
+    }
+    if (button !== MouseButton.RIGHT) return;
+    if (
+      this.diffOrigin === "working" &&
+      hit &&
+      hit.kind !== "context" &&
+      (!this.selectedDiffRows.size || !this.selectedDiffRows.has(hit.rawRow))
+    ) {
+      this.selectedDiffRows.clear();
+      this.selectedDiffRows.add(hit.rawRow);
+      this.selectedDiffSnapshot = this.commitDiff.diff;
+      this.commitDiff.setSelectedRows(this.selectedDiffRows);
+      this.paintHints();
+    }
+    if (
+      this.diffOrigin === "working" &&
+      this.selectedDiffRows.size &&
+      this.selectedDiffSnapshot === this.commitDiff.diff
+    ) {
+      const action =
+        this.mode === "staged" ? "Unstage selected" : "Stage selected";
+      const items = [
+        { label: action },
+        ...(this.mode === "unstaged"
+          ? [{ label: "Discard selected", destructive: true }]
+          : []),
+        { label: "Clear selection" },
+      ];
+      this.openPopup("Selected lines", items, x, y, (item) => {
+        if (item.label === "Clear selection") this.clearLineSelection();
+        else if (item.label === "Discard selected")
+          void this.applySelectedLines(true);
+        else void this.applySelectedLines();
+      });
+      return;
+    }
+    if (!hit) return;
     const selected =
       this.historyFilter?.commits[this.historyFilter.index] ??
       this.snapshot?.commits[this.commitIndex];
@@ -3400,6 +3497,70 @@ class Runtime {
           ? (hit.oldLine ?? hit.line)
           : hit.line,
     });
+  }
+  private diffDrag(y: number) {
+    if (
+      this.diffDragAnchor === undefined ||
+      this.selectedDiffSnapshot !== this.commitDiff.diff
+    )
+      return false;
+    const hit = this.commitDiff.lineTargetAt(y);
+    if (!hit) return true;
+    for (const row of changedDiffRowsInRange(
+      this.commitDiff.diff,
+      this.diffDragAnchor,
+      hit.rawRow,
+    )) {
+      if (this.diffDragSelecting) this.selectedDiffRows.add(row);
+      else this.selectedDiffRows.delete(row);
+    }
+    this.commitDiff.setSelectedRows(this.selectedDiffRows);
+    this.paintHints();
+    return true;
+  }
+  private diffDragEnd() {
+    const active = this.diffDragAnchor !== undefined;
+    this.diffDragAnchor = undefined;
+    return active;
+  }
+  private clearLineSelection(notify = true) {
+    this.diffDragEnd();
+    this.selectedDiffRows.clear();
+    this.selectedDiffSnapshot = "";
+    this.commitDiff.setSelectedRows(this.selectedDiffRows);
+    this.paintHints();
+    if (notify) this.notify("Line selection cleared");
+  }
+  private applySelectedLines(discard = false) {
+    if (
+      this.diffOrigin !== "working" ||
+      !this.selectedDiffRows.size ||
+      this.selectedDiffSnapshot !== this.commitDiff.diff
+    ) {
+      this.clearLineSelection();
+      return;
+    }
+    const patch = selectPatchLines(
+      this.selectedDiffSnapshot,
+      this.selectedDiffRows,
+      discard || this.mode === "staged" ? "new" : "old",
+    );
+    if (!patch) return this.notify("No changed lines selected", "error");
+    const staged = this.mode === "staged";
+    const label = discard
+      ? "Discarding selected lines…"
+      : `${staged ? "Unstaging" : "Staging"} selected lines…`;
+    this.selectedDiffRows.clear();
+    this.selectedDiffSnapshot = "";
+    return this.perform(
+      label,
+      () =>
+        discard
+          ? this.repository.discardPatch(patch)
+          : this.repository.applyPatch(patch, staged),
+      false,
+      "working",
+    );
   }
   private commandsContext(): RuntimeCommandsContext {
     // eslint-disable-next-line @typescript-eslint/no-this-alias

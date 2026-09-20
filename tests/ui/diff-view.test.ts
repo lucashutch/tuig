@@ -78,6 +78,13 @@ test("diff wrapper preserves wheel scrolling and resize-driven painting", async 
       undefined,
       "none",
     );
+    const descendants = view
+      .getChildren()[0]!
+      .getChildren()
+      .flatMap((child) => [child, ...child.getChildren()]);
+    expect(
+      descendants.filter((child) => child.id?.endsWith("-left-code")),
+    ).toMatchObject([{ selectable: false }]);
     await renderOnce();
     const before = captureCharFrame();
     expect(before).toContain("line-000");
@@ -88,6 +95,42 @@ test("diff wrapper preserves wheel scrolling and resize-driven painting", async 
     await renderOnce();
     expect(view.width).toBe(60);
     expect(captureCharFrame()).toContain("line-");
+  } finally {
+    renderer.destroy();
+    syntaxStyle.destroy();
+  }
+});
+
+test("selected diff rows use a persistent selection background", async () => {
+  const { renderer, renderOnce, waitForVisualIdle, captureSpans } =
+    await createTestRenderer({
+      width: 40,
+      height: 8,
+    });
+  const syntaxStyle = createDiffSyntaxStyle();
+  const view = new DiffView(renderer, {
+    id: "selected-diff",
+    width: 40,
+    height: 8,
+    syntaxStyle,
+  });
+  renderer.root.add(view);
+  try {
+    view.setDiff(
+      "--- a/test.txt\n+++ b/test.txt\n@@ -1 +1 @@\n-old\n+new\n",
+      undefined,
+      "none",
+    );
+    await renderOnce();
+    const before = captureSpans().lines.flatMap((line) => line.spans);
+    const oldBefore = before.find((span) => span.text.includes("old"))!;
+    view.setSelectedRows(new Set([3]));
+    await waitForVisualIdle();
+    const after = captureSpans().lines.flatMap((line) => line.spans);
+    const oldAfter = after.find((span) => span.text.includes("old"))!;
+    expect(oldAfter.bg).not.toEqual(oldBefore.bg);
+    expect(view.lineTargetAt(0)).toMatchObject({ kind: "removed", rawRow: 3 });
+    expect(view.lineTargetAt(1)).toMatchObject({ kind: "added", rawRow: 4 });
   } finally {
     renderer.destroy();
     syntaxStyle.destroy();

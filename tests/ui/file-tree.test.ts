@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import {
   buildFileTree,
   descendantFiles,
+  expandNewDirectories,
   fileRowActionHits,
   fitTreeLabel,
   flattenVisible,
@@ -15,6 +16,25 @@ const changed = (
 ): ChangedFile => ({ path, state, staged: false, unstaged: true });
 
 describe("changed-file tree", () => {
+  test("expands every new folder by default and preserves user collapses", () => {
+    const tree = buildFileTree([
+      changed("src/deep/a.ts"),
+      changed("test/unit/a.test.ts"),
+    ]);
+    const expanded = new Set<string>();
+    const seen = new Set<string>();
+    expandNewDirectories(tree, expanded, seen);
+    expect([...expanded].sort()).toEqual([
+      "src",
+      "src/deep",
+      "test",
+      "test/unit",
+    ]);
+
+    expanded.delete("src");
+    expandNewDirectories(tree, expanded, seen);
+    expect(expanded.has("src")).toBe(false);
+  });
   test("folder actions include collapsed descendants and use stable right-aligned hits", () => {
     const tree = buildFileTree([changed("src/a.ts"), changed("src/deep/b.ts")]);
     const src = tree.children[0]!;

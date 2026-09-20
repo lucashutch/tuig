@@ -70,6 +70,7 @@ test("file painting uses the same deep-row action geometry as hit testing", () =
     sectionViewport: () => 4,
     selectedFile: () => file,
     expandedFiles: new Set(["one", "one/two"]),
+    seenFileDirectories: new Set(["one", "one/two"]),
     hoveredFileRow: { section: "unstaged", row: 2 },
   } as unknown as RuntimePaintContext;
 

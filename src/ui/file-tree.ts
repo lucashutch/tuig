@@ -192,6 +192,25 @@ export function toggleExpansion(
   return next;
 }
 
+/** Expand newly discovered directories once, while preserving user collapses. */
+export function expandNewDirectories(
+  tree: FileTreeDirectory,
+  expanded: Set<string>,
+  seen: Set<string>,
+): void {
+  const visit = (nodes: readonly FileTreeNode[]) => {
+    for (const node of nodes) {
+      if (node.kind !== "directory") continue;
+      if (!seen.has(node.path)) {
+        seen.add(node.path);
+        expanded.add(node.path);
+      }
+      visit(node.children);
+    }
+  };
+  visit(tree.children);
+}
+
 /** Locate the visible row for a repository-relative file path. */
 export function selectedFileRow(
   rows: readonly VisibleFileTreeNode[],

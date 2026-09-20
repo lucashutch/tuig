@@ -158,6 +158,16 @@ test("hints follow focus and composer state", () => {
   expect(
     formatHints({ focus: "history", view: "history", composing: true }),
   ).toBe("COMPOSER  ↵ commit  ⇥ summary/description  esc cancel");
+  expect(
+    formatHints({
+      focus: "changes",
+      view: "working",
+      composing: false,
+      lineSelection: { count: 2, action: "stage" },
+    }),
+  ).toBe(
+    "LINES: 2 selected  Alt-drag range  Enter stage  Right-click actions  Esc clear",
+  );
 });
 
 test("sync age reads as a relative time", () => {
