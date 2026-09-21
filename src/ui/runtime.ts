@@ -348,6 +348,8 @@ class Runtime {
   private remoteFetchTimer?: ReturnType<typeof setInterval>;
   private remoteFetchIntervalMinutes = DEFAULT_REMOTE_FETCH_INTERVAL_MINUTES;
   private scrollTimer?: ReturnType<typeof setTimeout>;
+  private scrollSettleTimer?: ReturnType<typeof setTimeout>;
+  private historyScrolling = false;
   private pendingScroll = 0;
   private historyShaHits = new Map<number, { start: number; end: number }>();
   private historyLabelHits = new Map<
@@ -1096,6 +1098,7 @@ class Runtime {
     if (this.refreshTimer) clearInterval(this.refreshTimer);
     if (this.remoteFetchTimer) clearInterval(this.remoteFetchTimer);
     if (this.scrollTimer) clearTimeout(this.scrollTimer);
+    if (this.scrollSettleTimer) clearTimeout(this.scrollSettleTimer);
     cancelRuntimeSidebarScroll(this.sidebarContext());
     if (this.messageTimer) clearTimeout(this.messageTimer);
     await this.flushSessionPreferences().catch(() => undefined);
@@ -2494,6 +2497,7 @@ class Runtime {
       historyLabelHits: this.historyLabelHits,
       historyText: this.historyText,
       commitDiffVisible: this.commitDiff.visible,
+      historyScrolling: this.historyScrolling,
       requestMoreCommits: () => {
         void loadMoreRuntimeCommits(this.dataContext());
       },
@@ -2662,6 +2666,18 @@ class Runtime {
       },
       set scrollTimer(value) {
         runtime.scrollTimer = value;
+      },
+      get scrollSettleTimer() {
+        return runtime.scrollSettleTimer;
+      },
+      set scrollSettleTimer(value) {
+        runtime.scrollSettleTimer = value;
+      },
+      get historyScrolling() {
+        return runtime.historyScrolling;
+      },
+      set historyScrolling(value) {
+        runtime.historyScrolling = value;
       },
       get lastGraphClick() {
         return runtime.lastGraphClick;

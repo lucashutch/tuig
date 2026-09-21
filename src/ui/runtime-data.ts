@@ -957,10 +957,13 @@ export function updateGraphAvatars(
     const request = requestsBySlot[slot];
     const widget = slots[slot]!;
     if (!request) {
-      if (ctx.graphAvatarKeys[slot] !== undefined) {
-        ctx.graphAvatarKeys[slot] = undefined;
-        releaseSlot(ctx, slot);
-      }
+      // An empty request list is used throughout a wheel gesture. Do not
+      // repeatedly assign image properties after the first frame: even an
+      // idempotent assignment can become a graphics-protocol command at the
+      // renderer boundary.
+      if (ctx.graphAvatarKeys[slot] === undefined) continue;
+      ctx.graphAvatarKeys[slot] = undefined;
+      releaseSlot(ctx, slot);
       widget.visible = false;
       widget.source = undefined;
       continue;
