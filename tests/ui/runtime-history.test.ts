@@ -4,8 +4,36 @@ import {
   commitRowAtLine,
   historyStartForCommit,
   historyClick,
+  queueHistoryScroll,
   type RuntimeHistoryContext,
 } from "../../src/ui/runtime-history.js";
+
+describe("history wheel scrolling", () => {
+  test("suppresses terminal images until a wheel burst settles", async () => {
+    let paints = 0;
+    const context = {
+      snapshot: { files: [], commits: Array.from({ length: 20 }, () => ({})) },
+      graphRowCount: 20,
+      historyStart: 0,
+      historyViewportDetached: false,
+      contentHeight: 10,
+      pendingScroll: 0,
+      historyScrolling: false,
+      paintHistory: () => paints++,
+    } as unknown as RuntimeHistoryContext;
+
+    queueHistoryScroll(context, 3);
+    queueHistoryScroll(context, 3);
+    expect(context.historyScrolling).toBe(true);
+    await Bun.sleep(30);
+    expect(context.historyStart).toBe(6);
+    expect(paints).toBe(1);
+
+    await Bun.sleep(70);
+    expect(context.historyScrolling).toBe(false);
+    expect(paints).toBe(2);
+  });
+});
 
 describe("checked-out commit positioning", () => {
   test("centres a deep checked-out commit without scrolling past either end", () => {

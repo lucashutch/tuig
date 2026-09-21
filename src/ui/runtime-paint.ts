@@ -113,6 +113,8 @@ export interface RuntimePaintContext extends RuntimeSidebarPaintContext {
   requestMoreCommits(): void;
   /** True while a diff overlay covers the history pane. */
   commitDiffVisible: boolean;
+  /** Hide terminal images while a wheel gesture is changing every row. */
+  historyScrolling: boolean;
   updateGraphAvatars(requests: readonly GraphAvatarRequest[]): void;
   editingCommitSha?: string;
   composerSummary: InputRenderable;
@@ -451,7 +453,9 @@ export function paintHistory(ctx: RuntimePaintContext) {
   // Diff rows do not paint empty trailing cells. Hide the history text while
   // the diff is open so short patches cannot show graph rows underneath it.
   ctx.historyText.visible = !ctx.commitDiffVisible;
-  ctx.updateGraphAvatars(ctx.commitDiffVisible ? [] : avatarRequests);
+  ctx.updateGraphAvatars(
+    ctx.commitDiffVisible || ctx.historyScrolling ? [] : avatarRequests,
+  );
   // Fetch the next page once the reader can nearly see the end of the graph,
   // so scrolling continues into history that has not been read yet.
   if (!s.commitsComplete && total - (start + visible) <= HISTORY_PREFETCH_ROWS)

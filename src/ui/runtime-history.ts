@@ -13,6 +13,8 @@ export interface RuntimeHistoryContext {
   contentHeight: number;
   pendingScroll: number;
   scrollTimer?: ReturnType<typeof setTimeout>;
+  scrollSettleTimer?: ReturnType<typeof setTimeout>;
+  historyScrolling: boolean;
   lastGraphClick?: { row: number; at: number; label: boolean };
   historyShaHits: Map<number, { start: number; end: number }>;
   historyLabelHits: Map<
@@ -84,6 +86,16 @@ export function queueHistoryScroll(
   delta: number,
 ) {
   context.pendingScroll += delta;
+  context.historyScrolling = true;
+  if (context.scrollSettleTimer) clearTimeout(context.scrollSettleTimer);
+  context.scrollSettleTimer = setTimeout(() => {
+    context.scrollSettleTimer = undefined;
+    context.historyScrolling = false;
+    // Restore graph avatars once the wheel burst has stopped. Replacing an
+    // image in every visible row on every frame can saturate terminals that
+    // implement the Kitty graphics protocol, including Ghostty.
+    context.paintHistory();
+  }, 80);
   if (context.scrollTimer) return;
   context.scrollTimer = setTimeout(() => {
     const movement = context.pendingScroll;
