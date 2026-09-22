@@ -305,22 +305,36 @@ export function paintHistory(ctx: RuntimePaintContext) {
   if (hasWorking && start === 0 && line < lines) {
     const selected = ctx.historySelection === "working",
       rowBg = selected ? oneDarkTheme.selected : oneDarkTheme.panelRaised,
-      workingGraph =
-        graphScroll === 0
-          ? "● ".padEnd(geometry.graphWidth)
-          : "".padEnd(geometry.graphWidth),
-      subject = fitColumns("Working changes", subjectWidth, true),
-      count = `${s.files.length} files`;
+      workingGraph = graphWindowCells(
+        [{ symbol: "● ", color: oneDarkTheme.warning }],
+        graphScroll,
+        graphVisibleColumns,
+        ctx.graphColumns,
+        oneDarkTheme.muted,
+      ),
+      fileLabel = s.files.length === 1 ? "file" : "files",
+      subject = fitColumns(
+        `Working Changes (${s.files.length} ${fileLabel} modified)`,
+        subjectWidth,
+        true,
+      );
     chunks.push(
       bg(rowBg)("".padEnd(labelWidth)),
       bg(rowBg)(fg(oneDarkTheme.muted)(selected ? "▸ " : "  ")),
-      bg(rowBg)(fg(oneDarkTheme.warning)(workingGraph)),
+      ...workingGraph.cells.map((cell) =>
+        bg(rowBg)(fg(cell.color)(cell.symbol)),
+      ),
+      bg(rowBg)(
+        fg(oneDarkTheme.border)(
+          " ".repeat(geometry.graphWidth - graphVisibleColumns * 2),
+        ),
+      ),
       bg(rowBg)(fg(oneDarkTheme.border)(" │ ")),
       bg(rowBg)(fg(oneDarkTheme.warning)(subject)),
       bg(rowBg)(fg(oneDarkTheme.border)(columns.showCommitter ? " │ " : "")),
       bg(rowBg)(
         fg(oneDarkTheme.muted)(
-          columns.showCommitter ? fitColumns(count, authorWidth, true) : "",
+          columns.showCommitter ? "".padEnd(authorWidth) : "",
         ),
       ),
       bg(rowBg)(fg(oneDarkTheme.border)(columns.showSha ? " │ " : "")),

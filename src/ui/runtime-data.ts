@@ -423,20 +423,25 @@ export async function refresh(
     // than before the unchanged-snapshot check above.
     cancelDiff(ctx);
     ++ctx.commitFilesRequest;
+    const workingParentSha = snapshot.files.length
+      ? resolveHeadSha(snapshot.branches, snapshot.commits)
+      : undefined;
     const sameHistory =
       snapshot.commits === ctx.snapshot?.commits &&
       snapshot.branch === ctx.snapshot?.branch &&
       JSON.stringify(snapshot.branches) ===
         JSON.stringify(ctx.snapshot?.branches);
     ctx.snapshot = snapshot;
-    if (!sameHistory) {
-      ctx.graphIndex = emptyGraphIndex();
+    if (!sameHistory || ctx.graphIndex.workingParentSha !== workingParentSha) {
+      ctx.graphIndex = emptyGraphIndex(workingParentSha, oneDarkTheme.graph);
       extendGraphIndex(
         ctx.graphIndex,
         snapshot.commits,
         oneDarkTheme.graph,
         resolveHeadSha(snapshot.branches, snapshot.commits),
       );
+    }
+    if (!sameHistory) {
       ctx.branchHintIndex = extendCommitBranchHints(
         emptyBranchHintIndex(),
         snapshot.commits,

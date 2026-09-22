@@ -204,7 +204,7 @@ describe("snapshot fingerprint", () => {
 });
 
 describe("refresh", () => {
-  test("automatic metadata refresh preserves the graph for working-tree changes", async () => {
+  test("automatic metadata refresh seeds the working-change graph ancestry", async () => {
     const initial = snapshot();
     const context = stubContext(initial, {
       refreshSnapshot: async (previous) => ({
@@ -219,7 +219,8 @@ describe("refresh", () => {
     await refresh(context, undefined, true);
     expect(context.snapshotReads).toBe(0);
     expect(context.snapshot?.commits).toBe(initial.commits);
-    expect(context.graphIndex).toBe(graph);
+    expect(context.graphIndex).not.toBe(graph);
+    expect(context.graphIndex.workingParentSha).toBe("a".repeat(40));
     expect(context.branchHintIndex).toBe(hints);
     expect(context.paints).toBe(1);
   });
