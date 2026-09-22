@@ -38,16 +38,29 @@ export interface GraphIndex {
   state: GraphLayoutState;
   /** HEAD when the index was built, since it marks a row as the head row. */
   headSha?: string;
+  /** HEAD ancestry seeded by the working-changes pseudo-node, when present. */
+  workingParentSha?: string;
   /** The last window replayed, so repeated paints do not replay it again. */
   window?: { from: number; rows: GraphRow[] };
 }
 
-export function emptyGraphIndex(): GraphIndex {
+export function emptyGraphIndex(
+  workingParentSha?: string,
+  colors: readonly string[] = [],
+): GraphIndex {
+  const initialState: GraphLayoutState = workingParentSha
+    ? {
+        active: [workingParentSha],
+        activeColors: [colors[0] ?? "#888888"],
+        nextColor: 1,
+      }
+    : emptyGraphLayoutState;
   return {
     length: 0,
     columns: 1,
-    checkpoints: [emptyGraphLayoutState],
-    state: emptyGraphLayoutState,
+    checkpoints: [initialState],
+    state: initialState,
+    workingParentSha,
   };
 }
 

@@ -107,6 +107,28 @@ describe("graph index", () => {
     expect(rows[4]!.head).toBe(false);
   });
 
+  test("connects a working-changes ancestry to HEAD across unrelated tips", () => {
+    const commits = [
+      commit("other", ["other-parent"]),
+      commit("head", ["parent"]),
+      commit("other-parent", []),
+      commit("parent", []),
+    ];
+    const index = emptyGraphIndex("head", colors);
+    extendGraphIndex(index, commits, colors, "head");
+    const rows = graphWindow(index, commits, colors, 0, commits.length);
+
+    expect(rows.map((row) => row.commit.sha)).toEqual([
+      "other",
+      "head",
+      "other-parent",
+      "parent",
+    ]);
+    expect(rows[0]!.cells[0]!.symbol).toBe("│ ");
+    expect(rows[1]!.cells[0]!.symbol).toBe("◉ ");
+    expect(rows[1]!.continuesAbove).toBe(true);
+  });
+
   test("serves a repeated window without replaying it", () => {
     const commits = history(CHECKPOINT_STRIDE + 10);
     const index = emptyGraphIndex();

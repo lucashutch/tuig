@@ -392,7 +392,7 @@ describe("the working row and the graph window", () => {
     });
     paintHistory(context);
     const lines = context.text.split("\n");
-    expect(lines[1]).toContain("Working changes");
+    expect(lines[1]).toContain("Working Changes (1 file modified)");
     // Working changes use the same graph column as commits, rather than a
     // bullet embedded in the branch-label column.
     expect(lines[1]!.slice(0, 24)).not.toContain("●");
@@ -400,5 +400,26 @@ describe("the working row and the graph window", () => {
     expect(lines[2]).toContain("commit 0");
     expect(context.text).toContain("commit 4");
     expect(context.text).not.toContain("commit 5");
+  });
+
+  test("keeps the working-change count in the message when metadata is hidden", () => {
+    const files = [
+      ...working,
+      {
+        path: "b.txt",
+        state: "added",
+        staged: true,
+        unstaged: false,
+      } as ChangedFile,
+    ];
+    const context = paintContext(history(2), {
+      complete: true,
+      historyStart: 0,
+      viewport: 4,
+      files,
+    });
+    context.historyColumns = { showCommitter: false, showSha: false };
+    paintHistory(context);
+    expect(context.text).toContain("Working Changes (2 files modified)");
   });
 });
