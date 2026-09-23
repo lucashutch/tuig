@@ -117,7 +117,11 @@ import {
   type RuntimeFilesContext,
 } from "./runtime-files.js";
 import { loadLayoutPreferences, saveLayoutPreferences } from "./preferences.js";
-import { saveSessionPreferences } from "./session-preferences.js";
+import {
+  promoteRecentRepository,
+  removeRecentRepository,
+  saveSessionPreferences,
+} from "./session-preferences.js";
 import { changedDiffRowsInRange } from "./diff-lines.js";
 import {
   PANE_TOP,
@@ -183,6 +187,8 @@ export async function runTuig(
   repositories: GitRepository[],
   activeRepository?: string,
   submodules: Record<string, { root: string; path: string }> = {},
+  _reserved?: undefined,
+  recentRepositories: string[] = [],
 ): Promise<void> {
   const repository =
     repositories.find((candidate) => candidate.root === activeRepository) ??
@@ -195,7 +201,13 @@ export async function runTuig(
     backgroundColor: oneDarkTheme.bg,
   });
   renderer.setTerminalTitle(`tuig · ${repository.root}`);
-  const app = new Runtime(renderer, repositories, repository.root, submodules);
+  const app = new Runtime(
+    renderer,
+    repositories,
+    repository.root,
+    submodules,
+    recentRepositories,
+  );
   await app.start();
 }
 
@@ -462,6 +474,7 @@ class Runtime {
   private draggedTabId?: string;
   private lastSubmoduleClick?: { path: string; at: number };
   private repositorySuggestions: DirectorySuggestion[] = [];
+  private recentRepositories: string[];
   private repositorySuggestionIndex = 0;
   private repositorySuggestionRows = 5;
   private repositoryPickerRequest = 0;
@@ -569,7 +582,13 @@ class Runtime {
     repositories: GitRepository[],
     activeRepository: string,
     submodules: Record<string, { root: string; path: string }> = {},
+    recentRepositories: string[] = [],
   ) {
+    this.recentRepositories = promoteRecentRepository(
+      recentRepositories,
+      repositories.find((candidate) => candidate.root === activeRepository)
+        ?.root ?? repositories[0]!.root,
+    );
     const repository =
       repositories.find((candidate) => candidate.root === activeRepository) ??
       repositories[0]!;
@@ -901,7 +920,12 @@ class Runtime {
     );
     this.repositoryPathInput.on(
       InputRenderableEvents.ENTER,
-      () => void this.openRepositoryPath(),
+      () =>
+        void this.openRepositoryPath(
+          this.repositoryPathInput.value.trim()
+            ? undefined
+            : this.closedRecentRepositories[this.repositorySuggestionIndex],
+        ),
     );
     this.renderer.root.add(this.branchFilterInput);
     this.renderer.root.add(this.promptInput);
@@ -993,6 +1017,7 @@ class Runtime {
     }
     await saveSessionPreferences({
       repositories: this.tabs.map((tab) => tab.repository.root),
+      recentRepositories: this.recentRepositories,
       activeRepository: this.repository.root,
       submodules: Object.fromEntries(
         this.tabs
@@ -1703,6 +1728,11 @@ class Runtime {
 
   private async updateRepositorySuggestions() {
     const request = ++this.repositoryPickerRequest;
+    if (!this.repositoryPathInput.value.trim()) {
+      this.repositorySuggestions = [];
+      this.paintRepositorySuggestions();
+      return;
+    }
     const suggestions = await suggestDirectories(
       this.repositoryPathInput.value,
     );
@@ -1720,37 +1750,60 @@ class Runtime {
   }
 
   private paintRepositorySuggestions() {
-    const count = this.repositorySuggestionRows;
+    const recent = !this.repositoryPathInput.value.trim();
+    const entries = recent
+      ? this.closedRecentRepositories
+      : this.repositorySuggestions;
+    const count = Math.max(1, this.repositorySuggestionRows - (recent ? 1 : 0));
     const start = Math.max(
       0,
       Math.min(
         this.repositorySuggestionIndex - count + 1,
-        this.repositorySuggestions.length - count,
+        entries.length - count,
       ),
     );
-    const visible = this.repositorySuggestions.slice(start, start + count);
-    this.repositoryPickerText.content = visible.length
+    const visible = entries.slice(start, start + count);
+    const rows = visible.length
       ? visible
           .map(
             (entry, index) =>
-              `${start + index === this.repositorySuggestionIndex ? ">" : " "} ${entry.name}/`,
+              `${start + index === this.repositorySuggestionIndex ? ">" : " "} ${typeof entry === "string" ? entry : `${entry.name}/`}`,
           )
           .join("\n")
-      : "  No matching folders";
+      : recent
+        ? "  No recently closed repositories"
+        : "  No matching folders";
+    this.repositoryPickerText.content = recent
+      ? `Recently opened (closed tabs)\n${rows}`
+      : rows;
+  }
+
+  private get closedRecentRepositories(): string[] {
+    const open = new Set(this.tabs.map((tab) => tab.repository.root));
+    return this.recentRepositories.filter((path) => !open.has(path));
   }
 
   private chooseRepositorySuggestion(row: number) {
     if (row < 0) return;
-    const count = this.repositorySuggestionRows;
+    const recent = !this.repositoryPathInput.value.trim();
+    if (recent && row-- === 0) return;
+    const entries = recent
+      ? this.closedRecentRepositories
+      : this.repositorySuggestions;
+    const count = Math.max(1, this.repositorySuggestionRows - (recent ? 1 : 0));
     const start = Math.max(
       0,
       Math.min(
         this.repositorySuggestionIndex - count + 1,
-        this.repositorySuggestions.length - count,
+        entries.length - count,
       ),
     );
-    const suggestion = this.repositorySuggestions[start + row];
+    const suggestion = entries[start + row];
     if (!suggestion) return;
+    if (typeof suggestion === "string") {
+      void this.openRepositoryPath(suggestion);
+      return;
+    }
     this.repositoryPathInput.value = `${suggestion.path}/`;
     this.repositorySuggestionIndex = 0;
     void this.updateRepositorySuggestions();
@@ -1758,6 +1811,15 @@ class Runtime {
   }
 
   private completeRepositorySuggestion() {
+    if (!this.repositoryPathInput.value.trim()) {
+      const recent =
+        this.closedRecentRepositories[this.repositorySuggestionIndex];
+      if (recent) {
+        this.repositoryPathInput.value = recent;
+        void this.updateRepositorySuggestions();
+      }
+      return;
+    }
     const suggestion =
       this.repositorySuggestions[this.repositorySuggestionIndex];
     if (!suggestion) return;
@@ -1766,9 +1828,15 @@ class Runtime {
     void this.updateRepositorySuggestions();
   }
 
-  private async openRepositoryPath() {
-    const typedPath = this.repositoryPathInput.value.trim();
-    const path = resolveRepositoryPath(typedPath || process.cwd());
+  private async openRepositoryPath(selectedRecent?: string) {
+    if (this.mutationBusy) {
+      this.notify("Wait for the current Git operation to finish");
+      return;
+    }
+    const typedPath =
+      selectedRecent ??
+      (this.repositoryPathInput.value.trim() || process.cwd());
+    const path = resolveRepositoryPath(typedPath);
     try {
       const repository = await createGitRepository(path);
       const existing = this.tabs.find(
@@ -1777,13 +1845,24 @@ class Runtime {
       if (existing) {
         repository.dispose?.();
         this.closeRepositoryPicker();
-        return this.activateRepositoryTab(existing.id, true);
+        await this.activateRepositoryTab(existing.id, true);
+        this.recentRepositories = promoteRecentRepository(
+          this.recentRepositories,
+          repository.root,
+        );
+        this.persistSessionPreferences();
+        return;
       }
       const id = `repository-${this.nextTabId++}`;
       this.tabs.push({ id, repository });
       this.persistSessionPreferences();
       this.closeRepositoryPicker();
       await this.activateRepositoryTab(id, true);
+      this.recentRepositories = promoteRecentRepository(
+        this.recentRepositories,
+        repository.root,
+      );
+      this.persistSessionPreferences();
     } catch (error) {
       this.notify(
         error instanceof NotGitRepositoryError
@@ -3185,14 +3264,34 @@ class Runtime {
       if (key.name === "escape") return this.closeRepositoryPicker();
       if (key.name === "up" || key.name === "down") {
         const delta = key.name === "up" ? -1 : 1;
+        const length = this.repositoryPathInput.value.trim()
+          ? this.repositorySuggestions.length
+          : this.closedRecentRepositories.length;
         this.repositorySuggestionIndex = Math.max(
           0,
-          Math.min(
-            this.repositorySuggestions.length - 1,
-            this.repositorySuggestionIndex + delta,
-          ),
+          Math.min(length - 1, this.repositorySuggestionIndex + delta),
         );
         return this.paintRepositorySuggestions();
+      }
+      if (
+        !this.repositoryPathInput.value.trim() &&
+        (key.name === "delete" || key.name === "backspace")
+      ) {
+        const selected =
+          this.closedRecentRepositories[this.repositorySuggestionIndex];
+        if (selected) {
+          this.recentRepositories = removeRecentRepository(
+            this.recentRepositories,
+            selected,
+          );
+          this.repositorySuggestionIndex = Math.min(
+            this.repositorySuggestionIndex,
+            Math.max(0, this.closedRecentRepositories.length - 1),
+          );
+          this.paintRepositorySuggestions();
+          this.persistSessionPreferences();
+        }
+        return;
       }
       if (key.name === "tab") return this.completeRepositorySuggestion();
       return;

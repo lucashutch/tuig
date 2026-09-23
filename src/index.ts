@@ -14,15 +14,15 @@ try {
   } else if (action.kind === "update") {
     await updateTuig(VERSION);
   } else {
-    const saved = action.clean
-      ? { repositories: [] }
-      : await loadSessionPreferences();
+    const saved = await loadSessionPreferences();
     const requested = await createGitRepository(action.path);
-    const paths = action.pathProvided
-      ? [requested.root, ...saved.repositories]
-      : saved.repositories.length
-        ? [...saved.repositories, requested.root]
-        : [requested.root];
+    const paths = action.clean
+      ? [requested.root]
+      : action.pathProvided
+        ? [requested.root, ...saved.repositories]
+        : saved.repositories.length
+          ? [...saved.repositories, requested.root]
+          : [requested.root];
     const repositories = [];
     for (const path of [...new Set(paths)]) {
       if (path === requested.root) {
@@ -37,8 +37,12 @@ try {
     }
     await runTuig(
       repositories,
-      action.pathProvided ? requested.root : saved.activeRepository,
-      saved.submodules,
+      action.clean || action.pathProvided
+        ? requested.root
+        : saved.activeRepository,
+      action.clean ? undefined : saved.submodules,
+      undefined,
+      saved.recentRepositories ?? [],
     );
   }
 } catch (error) {

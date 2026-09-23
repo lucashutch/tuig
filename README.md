@@ -117,6 +117,8 @@ Tuig is designed for the mouse, with keyboard controls for common actions.
 
 Clicking a short SHA copies it through OSC 52. Right-click a branch, stash, worktree, changed file, or graph row for actions that apply to that item.
 
+Click `+` or press `Ctrl+T` to open the repository picker. When its path field is empty, the "Recently opened (closed tabs)" section lists repositories that are not currently open. Use the arrow keys and `Enter`, or click a path, to open one. Press `Delete` or `Backspace` on an empty field to remove the selected recent path from the list. This does not close its tab. Type a path to browse folders, use `Tab` to complete a folder, and press `Enter` to open the typed path. Closing a repository tab leaves it in the recent list.
+
 The command palette provides searchable access to common repository, change, navigation, view, and setting actions. Type to filter, use the arrow keys or mouse wheel to move, press `Enter` to run the selected command, and press `Esc` to close it. Unavailable commands remain visible with a reason.
 
 The repository picker starts in the directory where Tuig was launched. It lists non-hidden folders and filters them as you type. Use the arrow keys to select a folder and `Tab` to complete it, or click a folder. Press `Enter` to open the path as a repository and `Esc` to cancel. Closing the final tab exits Tuig.
