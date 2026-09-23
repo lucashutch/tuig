@@ -2,6 +2,8 @@ import { describe, expect, test } from "bun:test";
 import { join } from "node:path";
 import {
   parseSessionPreferences,
+  promoteRecentRepository,
+  removeRecentRepository,
   sessionPreferencesPath,
 } from "../../src/ui/session-preferences.js";
 
@@ -41,5 +43,30 @@ describe("session preferences", () => {
       repositories: ["/parent", "/parent/sub"],
       submodules: { "/parent/sub": { root: "/parent", path: "sub" } },
     });
+  });
+
+  test("keeps at most 20 unique nonempty recent paths in order", () => {
+    const paths = Array.from({ length: 25 }, (_, index) => `/repo-${index}`);
+    expect(
+      parseSessionPreferences({
+        repositories: [],
+        recentRepositories: ["", paths[0], 42, ...paths],
+      }).recentRepositories,
+    ).toEqual(paths.slice(0, 20));
+  });
+
+  test("promotes a successful root and removes a stale root", () => {
+    const paths = Array.from({ length: 20 }, (_, index) => `/repo-${index}`);
+    expect(promoteRecentRepository(paths, "/repo-3")).toEqual([
+      "/repo-3",
+      ...paths.filter((path) => path !== "/repo-3"),
+    ]);
+    expect(promoteRecentRepository(paths, "/new")).toEqual([
+      "/new",
+      ...paths.slice(0, 19),
+    ]);
+    expect(removeRecentRepository(paths, "/repo-3")).toEqual(
+      paths.filter((path) => path !== "/repo-3"),
+    );
   });
 });

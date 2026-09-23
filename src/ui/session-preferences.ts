@@ -6,7 +6,26 @@ export type SessionPreferences = {
   repositories: string[];
   activeRepository?: string;
   submodules?: Record<string, { root: string; path: string }>;
+  recentRepositories?: string[];
 };
+
+const MAX_RECENT_REPOSITORIES = 20;
+
+export function promoteRecentRepository(
+  recent: string[],
+  root: string,
+): string[] {
+  return [root, ...recent.filter((path) => path !== root)]
+    .filter((path) => path.length > 0)
+    .slice(0, MAX_RECENT_REPOSITORIES);
+}
+
+export function removeRecentRepository(
+  recent: string[],
+  root: string,
+): string[] {
+  return recent.filter((path) => path !== root);
+}
 
 export function sessionPreferencesPath(env = process.env): string {
   const configHome = env.XDG_CONFIG_HOME || join(homedir(), ".config");
@@ -25,6 +44,16 @@ export function parseSessionPreferences(value: unknown): SessionPreferences {
           ),
         ),
       ]
+    : [];
+  const recentRepositories = Array.isArray(input.recentRepositories)
+    ? [
+        ...new Set(
+          input.recentRepositories.filter(
+            (path): path is string =>
+              typeof path === "string" && path.length > 0,
+          ),
+        ),
+      ].slice(0, MAX_RECENT_REPOSITORIES)
     : [];
   const activeRepository =
     typeof input.activeRepository === "string" &&
@@ -56,6 +85,7 @@ export function parseSessionPreferences(value: unknown): SessionPreferences {
     repositories,
     ...(activeRepository ? { activeRepository } : {}),
     ...(Object.keys(submodules).length ? { submodules } : {}),
+    ...(Array.isArray(input.recentRepositories) ? { recentRepositories } : {}),
   };
 }
 
