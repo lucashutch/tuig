@@ -7,9 +7,22 @@ import {
 import {
   diffLineTarget,
   renderedDiffLineTarget,
+  splitDiffLineTarget,
   type DiffLineTarget,
 } from "./diff-lines.js";
 import { oneDarkTheme } from "./theme.js";
+
+export type DiffViewMode = "inline" | "side-by-side";
+export const SPLIT_DIFF_MIN_WIDTH = 120;
+
+export function effectiveDiffView(
+  preference: DiffViewMode,
+  width: number,
+): "unified" | "split" {
+  return preference === "side-by-side" && width >= SPLIT_DIFF_MIN_WIDTH
+    ? "split"
+    : "unified";
+}
 
 /**
  * Own the displayed diff as a disposable child. OpenTUI 0.5.7 retains its
@@ -20,6 +33,11 @@ import { oneDarkTheme } from "./theme.js";
 export class DiffView extends BoxRenderable {
   private document?: DiffRenderable;
   private readonly options: DiffRenderableOptions;
+  private value = "";
+  private currentFiletype?: string;
+  private currentWrapMode: "word" | "none" = "word";
+  private currentView: "unified" | "split";
+  private selectedRows = new Set<number>();
 
   constructor(ctx: RenderContext, options: DiffRenderableOptions) {
     super(ctx, {
@@ -34,6 +52,7 @@ export class DiffView extends BoxRenderable {
       border: false,
     });
     this.options = options;
+    this.currentView = options.view ?? "unified";
   }
 
   get diff(): string {
@@ -44,12 +63,36 @@ export class DiffView extends BoxRenderable {
     return this.document?.filetype;
   }
 
+  get view(): "unified" | "split" {
+    return this.currentView;
+  }
+
+  setView(view: "unified" | "split") {
+    if (view === this.currentView) return;
+    this.currentView = view;
+    if (!this.document) return;
+    this.document.syncScroll = view === "split";
+    this.document.view = view;
+    queueMicrotask(() => this.setSelectedRows(this.selectedRows));
+  }
+
   setDiff(
     value: string,
     filetype?: string,
     wrapMode: "word" | "none" = "word",
   ) {
-    this.clear();
+    this.value = value;
+    this.currentFiletype = filetype;
+    this.currentWrapMode = wrapMode;
+    this.replaceDocument(value, filetype, wrapMode);
+  }
+
+  private replaceDocument(
+    value: string,
+    filetype?: string,
+    wrapMode: "word" | "none" = "word",
+  ) {
+    this.destroyDocument();
     if (!value) return;
     this.document = new DiffRenderable(this.ctx, {
       ...this.options,
@@ -61,6 +104,8 @@ export class DiffView extends BoxRenderable {
       height: "100%",
       visible: true,
       diff: value,
+      view: this.currentView,
+      syncScroll: this.currentView === "split",
       filetype,
       wrapMode,
     });
@@ -88,6 +133,12 @@ export class DiffView extends BoxRenderable {
   }
 
   clear() {
+    this.value = "";
+    this.currentFiletype = undefined;
+    this.destroyDocument();
+  }
+
+  private destroyDocument() {
     if (!this.document) return;
     this.remove(this.document);
     this.document.destroyRecursively();
@@ -97,6 +148,7 @@ export class DiffView extends BoxRenderable {
 
   /** Show persistent selection on changed rows while preserving diff colors. */
   setSelectedRows(rows: ReadonlySet<number>) {
+    this.selectedRows = new Set(rows);
     if (!this.document) return;
     const lines = this.document.diff.split("\n");
     for (let rawRow = 0; rawRow < lines.length; rawRow++) {
@@ -124,7 +176,7 @@ export class DiffView extends BoxRenderable {
   }
 
   /** Resolve an absolute terminal row to the file line shown there. */
-  lineTargetAt(y: number): DiffLineTarget | undefined {
+  lineTargetAt(x: number, y: number): DiffLineTarget | undefined {
     if (!this.document) return undefined;
     const descendants = (root: { getChildren(): unknown[] }): unknown[] =>
       root
@@ -136,19 +188,33 @@ export class DiffView extends BoxRenderable {
             ? descendants(child as { getChildren(): unknown[] })
             : []),
         ]);
-    const scroller = descendants(this.document).find(
+    const all = descendants(this.document);
+    const side =
+      this.currentView === "split" &&
+      x >= this.document.screenX + this.document.width / 2
+        ? "new"
+        : "old";
+    const scroller = all.find(
       (child) =>
         typeof child === "object" &&
         child !== null &&
         "scrollY" in child &&
-        "getLineInfo" in child,
+        "getLineInfo" in child &&
+        (this.currentView !== "split" ||
+          String((child as { id?: string }).id).endsWith(
+            side === "old" ? "-left-code" : "-right-code",
+          )),
     ) as { scrollY: number; screenY: number } | undefined;
-    return renderedDiffLineTarget(
-      this.document.diff,
+    const row =
       y -
-        (scroller?.screenY ?? this.document.screenY) +
-        (scroller?.scrollY ?? 0),
-      this.document.getHunkRowOffsets(),
-    );
+      (scroller?.screenY ?? this.document.screenY) +
+      (scroller?.scrollY ?? 0);
+    return this.currentView === "split"
+      ? splitDiffLineTarget(this.document.diff, row, side)
+      : renderedDiffLineTarget(
+          this.document.diff,
+          row,
+          this.document.getHunkRowOffsets(),
+        );
   }
 }

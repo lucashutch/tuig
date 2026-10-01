@@ -12,6 +12,7 @@ import {
   createRuntimeWidgets,
   type ChangeSection,
 } from "./runtime-widgets.js";
+import { effectiveDiffView, type DiffViewMode } from "./diff-view.js";
 
 type RuntimeWidgets = ReturnType<typeof createRuntimeWidgets>;
 
@@ -38,6 +39,7 @@ type LayoutWidgets = Pick<
   | "commitInfoLabel"
   | "commitDiff"
   | "commitDiffEmpty"
+  | "diffViewToggle"
   | "discardButton"
   | "stageAllButton"
   | "unstageAllButton"
@@ -80,6 +82,7 @@ export interface RuntimeLayoutContext extends LayoutWidgets {
   commitFilesTop: number;
   sidebarPaneWidth: number;
   detailsPaneWidth: number;
+  diffViewPreference: DiffViewMode;
   historyContentLeft: number;
   historyContentWidth: number;
   sectionCollapsed: Record<ChangeSection, boolean>;
@@ -255,6 +258,10 @@ export function layoutRuntime(context: RuntimeLayoutContext) {
   context.commitDiff.left = historyLeft + 1;
   context.commitDiff.top = PANE_TOP + 1;
   context.commitDiff.width = Math.max(1, historyWidth - 2);
+  context.commitDiff.setView(
+    effectiveDiffView(context.diffViewPreference, historyWidth - 2),
+  );
+  context.diffViewToggle.visible = context.commitDiff.visible;
   context.commitDiff.height = Math.max(1, height - 2);
   context.commitDiffEmpty.left = historyLeft + 3;
   context.commitDiffEmpty.top = PANE_TOP + 4;

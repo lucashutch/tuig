@@ -3,6 +3,7 @@ import {
   changedDiffRowsInRange,
   diffLineTarget,
   renderedDiffLineTarget,
+  splitDiffLineTarget,
 } from "../../src/ui/diff-lines.js";
 
 describe("diff line targets", () => {
@@ -59,7 +60,28 @@ describe("diff line targets", () => {
     });
   });
 
+  test("maps each side of aligned split rows", () => {
+    expect(splitDiffLineTarget(diff, 1, "old")).toMatchObject({
+      kind: "removed",
+      rawRow: 5,
+    });
+    expect(splitDiffLineTarget(diff, 1, "new")).toMatchObject({
+      kind: "added",
+      rawRow: 6,
+    });
+    expect(splitDiffLineTarget(diff, 2, "old")).toBeUndefined();
+    expect(splitDiffLineTarget(diff, 2, "new")).toMatchObject({
+      kind: "added",
+      rawRow: 7,
+    });
+  });
+
   test("does not treat headers as source lines", () => {
+    const trailingContent = `${diff}\n\nunknown metadata\n`;
+    for (const side of ["old", "new"] as const) {
+      expect(splitDiffLineTarget(trailingContent, 4, side)).toBeUndefined();
+      expect(splitDiffLineTarget(trailingContent, 100, side)).toBeUndefined();
+    }
     expect(diffLineTarget(diff, 2)).toBeUndefined();
     expect(diffLineTarget(diff, 3)).toBeUndefined();
   });

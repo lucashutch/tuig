@@ -42,7 +42,7 @@ import {
   graphWindow,
   type GraphIndex,
 } from "./graph-index.js";
-import type { DiffView } from "./diff-view.js";
+import type { DiffView, DiffViewMode } from "./diff-view.js";
 import { clampGraphScroll } from "./graph-viewport.js";
 import {
   branchRefsForSection,
@@ -390,6 +390,7 @@ class Runtime {
   private readonly header: TextRenderable;
   private readonly tabBar: TextRenderable;
   private readonly avatarToggle: TextRenderable;
+  private readonly diffViewToggle: TextRenderable;
   private readonly toolbar: TextRenderable;
   private readonly sidebar: BoxRenderable;
   private readonly history: BoxRenderable;
@@ -559,6 +560,7 @@ class Runtime {
   private commitCoAuthorsProviderVisible = false;
   private avatarRequest = 0;
   private avatarsEnabled = true;
+  private diffViewPreference: DiffViewMode = "side-by-side";
   private avatarAbort?: AbortController;
   private graphAvatarKeys: Array<string | undefined> = [];
   private graphAvatarTokens: number[] = [];
@@ -605,6 +607,7 @@ class Runtime {
     const widgets = createRuntimeWidgets(renderer, {
       tabMouseDown: (x, button) => this.handleTabMouseDown(x, button),
       toggleAvatars: () => this.toggleAvatars(),
+      toggleDiffView: () => this.toggleDiffView(),
       tabDrag: (x) => this.handleTabDrag(x),
       tabDragEnd: () => {
         this.draggedTabId = undefined;
@@ -694,7 +697,7 @@ class Runtime {
       copyCommitSha: () => this.copyCommitSha(),
       diffClick: (x, y, button, ctrl, alt) =>
         this.diffClick(x, y, button, ctrl, alt),
-      diffDrag: (y) => this.diffDrag(y),
+      diffDrag: (x, y) => this.diffDrag(x, y),
       diffDragEnd: () => this.diffDragEnd(),
       overlayDismiss: () => this.dismissOverlay(),
       menuHover: (x, y) => this.popupController.hover(x, y, false),
@@ -705,6 +708,7 @@ class Runtime {
     this.sidebar = widgets.sidebar;
     this.tabBar = widgets.tabBar;
     this.avatarToggle = widgets.avatarToggle;
+    this.diffViewToggle = widgets.diffViewToggle;
     this.history = widgets.history;
     this.details = widgets.details;
     this.header = widgets.header;
@@ -938,6 +942,7 @@ class Runtime {
   async start() {
     const preferences = await loadLayoutPreferences();
     this.avatarsEnabled = preferences.avatarsEnabled ?? true;
+    this.diffViewPreference = preferences.diffView ?? "side-by-side";
     this.leftWidth = preferences.leftWidth ?? this.leftWidth;
     this.detailsWidth = preferences.detailsWidth ?? this.detailsWidth;
     this.preferredUnstagedHeight = preferences.unstagedHeight;
@@ -993,6 +998,7 @@ class Runtime {
     }
     await saveLayoutPreferences({
       avatarsEnabled: this.avatarsEnabled,
+      diffView: this.diffViewPreference,
       remoteFetchIntervalMinutes: this.remoteFetchIntervalMinutes,
       leftWidth: this.leftWidth,
       detailsWidth: this.detailsWidth,
@@ -1226,6 +1232,14 @@ class Runtime {
       ),
     );
     this.avatarToggle.content = `${this.avatarsEnabled ? "■" : "□"} Avatars`;
+    const splitPreferred = this.diffViewPreference === "side-by-side";
+    this.diffViewToggle.content = `${splitPreferred ? "■" : "□"} ${
+      splitPreferred
+        ? this.commitDiff.view === "split"
+          ? "Side by side"
+          : "Split (narrow)"
+        : "Inline"
+    }`;
     this.tabBar.width = width;
     this.tabBar.content = new StyledText(cells);
   }
@@ -1255,6 +1269,13 @@ class Runtime {
     this.persistLayoutPreferences();
     this.paintTabs();
     this.paint();
+  }
+
+  private toggleDiffView() {
+    this.diffViewPreference =
+      this.diffViewPreference === "side-by-side" ? "inline" : "side-by-side";
+    this.persistLayoutPreferences();
+    this.layout();
   }
 
   private handleTabDrag(x: number) {
@@ -2081,8 +2102,8 @@ class Runtime {
     this.paint();
   }
   private layout() {
-    this.paintTabs();
     layoutRuntime(this.layoutContext());
+    this.paintTabs();
     this.paintCommandPalette();
   }
   private layoutChanges(height: number) {
@@ -3516,7 +3537,7 @@ class Runtime {
     alt: boolean,
   ) {
     if (!this.commitDiff.visible) return;
-    const hit = this.commitDiff.lineTargetAt(y);
+    const hit = this.commitDiff.lineTargetAt(x, y);
     const file = this.selectedFile();
     if (!file) return;
     if (
@@ -3613,13 +3634,13 @@ class Runtime {
           : hit.line,
     });
   }
-  private diffDrag(y: number) {
+  private diffDrag(x: number, y: number) {
     if (
       this.diffDragAnchor === undefined ||
       this.selectedDiffSnapshot !== this.commitDiff.diff
     )
       return false;
-    const hit = this.commitDiff.lineTargetAt(y);
+    const hit = this.commitDiff.lineTargetAt(x, y);
     if (!hit) return true;
     for (const row of changedDiffRowsInRange(
       this.commitDiff.diff,
