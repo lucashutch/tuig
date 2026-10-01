@@ -55,4 +55,13 @@ describe("layout preferences", () => {
       avatarsEnabled: undefined,
     });
   });
+
+  test("reads only supported diff view preferences", () => {
+    expect(parseLayoutPreferences({ diffView: "side-by-side" })).toMatchObject({
+      diffView: "side-by-side",
+    });
+    expect(parseLayoutPreferences({ diffView: "grid" })).toMatchObject({
+      diffView: undefined,
+    });
+  });
 });

@@ -114,6 +114,54 @@ export function renderedDiffLineTarget(
   return undefined;
 }
 
+/** Map one side of an aligned split-diff row back to the unified patch. */
+export function splitDiffLineTarget(
+  diff: string,
+  row: number,
+  side: "old" | "new",
+): DiffLineTarget | undefined {
+  if (row < 0) return undefined;
+  const lines = diff.split("\n");
+  let logicalRow = 0;
+  let inHunk = false;
+  for (let index = 0; index < lines.length; ) {
+    const text = lines[index]!;
+    if (text.startsWith("@@ ")) {
+      inHunk = true;
+      index++;
+      continue;
+    }
+    if (!inHunk || text.startsWith("\\")) {
+      index++;
+      continue;
+    }
+    if (text.startsWith(" ")) {
+      if (logicalRow++ === row) return diffLineTarget(diff, index);
+      index++;
+      continue;
+    }
+    const removed: number[] = [];
+    const added: number[] = [];
+    while (index < lines.length) {
+      const changed = lines[index]!;
+      if (changed.startsWith("-")) removed.push(index++);
+      else if (changed.startsWith("+")) added.push(index++);
+      else break;
+    }
+    const count = Math.max(removed.length, added.length);
+    if (count === 0) {
+      index++;
+      continue;
+    }
+    if (row >= logicalRow && row < logicalRow + count) {
+      const raw = (side === "old" ? removed : added)[row - logicalRow];
+      return raw === undefined ? undefined : diffLineTarget(diff, raw);
+    }
+    logicalRow += count;
+  }
+  return undefined;
+}
+
 /** Changed raw patch rows crossed by a drag range, inclusive. */
 export function changedDiffRowsInRange(
   diff: string,

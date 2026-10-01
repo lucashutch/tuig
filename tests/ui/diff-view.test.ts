@@ -1,6 +1,10 @@
 import { expect, test } from "bun:test";
 import { createTestRenderer } from "@opentui/core/testing";
-import { DiffView } from "../../src/ui/diff-view.js";
+import {
+  DiffView,
+  SPLIT_DIFF_MIN_WIDTH,
+  effectiveDiffView,
+} from "../../src/ui/diff-view.js";
 import { createDiffSyntaxStyle } from "../../src/ui/diff-syntax.js";
 import {
   canHighlightDiff,
@@ -19,6 +23,16 @@ test("highlight bounds count UTF-8 bytes and short lines", () => {
   );
   expect(canHighlightDiff("\n".repeat(DIFF_HIGHLIGHT_MAX_LINES - 2))).toBe(
     true,
+  );
+});
+
+test("side-by-side preference falls back to inline in narrow panes", () => {
+  expect(effectiveDiffView("side-by-side", SPLIT_DIFF_MIN_WIDTH - 1)).toBe(
+    "unified",
+  );
+  expect(effectiveDiffView("side-by-side", SPLIT_DIFF_MIN_WIDTH)).toBe("split");
+  expect(effectiveDiffView("inline", SPLIT_DIFF_MIN_WIDTH + 100)).toBe(
+    "unified",
   );
 });
 
@@ -54,6 +68,36 @@ test("clearing or replacing a diff destroys its document and native children", a
   } finally {
     renderer.destroy();
     syntaxStyle.destroy();
+  }
+});
+
+test("changing layout rebuilds the current diff as a split view", async () => {
+  const { renderer, renderOnce, captureCharFrame } = await createTestRenderer({
+    width: 140,
+    height: 10,
+  });
+  const view = new DiffView(renderer, {
+    id: "responsive-diff",
+    width: 140,
+    height: 10,
+  });
+  renderer.root.add(view);
+  try {
+    view.setDiff(
+      "--- a/file\n+++ b/file\n@@ -1 +1 @@\n-old\n+new\n",
+      undefined,
+      "none",
+    );
+    const document = view.getChildren()[0]!;
+    view.setView("split");
+    expect(view.getChildren()[0]).toBe(document);
+    expect(view.view).toBe("split");
+    await renderOnce();
+    const frame = captureCharFrame();
+    expect(frame).toContain("old");
+    expect(frame).toContain("new");
+  } finally {
+    renderer.destroy();
   }
 });
 
@@ -129,8 +173,11 @@ test("selected diff rows use a persistent selection background", async () => {
     const after = captureSpans().lines.flatMap((line) => line.spans);
     const oldAfter = after.find((span) => span.text.includes("old"))!;
     expect(oldAfter.bg).not.toEqual(oldBefore.bg);
-    expect(view.lineTargetAt(0)).toMatchObject({ kind: "removed", rawRow: 3 });
-    expect(view.lineTargetAt(1)).toMatchObject({ kind: "added", rawRow: 4 });
+    expect(view.lineTargetAt(0, 0)).toMatchObject({
+      kind: "removed",
+      rawRow: 3,
+    });
+    expect(view.lineTargetAt(0, 1)).toMatchObject({ kind: "added", rawRow: 4 });
   } finally {
     renderer.destroy();
     syntaxStyle.destroy();

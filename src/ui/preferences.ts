@@ -5,6 +5,8 @@ import { homedir } from "node:os";
 export type LayoutPreferences = {
   /** Whether remote author avatars may be fetched and displayed. */
   avatarsEnabled?: boolean;
+  /** Preferred diff layout. Narrow panes can temporarily fall back to inline. */
+  diffView?: "inline" | "side-by-side";
   /** Minutes between automatic `git fetch --prune` runs. Zero disables it. */
   remoteFetchIntervalMinutes?: number;
   leftWidth?: number;
@@ -76,6 +78,10 @@ export function parseLayoutPreferences(value: unknown): LayoutPreferences {
     avatarsEnabled:
       typeof input.avatarsEnabled === "boolean"
         ? input.avatarsEnabled
+        : undefined,
+    diffView:
+      input.diffView === "inline" || input.diffView === "side-by-side"
+        ? input.diffView
         : undefined,
     remoteFetchIntervalMinutes: positive("remoteFetchIntervalMinutes"),
     leftWidth: positive("leftWidth"),

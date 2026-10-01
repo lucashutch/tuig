@@ -74,6 +74,7 @@ export type RuntimeWidgets = {
   tabBar: TextRenderable;
   header: TextRenderable;
   avatarToggle: TextRenderable;
+  diffViewToggle: TextRenderable;
   toolbar: TextRenderable;
   sidebar: BoxRenderable;
   history: BoxRenderable;
@@ -140,6 +141,7 @@ export type RuntimeWidgets = {
 export type RuntimeWidgetActions = {
   tabMouseDown(x: number, button: number): void;
   toggleAvatars(): void;
+  toggleDiffView(): void;
   tabDrag(x: number): void;
   tabDragEnd(): void;
   sidebarClick(x: number, y: number, button: number): void;
@@ -185,7 +187,7 @@ export type RuntimeWidgetActions = {
     ctrl: boolean,
     alt: boolean,
   ): void;
-  diffDrag(y: number): boolean;
+  diffDrag(x: number, y: number): boolean;
   diffDragEnd(): boolean;
   overlayDismiss(): void;
   menuHover(x: number, y: number): void;
@@ -766,7 +768,7 @@ export function createRuntimeWidgets(
     );
   };
   commitDiff.onMouseDrag = (event) => {
-    if (actions.diffDrag(event.y)) event.preventDefault();
+    if (actions.diffDrag(event.x, event.y)) event.preventDefault();
   };
   commitDiff.onMouseUp = (event) => {
     if (actions.diffDragEnd()) event.preventDefault();
@@ -918,6 +920,22 @@ export function createRuntimeWidgets(
     selectable: false,
     content: "",
     ...buttonMouse(actions.toggleAvatars),
+  });
+  const diffViewToggle = new TextRenderable(renderer, {
+    ...absolute,
+    id: "diff-view-toggle",
+    right: 11,
+    top: 1,
+    width: 16,
+    height: 1,
+    zIndex: 21,
+    fg: oneDarkTheme.muted,
+    bg: oneDarkTheme.panelRaised,
+    wrapMode: "none",
+    selectable: false,
+    visible: false,
+    content: "",
+    ...buttonMouse(actions.toggleDiffView),
   });
   // Hints and messages share the bottom row but never overwrite each other,
   // and both sit on the root so collapsing a pane cannot hide them.
@@ -1091,6 +1109,7 @@ export function createRuntimeWidgets(
   renderer.root.add(tabBar);
   renderer.root.add(header);
   renderer.root.add(avatarToggle);
+  renderer.root.add(diffViewToggle);
   renderer.root.add(toolbar);
   renderer.root.add(hints);
   renderer.root.add(message);
@@ -1115,6 +1134,7 @@ export function createRuntimeWidgets(
     tabBar,
     header,
     avatarToggle,
+    diffViewToggle,
     toolbar,
     sidebar,
     history,
