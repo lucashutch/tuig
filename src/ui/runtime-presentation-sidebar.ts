@@ -17,7 +17,7 @@ import {
   REMOTE_BRANCH_ICON,
 } from "./history.js";
 import { clipColumns, fitColumns } from "./runtime-presentation-text.js";
-import { oneDarkTheme } from "./theme.js";
+import { activeTheme as oneDarkTheme } from "./theme.js";
 
 /**
  * Row of the LOCAL BRANCHES header inside the repository pane.

@@ -16,6 +16,6 @@ Tuig already has a compact colored commit graph with merge edges, branch labels,
 
 ## Presentation
 
-- Move all dimensions and colors into theme definitions and load user themes.
+- Make UI dimensions configurable. Color themes use the OpenCode V2 format and can be selected from the command palette.
 - Add compact and wide responsive layouts, diff virtualization, split diffs, and file-tree grouping.
 - Detect Kitty graphics so avatars work across terminals without making graphics a runtime requirement.

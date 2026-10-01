@@ -39,6 +39,7 @@ import {
 } from "./history-columns.js";
 import {
   emptyGraphIndex,
+  extendGraphIndex,
   graphWindow,
   type GraphIndex,
 } from "./graph-index.js";
@@ -81,7 +82,18 @@ import {
   type RuntimePaintContext,
   type RuntimeSidebarPaintContext,
 } from "./runtime-paint.js";
-import { oneDarkTheme } from "./theme.js";
+import { activeTheme as oneDarkTheme } from "./theme.js";
+import { semanticColor, setActiveTheme } from "./theme.js";
+import {
+  loadThemeCatalog,
+  loadThemePreferences,
+  saveThemePreferences,
+} from "./theme-store.js";
+import {
+  dialogColor,
+  loadInitialTheme,
+  updateWidgetTheme,
+} from "./runtime-theme.js";
 import {
   layoutRepositoryTabs,
   repositoryTabText,
@@ -100,6 +112,9 @@ import {
   type ToolbarAction,
   type ToolbarHit,
   renderHeader,
+  presentCommitMeta,
+  presentCommitCoAuthors,
+  parseCoAuthors,
   type SidebarSection,
 } from "./runtime-presentation.js";
 import {
@@ -194,12 +209,20 @@ export async function runTuig(
     repositories.find((candidate) => candidate.root === activeRepository) ??
     repositories[0];
   if (!repository) throw new Error("Tuig requires at least one repository");
+  const initialTheme = await loadInitialTheme(repository.root);
+  const { catalog, selection } = initialTheme;
+  setActiveTheme(initialTheme.theme);
   const renderer = await createCliRenderer({
     useMouse: true,
     enableMouseMovement: true,
     exitOnCtrlC: false,
     backgroundColor: oneDarkTheme.bg,
   });
+  if (selection.mode === "system") {
+    const mode = await renderer.waitForThemeMode(200);
+    setActiveTheme(catalog.resolve(selection.name, mode ?? "dark"));
+    renderer.setBackgroundColor(oneDarkTheme.bg);
+  }
   renderer.setTerminalTitle(`tuig · ${repository.root}`);
   const app = new Runtime(
     renderer,
@@ -208,6 +231,7 @@ export async function runTuig(
     submodules,
     recentRepositories,
   );
+  app.configureThemes(catalog, selection, initialTheme.warning);
   await app.start();
 }
 
@@ -276,7 +300,7 @@ const fileHistoryDate = new Intl.DateTimeFormat(undefined, {
   timeStyle: "short",
 });
 
-class Runtime {
+export class Runtime {
   /** OpenTUI emits this only when the mouse button ends a selection drag. */
   private readonly copyCompletedSelection = (selection: Selection) => {
     const text = selection.getSelectedText();
@@ -303,6 +327,108 @@ class Runtime {
   /** Older endpoint for the comparison surface currently open. */
   private comparisonBaseSha?: string;
   private graphIndex: GraphIndex = emptyGraphIndex();
+  private themeCatalog?: Awaited<ReturnType<typeof loadThemeCatalog>>;
+  private themeSelection: Awaited<ReturnType<typeof loadThemePreferences>> = {
+    name: "one-dark",
+    mode: "dark",
+  };
+  private palettePage: "commands" | "themes" | "theme-mode" = "commands";
+
+  configureThemes(
+    catalog: Awaited<ReturnType<typeof loadThemeCatalog>>,
+    selection: Awaited<ReturnType<typeof loadThemePreferences>>,
+    warning?: string,
+  ) {
+    this.themeCatalog = catalog;
+    this.themeSelection = selection;
+    const warnings = [warning, ...catalog.errors].filter(Boolean);
+    if (warnings.length) this.notify(warnings.join("; "), "error");
+    this.renderer.on(CliRenderEvents.THEME_MODE, (mode: "dark" | "light") => {
+      if (this.themeSelection.mode === "system")
+        void this.activateTheme(this.themeSelection, false, mode);
+    });
+    if (selection.mode === "system") void this.activateTheme(selection, false);
+  }
+
+  private async activateTheme(
+    selection: typeof this.themeSelection,
+    persist = true,
+    appearance?: "dark" | "light",
+  ) {
+    if (!this.themeCatalog) return;
+    try {
+      const mode =
+        selection.mode === "system"
+          ? (appearance ?? this.renderer.themeMode ?? "dark")
+          : selection.mode;
+      setActiveTheme(this.themeCatalog.resolve(selection.name, mode));
+      this.themeSelection = selection;
+      this.renderer.setBackgroundColor(oneDarkTheme.bg);
+      updateWidgetTheme(this.renderer.root);
+      this.commitDiff.updateTheme();
+      const commit =
+        this.historyFilter?.commits[this.historyFilter.index] ??
+        this.snapshot?.commits[this.commitIndex];
+      if (commit && this.view === "commit") {
+        const meta = presentCommitMeta(commit);
+        this.commitInfo.content = meta.info;
+        this.commitHeader.content = meta.header;
+        this.commitBody.content = meta.body;
+        this.commitCoAuthors.content = presentCommitCoAuthors(
+          parseCoAuthors(commit.body),
+        );
+      }
+      const headSha = this.snapshot
+        ? resolveHeadSha(this.snapshot.branches, this.snapshot.commits)
+        : undefined;
+      this.graphIndex = emptyGraphIndex(
+        this.snapshot?.files.length ? headSha : undefined,
+        oneDarkTheme.graph,
+      );
+      if (this.snapshot)
+        extendGraphIndex(
+          this.graphIndex,
+          this.snapshot.commits,
+          oneDarkTheme.graph,
+          headSha,
+        );
+      this.paint();
+      if (persist) await saveThemePreferences(selection);
+    } catch (error) {
+      this.notify(
+        `Theme change failed: ${error instanceof Error ? error.message : String(error)}`,
+        "error",
+      );
+    }
+  }
+
+  private async showThemePicker(page: "themes" | "theme-mode") {
+    if (page === "themes") {
+      const previous = this.themeCatalog;
+      const catalog = await loadThemeCatalog(this.repository.root);
+      this.themeCatalog = {
+        ...catalog,
+        entries: catalog.entries.some(
+          (entry) => entry.name === this.themeSelection.name,
+        )
+          ? catalog.entries
+          : [
+              ...catalog.entries,
+              { name: this.themeSelection.name, source: "active selection" },
+            ],
+        resolve: (name, mode) =>
+          catalog.entries.some((entry) => entry.name === name)
+            ? catalog.resolve(name, mode)
+            : previous
+              ? previous.resolve(name, mode)
+              : catalog.resolve(name, mode),
+      };
+      if (catalog.errors.length)
+        this.notify(catalog.errors.join("; "), "error");
+    }
+    this.palettePage = page;
+    this.showCommandPalette();
+  }
   private historyFilter?: {
     path: string;
     file: ChangedFile;
@@ -935,6 +1061,7 @@ class Runtime {
     this.renderer.root.add(this.promptInput);
     this.renderer.root.add(this.repositoryPickerBox);
     this.renderer.root.add(this.commandPaletteBox);
+    updateWidgetTheme(this.renderer.root);
     this.renderer.on(CliRenderEvents.SELECTION, this.copyCompletedSelection);
     this.renderer.once(CliRenderEvents.DESTROY, this.dispose);
   }
@@ -1211,8 +1338,22 @@ class Runtime {
         : oneDarkTheme.panel;
       const label = repositoryTabText(tab);
       cells.push(
-        bg(background)(
-          fg(tab.active ? oneDarkTheme.accent : oneDarkTheme.muted)(label),
+        bg(
+          semanticColor(
+            oneDarkTheme,
+            "background.action.secondary",
+            background,
+            { states: { selected: tab.active } },
+          ),
+        )(
+          fg(
+            semanticColor(
+              oneDarkTheme,
+              "text.action.secondary",
+              tab.active ? oneDarkTheme.accent : oneDarkTheme.muted,
+              { states: { selected: tab.active } },
+            ),
+          )(label),
         ),
       );
     }
@@ -1224,7 +1365,21 @@ class Runtime {
       this.tabLayout.open.end - this.tabLayout.open.start,
     );
     cells.push(
-      bg(oneDarkTheme.panelRaised)(fg(oneDarkTheme.accent)(openLabel)),
+      bg(
+        semanticColor(
+          oneDarkTheme,
+          "background.action.secondary",
+          oneDarkTheme.panelRaised,
+        ),
+      )(
+        fg(
+          semanticColor(
+            oneDarkTheme,
+            "text.action.secondary",
+            oneDarkTheme.accent,
+          ),
+        )(openLabel),
+      ),
     );
     cells.push(
       bg(oneDarkTheme.panelRaised)(
@@ -1294,6 +1449,21 @@ class Runtime {
   }
 
   private paletteCommands(): PaletteCommand[] {
+    if (this.palettePage === "themes")
+      return (this.themeCatalog?.entries ?? []).map((entry) => ({
+        id: `theme.${entry.name}`,
+        title: `${entry.name}${entry.name === this.themeSelection.name ? " (current)" : ""}`,
+        category: "Settings",
+        run: () =>
+          this.activateTheme({ ...this.themeSelection, name: entry.name }),
+      }));
+    if (this.palettePage === "theme-mode")
+      return (["dark", "light", "system"] as const).map((mode) => ({
+        id: `theme-mode.${mode}`,
+        title: `${mode}${mode === this.themeSelection.mode ? " (current)" : ""}`,
+        category: "Settings",
+        run: () => this.activateTheme({ ...this.themeSelection, mode }),
+      }));
     const snapshot = this.snapshot;
     const selected = this.selectedFile();
     const busyReason = this.mutationBusy
@@ -1306,6 +1476,18 @@ class Runtime {
     const toolbar = (action: ToolbarAction) => () =>
       void runRuntimeToolbarAction(this.commandsContext(), action);
     return [
+      {
+        id: "theme.change",
+        title: "Change theme",
+        category: "Settings",
+        run: () => this.showThemePicker("themes"),
+      },
+      {
+        id: "theme.mode",
+        title: "Change theme mode",
+        category: "Settings",
+        run: () => this.showThemePicker("theme-mode"),
+      },
       {
         id: "repository.refresh",
         title: "Refresh repository",
@@ -1558,6 +1740,7 @@ class Runtime {
   private closeCommandPalette(restoreFocus = true) {
     if (!this.commandPaletteOpen) return;
     this.commandPaletteOpen = false;
+    this.palettePage = "commands";
     this.commandPaletteInput.blur();
     this.commandPaletteBox.visible = false;
     this.overlayCatcher.visible = this.popupController.isOpen;
@@ -1617,7 +1800,9 @@ class Runtime {
     );
     if (visible.length === 0) {
       this.commandPaletteText.content = new StyledText([
-        fg(oneDarkTheme.muted)(" No matching commands"),
+        fg(dialogColor("text.muted", oneDarkTheme.muted))(
+          " No matching commands",
+        ),
       ]);
       return;
     }
@@ -1652,8 +1837,15 @@ class Runtime {
         : oneDarkTheme.panelRaised;
       const color =
         command.enabled === false ? oneDarkTheme.muted : oneDarkTheme.text;
-      return bg(background)(
-        fg(color)(`${line}${row === visible.length - 1 ? "" : "\n"}`),
+      const states = {
+        selected,
+        focused: selected,
+        disabled: command.enabled === false,
+      };
+      return bg(dialogColor("background.action.primary", background, states))(
+        fg(dialogColor("text.action.primary", color, states))(
+          `${line}${row === visible.length - 1 ? "" : "\n"}`,
+        ),
       );
     });
     this.commandPaletteText.content = new StyledText(content);
@@ -1785,18 +1977,38 @@ class Runtime {
     );
     const visible = entries.slice(start, start + count);
     const rows = visible.length
-      ? visible
-          .map(
-            (entry, index) =>
-              `${start + index === this.repositorySuggestionIndex ? ">" : " "} ${typeof entry === "string" ? entry : `${entry.name}/`}`,
-          )
-          .join("\n")
-      : recent
-        ? "  No recently closed repositories"
-        : "  No matching folders";
-    this.repositoryPickerText.content = recent
-      ? `Recently opened (closed tabs)\n${rows}`
-      : rows;
+      ? visible.map((entry, index) => {
+          const selected = start + index === this.repositorySuggestionIndex;
+          const states = { selected, focused: selected };
+          return bg(
+            dialogColor(
+              "background.action.primary",
+              selected ? oneDarkTheme.selected : oneDarkTheme.panelRaised,
+              states,
+            ),
+          )(
+            fg(dialogColor("text.action.primary", oneDarkTheme.text, states))(
+              `${selected ? ">" : " "} ${typeof entry === "string" ? entry : `${entry.name}/`}${index === visible.length - 1 ? "" : "\n"}`,
+            ),
+          );
+        })
+      : [
+          fg(dialogColor("text.muted", oneDarkTheme.muted))(
+            recent
+              ? "  No recently closed repositories"
+              : "  No matching folders",
+          ),
+        ];
+    this.repositoryPickerText.content = new StyledText([
+      ...(recent
+        ? [
+            fg(dialogColor("text.muted", oneDarkTheme.muted))(
+              "Recently opened (closed tabs)\n",
+            ),
+          ]
+        : []),
+      ...rows,
+    ]);
   }
 
   private get closedRecentRepositories(): string[] {

@@ -46,7 +46,8 @@ import {
   sidebarRowSource,
   type SidebarSection,
 } from "./runtime-presentation.js";
-import { oneDarkTheme } from "./theme.js";
+import { activeTheme as oneDarkTheme } from "./theme.js";
+import { applyActionTheme, setActionState } from "./runtime-theme.js";
 import { historyColumnLayout, type HistoryColumns } from "./history-columns.js";
 import { createRuntimeWidgets, type ChangeSection } from "./runtime-widgets.js";
 
@@ -605,6 +606,8 @@ export function paintSection(ctx: RuntimePaintContext, section: ChangeSection) {
 export function paintComposer(ctx: RuntimePaintContext) {
   if (ctx.editingCommitSha) {
     ctx.commitButton.fg = oneDarkTheme.added;
+    setActionState(ctx.commitButton, { disabled: false });
+    applyActionTheme(ctx.commitButton);
     ctx.commitButton.content = "Save message";
     return;
   }
@@ -618,10 +621,14 @@ export function paintComposer(ctx: RuntimePaintContext) {
         : "Write a summary to commit",
     padding = Math.max(0, Math.floor((width - Bun.stringWidth(text)) / 2));
   ctx.commitButton.fg = ready ? oneDarkTheme.added : oneDarkTheme.muted;
+  setActionState(ctx.commitButton, { disabled: !ready });
+  applyActionTheme(ctx.commitButton);
   ctx.commitButton.content = fitColumns(
     `${" ".repeat(padding)}${ready ? "✓ " : ""}${text}`,
     width,
   );
   ctx.amendButton.content = `${ctx.amend ? "[x]" : "[ ]"} Amend previous commit`;
   ctx.amendButton.fg = ctx.amend ? oneDarkTheme.warning : oneDarkTheme.muted;
+  setActionState(ctx.amendButton, { selected: ctx.amend });
+  applyActionTheme(ctx.amendButton);
 }

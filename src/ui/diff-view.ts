@@ -10,7 +10,25 @@ import {
   splitDiffLineTarget,
   type DiffLineTarget,
 } from "./diff-lines.js";
-import { oneDarkTheme } from "./theme.js";
+import { activeTheme as oneDarkTheme, semanticColor } from "./theme.js";
+import { createDiffSyntaxStyle } from "./diff-syntax.js";
+
+function diffColor(path: string, fallback: string): string {
+  const value = path
+    .split(".")
+    .reduce<unknown>(
+      (node, key) =>
+        node && typeof node === "object"
+          ? (node as Record<string, unknown>)[key]
+          : undefined,
+      oneDarkTheme.diff,
+    );
+  return semanticColor(
+    oneDarkTheme,
+    `diff.${path}`,
+    typeof value === "string" ? value : fallback,
+  );
+}
 
 export type DiffViewMode = "inline" | "side-by-side";
 export const SPLIT_DIFF_MIN_WIDTH = 120;
@@ -38,6 +56,7 @@ export class DiffView extends BoxRenderable {
   private currentWrapMode: "word" | "none" = "word";
   private currentView: "unified" | "split";
   private selectedRows = new Set<number>();
+  private ownedSyntaxStyle?: ReturnType<typeof createDiffSyntaxStyle>;
 
   constructor(ctx: RenderContext, options: DiffRenderableOptions) {
     super(ctx, {
@@ -51,8 +70,9 @@ export class DiffView extends BoxRenderable {
       zIndex: options.zIndex,
       border: false,
     });
-    this.options = options;
+    this.options = { ...options };
     this.currentView = options.view ?? "unified";
+    this.updateTheme();
   }
 
   get diff(): string {
@@ -135,6 +155,7 @@ export class DiffView extends BoxRenderable {
   clear() {
     this.value = "";
     this.currentFiletype = undefined;
+    this.selectedRows = new Set();
     this.destroyDocument();
   }
 
@@ -144,6 +165,47 @@ export class DiffView extends BoxRenderable {
     this.document.destroyRecursively();
     this.document = undefined;
     this.requestRender();
+  }
+
+  updateTheme() {
+    const previousStyle = this.ownedSyntaxStyle;
+    this.ownedSyntaxStyle = createDiffSyntaxStyle();
+    const colors = {
+      fg: diffColor("text.context", oneDarkTheme.text),
+      contextBg: diffColor("background.context", oneDarkTheme.bg),
+      contextContentBg: diffColor("background.context", oneDarkTheme.bg),
+      addedBg: diffColor("background.added", oneDarkTheme.diffAddedBg),
+      removedBg: diffColor("background.removed", oneDarkTheme.diffRemovedBg),
+      addedContentBg: diffColor("background.added", oneDarkTheme.diffAddedBg),
+      removedContentBg: diffColor(
+        "background.removed",
+        oneDarkTheme.diffRemovedBg,
+      ),
+      addedSignColor: diffColor("text.added", oneDarkTheme.added),
+      removedSignColor: diffColor("text.removed", oneDarkTheme.deleted),
+      lineNumberFg: diffColor("lineNumber.text", oneDarkTheme.muted),
+      lineNumberBg: diffColor("background.context", oneDarkTheme.bg),
+      addedLineNumberBg: diffColor(
+        "lineNumber.background.added",
+        oneDarkTheme.diffAddedBg,
+      ),
+      removedLineNumberBg: diffColor(
+        "lineNumber.background.removed",
+        oneDarkTheme.diffRemovedBg,
+      ),
+      selectionBg: oneDarkTheme.selected,
+      syntaxStyle: this.ownedSyntaxStyle,
+    };
+    Object.assign(this.options, colors);
+    if (this.document) Object.assign(this.document, colors);
+    this.setSelectedRows(this.selectedRows);
+    previousStyle?.destroy();
+  }
+
+  protected override destroySelf() {
+    super.destroySelf();
+    this.ownedSyntaxStyle?.destroy();
+    this.ownedSyntaxStyle = undefined;
   }
 
   /** Show persistent selection on changed rows while preserving diff colors. */
@@ -158,17 +220,35 @@ export class DiffView extends BoxRenderable {
         target.renderedRow,
         rows.has(rawRow)
           ? {
-              gutter: oneDarkTheme.accent,
-              content: oneDarkTheme.dividerActive,
+              gutter: diffColor(
+                `highlight.${target.kind === "added" ? "added" : "removed"}`,
+                oneDarkTheme.accent,
+              ),
+              content: diffColor(
+                `highlight.${target.kind === "added" ? "added" : "removed"}`,
+                oneDarkTheme.selected,
+              ),
             }
           : target.kind === "added"
             ? {
-                gutter: oneDarkTheme.diffAddedBg,
-                content: oneDarkTheme.diffAddedBg,
+                gutter: diffColor(
+                  "lineNumber.background.added",
+                  oneDarkTheme.diffAddedBg,
+                ),
+                content: diffColor(
+                  "background.added",
+                  oneDarkTheme.diffAddedBg,
+                ),
               }
             : {
-                gutter: oneDarkTheme.diffRemovedBg,
-                content: oneDarkTheme.diffRemovedBg,
+                gutter: diffColor(
+                  "lineNumber.background.removed",
+                  oneDarkTheme.diffRemovedBg,
+                ),
+                content: diffColor(
+                  "background.removed",
+                  oneDarkTheme.diffRemovedBg,
+                ),
               },
       );
     }

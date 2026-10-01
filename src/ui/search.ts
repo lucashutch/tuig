@@ -1,7 +1,7 @@
 import type { Commit } from "../git/types.js";
 import { DEFAULT_HISTORY_PAGE } from "../git/repository.js";
 import { packGraphRow, type GraphRow } from "./graph.js";
-import { oneDarkTheme } from "./theme.js";
+import { activeTheme as oneDarkTheme } from "./theme.js";
 
 /**
  * Delay between the last keystroke and the search running.

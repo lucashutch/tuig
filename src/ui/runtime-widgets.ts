@@ -1,6 +1,5 @@
 import {
   BoxRenderable,
-  RGBA,
   CliRenderEvents,
   InputRenderable,
   InputRenderableEvents,
@@ -15,7 +14,14 @@ import {
   type KeyEvent,
   type TextBufferRenderable,
 } from "@opentui/core";
-import { oneDarkTheme } from "./theme.js";
+import { activeTheme as oneDarkTheme } from "./theme.js";
+import {
+  actionEnabled,
+  bindWidgetTheme,
+  applyActionTheme,
+  setActionState,
+  updateWidgetTheme,
+} from "./runtime-theme.js";
 import { DiffView } from "./diff-view.js";
 import { createDiffSyntaxStyle } from "./diff-syntax.js";
 import { registerDiffParsers } from "./diff-parsers.js";
@@ -34,29 +40,37 @@ export function buttonMouse(onPress: () => void, enabled = () => true) {
   let hovered = false;
   return {
     onMouseOver(this: TextBufferRenderable) {
-      if (!enabled()) return;
+      if (!enabled() || !actionEnabled(this)) return;
       if (!hovered) resting = this.bg;
       hovered = true;
       this.bg = oneDarkTheme.selected;
+      setActionState(this, { hovered: true, disabled: !enabled() });
+      applyActionTheme(this);
     },
     onMouseOut(this: TextBufferRenderable) {
       if (!hovered) return;
       pressed = false;
       hovered = false;
       this.bg = resting;
+      setActionState(this, { hovered: false, pressed: false });
+      applyActionTheme(this);
     },
     onMouseDown(this: TextBufferRenderable, e: { button: number }) {
-      if (e.button !== 0 || !enabled()) return;
+      if (e.button !== 0 || !enabled() || !actionEnabled(this)) return;
       if (!hovered) resting = this.bg;
       hovered = true;
       pressed = true;
       this.bg = oneDarkTheme.dividerActive;
+      setActionState(this, { hovered: true, pressed: true });
+      applyActionTheme(this);
     },
     onMouseUp(this: TextBufferRenderable, e: { button: number }) {
       if (e.button !== 0 || !pressed) return;
       pressed = false;
       this.bg = oneDarkTheme.selected;
-      if (enabled()) onPress();
+      setActionState(this, { pressed: false, hovered: true });
+      applyActionTheme(this);
+      if (enabled() && actionEnabled(this)) onPress();
     },
   };
 }
@@ -264,6 +278,7 @@ export function createRuntimeWidgets(
           ? oneDarkTheme.accentSoft
           : oneDarkTheme.divider;
     };
+    bindWidgetTheme(bar, paint);
     return new BoxRenderable(renderer, {
       ...absolute,
       id,
@@ -421,6 +436,7 @@ export function createRuntimeWidgets(
       content: "─",
       wrapMode: "none",
     });
+    bindWidgetTheme(dividerBar, paintDividerState);
     box.add(header);
     box.add(text);
     sidebar.add(box);
@@ -512,6 +528,7 @@ export function createRuntimeWidgets(
           ? oneDarkTheme.accentSoft
           : oneDarkTheme.divider;
     };
+    bindWidgetTheme(bar, paint);
     return new BoxRenderable(renderer, {
       ...absolute,
       id,
@@ -845,9 +862,7 @@ export function createRuntimeWidgets(
     wrapMode: "none",
     fg: oneDarkTheme.text,
     content: "",
-    ...buttonMouse(actions.commit, () =>
-      commitButton.fg.equals(RGBA.fromHex(oneDarkTheme.added)),
-    ),
+    ...buttonMouse(actions.commit),
   });
   const amendButton = new TextRenderable(renderer, {
     ...absolute,
@@ -1130,6 +1145,7 @@ export function createRuntimeWidgets(
   renderer.on(CliRenderEvents.RESIZE, actions.resize);
   renderer.keyInput.on("keypress", (key) => actions.keypress(key));
   composerSummary.on(InputRenderableEvents.ENTER, actions.commit);
+  updateWidgetTheme(renderer.root);
   return {
     tabBar,
     header,

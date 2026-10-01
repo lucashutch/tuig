@@ -14,7 +14,8 @@ import {
   type GraphMenuItem,
 } from "./graph-menu.js";
 import { clipColumns } from "./runtime-presentation.js";
-import { oneDarkTheme } from "./theme.js";
+import { activeTheme as oneDarkTheme } from "./theme.js";
+import { dialogColor, updateWidgetTheme } from "./runtime-theme.js";
 
 interface PopupPane {
   items: GraphMenuItem[];
@@ -120,6 +121,8 @@ export class RuntimePopupController {
     } = this.context;
     const popup = this.popup;
     const visible = !!popup;
+    for (const widget of [menuBox, submenuBox, promptInput])
+      updateWidgetTheme(widget);
     for (const widget of [overlayCatcher, menuBox, menuText])
       widget.visible = visible;
     promptInput.visible = visible && this.promptActive;
@@ -195,7 +198,16 @@ export class RuntimePopupController {
       pane.items.map((item, index) => {
         const line = renderMenuLine(item, width);
         const suffix = index === pane.items.length - 1 ? "" : "\n";
-        if (item.separator) return fg(oneDarkTheme.border)(`${line}${suffix}`);
+        if (item.separator)
+          return fg(dialogColor("border.base", oneDarkTheme.border))(
+            `${line}${suffix}`,
+          );
+        const states = {
+          hovered: index === pane.hover,
+          selected: index === pane.hover,
+          disabled: !!item.disabled,
+        };
+        const variant = item.destructive ? "destructive" : "primary";
         const rowBg =
           index === pane.hover && !item.disabled
             ? oneDarkTheme.selected
@@ -205,7 +217,11 @@ export class RuntimePopupController {
           : item.destructive
             ? oneDarkTheme.deleted
             : oneDarkTheme.text;
-        return bg(rowBg)(fg(color)(`${line}${suffix}`));
+        return bg(dialogColor(`background.action.${variant}`, rowBg, states))(
+          fg(dialogColor(`text.action.${variant}`, color, states))(
+            `${line}${suffix}`,
+          ),
+        );
       }),
     );
   }

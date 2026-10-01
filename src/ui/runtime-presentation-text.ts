@@ -1,5 +1,5 @@
 import type { FileTreeNode } from "./file-tree.js";
-import { oneDarkTheme } from "./theme.js";
+import { activeTheme as oneDarkTheme } from "./theme.js";
 
 /** Status colour for a tree node; the material icon carries the git state. */
 export function fileColor(node: FileTreeNode): string | undefined {
