@@ -22,6 +22,11 @@ Canonical repository: https://github.com/lucashutch/tuig
 - `src/ui/runtime-widgets.ts` — typed OpenTUI widget factory, pane wiring, and renderable event bindings for the runtime.
 - `src/ui/repository-tabs.ts` — repository tab layout and hit testing.
 - `src/ui/session-preferences.ts` — persisted open repository tabs and active tab.
+- `src/ui/theme.ts`: Tuig semantic colors and the active theme.
+- `src/ui/theme-resolver.ts`: OpenCode V2 token, mode, reference, and dialog resolution.
+- `src/ui/theme-store.ts`: built-in and custom theme discovery and saved selection.
+- `src/ui/runtime-theme.ts`: live widget color updates without replacing editors.
+- `src/ui/themes/`: bundled OpenCode V2 theme definitions and attribution.
 - `src/ui/graph-viewport.ts` — horizontal graph window sizing, clamping, and edge markers for wide graphs.
 - `src/ui/graph-menu.ts` — pure model, placement, and hit testing for the graph context menu.
 - `src/ui/runtime-presentation.ts` — compatibility barrel for the focused presentation modules.

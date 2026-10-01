@@ -23,7 +23,7 @@ those columns. Hold `Shift` while scrolling over history to pan a wide graph
 left or right. A horizontal mouse wheel also works. Right-click the history
 header to show or hide Committer and SHA. These settings last for the session.
 
-The One Dark theme keeps Git status colors meaningful. Added lines stay green, removed lines stay red, and graph lanes remain easy to follow.
+Tuig starts with One Dark. You can change the interface, graph, diff, and syntax colors through the command palette.
 
 Diffs highlight syntax for JavaScript/JSX, TypeScript/TSX, Python, Go, Rust, C,
 C++, HTML, CSS, JSON, Bash/shell, Markdown, and Zig. Parsers are installed with
@@ -135,6 +135,27 @@ Press `Esc` to cancel a fetch, pull, or push that is still running. Tuig prevent
 
 History rows show one ref label. When a commit carries more refs than fit, the extra count appears as `+N`, and tags are included rather than hidden. Branch labels use a laptop for local refs and a globe for remote refs. In the repository pane, `◉` marks the checked-out branch, `◆` marks a branch available locally and remotely, `○` marks a local branch, and `◌` marks a remote-only branch.
 
+## Themes
+
+Press `Ctrl+P` and select **Change theme** to choose a theme. Select **Change theme mode** to choose light, dark, or system mode. Changes apply without restarting Tuig. Tuig saves the selection in `~/.config/tuig/theme.json` for the next launch. One Dark and OpenCode are built in.
+
+System mode follows the terminal's reported appearance and uses dark when the terminal does not report it. If a theme provides only one mode, Tuig uses that mode for either selection.
+
+Tuig accepts [OpenCode V2 theme JSON files](https://opencode.ai/v2/docs/cli/theme) unchanged. These files use `base` tokens and `light` or `dark` palettes. Older OpenCode V1 theme files use a different format and are not supported.
+
+Copy a theme into Tuig's global theme directory:
+
+```sh
+mkdir -p ~/.config/tuig/themes
+cp my-theme.json ~/.config/tuig/themes/
+```
+
+If `XDG_CONFIG_HOME` is set, use `$XDG_CONFIG_HOME/tuig/themes/` instead. The filename without `.json` becomes the theme name. You can also put themes in `.tuig/themes/` in a project or its parent directories. A theme closer to the repository replaces a parent or global theme with the same name.
+
+Tuig uses OpenCode's semantic colors for Git status, graph lanes, diff rows, syntax highlighting, and UI controls. It does not read or change your OpenCode settings.
+
+The `diff.text.added` and `diff.text.removed` tokens color diff signs, not highlighted code. OpenTUI 0.5.7 does not render hunk-header rows, so `diff.text.hunkHeader` has no visible effect.
+
 ## Git and submodules
 
 Tuig runs Git with argument arrays through a typed service layer. Repository state uses porcelain, NUL-delimited paths, and explicit formats instead of localized display output.
@@ -162,7 +183,7 @@ See the [roadmap](docs/roadmap.md) for planned work. Bugs and focused contributi
 ## Credits
 
 - [OpenTUI](https://github.com/anomalyco/opentui) provides the terminal renderer and diff component.
-- The diff workflow adapts ideas from [OpenCode](https://github.com/anomalyco/opencode).
+- The diff workflow and theme format follow [OpenCode](https://github.com/anomalyco/opencode). The bundled OpenCode V2 theme includes its MIT attribution in `src/ui/themes/`.
 - The virtual file-tree and icon matching approach follows [Druk](https://github.com/letstri/druk).
 - Graph-routing design is independently inspired by [Serie](https://github.com/lusingander/serie) (MIT); no Serie code is copied.
 - Material icon associations derive from [Material Icon Theme](https://github.com/material-extensions/vscode-material-icon-theme). The bundled attribution is in [`licenses/`](licenses/).

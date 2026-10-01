@@ -46,7 +46,7 @@ import {
   wrappedLineCount,
 } from "./runtime-presentation.js";
 import { createRuntimeWidgets, type ChangeSection } from "./runtime-widgets.js";
-import { oneDarkTheme } from "./theme.js";
+import { activeTheme as oneDarkTheme } from "./theme.js";
 
 type Widgets = ReturnType<typeof createRuntimeWidgets>;
 type View = "history" | "commit" | "working";

@@ -1,7 +1,7 @@
 import { StyledText, bg, fg } from "@opentui/core";
 import type { RepositorySnapshot } from "../git/types.js";
 import { displayBranchName } from "./history.js";
-import { oneDarkTheme } from "./theme.js";
+import { activeTheme as oneDarkTheme, semanticColor } from "./theme.js";
 import { clipColumns } from "./runtime-presentation-text.js";
 
 export type HeaderPresentationInput = {
@@ -168,16 +168,35 @@ export function renderToolbar(
       const before = Math.floor(padding / 2);
       return " ".repeat(before) + value + " ".repeat(padding - before);
     };
-    const labelColor = button.enabled ? oneDarkTheme.text : oneDarkTheme.border;
-    const glyphColor = button.enabled
-      ? oneDarkTheme.accent
-      : oneDarkTheme.border;
     const pressed = button.enabled && interaction.pressed === button.id;
-    const background = pressed
+    const states = {
+      disabled: !button.enabled,
+      pressed,
+      hovered: button.enabled && interaction.hovered === button.id,
+    };
+    const labelColor = semanticColor(
+      oneDarkTheme,
+      "text.action.secondary",
+      button.enabled ? oneDarkTheme.text : oneDarkTheme.border,
+      { states },
+    );
+    const glyphColor = semanticColor(
+      oneDarkTheme,
+      "text.action.secondary",
+      button.enabled ? oneDarkTheme.accent : oneDarkTheme.border,
+      { states },
+    );
+    const fallbackBackground = pressed
       ? oneDarkTheme.dividerActive
       : button.enabled && interaction.hovered === button.id
         ? oneDarkTheme.selected
         : raised;
+    const background = semanticColor(
+      oneDarkTheme,
+      "background.action.secondary",
+      fallbackBackground,
+      { states },
+    );
     labels.push(bg(background)(fg(labelColor)(centre(button.label))));
     glyphs.push(bg(background)(fg(glyphColor)(centre(button.glyph))));
     if (button.enabled)

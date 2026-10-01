@@ -6,7 +6,7 @@ import {
   fileViewportSize,
   wrappedLineCount,
 } from "./runtime-presentation-text.js";
-import { oneDarkTheme } from "./theme.js";
+import { activeTheme as oneDarkTheme } from "./theme.js";
 
 export type CommitCoAuthor = { name: string; email: string };
 
