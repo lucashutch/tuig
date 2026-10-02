@@ -1,7 +1,11 @@
 import { StyledText, bg, fg } from "@opentui/core";
 import type { RepositorySnapshot } from "../git/types.js";
 import { displayBranchName } from "./history.js";
-import { activeTheme as oneDarkTheme, semanticColor } from "./theme.js";
+import {
+  activeTheme as oneDarkTheme,
+  interactionBackground,
+  semanticColor,
+} from "./theme.js";
 import { clipColumns } from "./runtime-presentation-text.js";
 
 export type HeaderPresentationInput = {
@@ -186,11 +190,10 @@ export function renderToolbar(
       button.enabled ? oneDarkTheme.accent : oneDarkTheme.border,
       { states },
     );
-    const fallbackBackground = pressed
-      ? oneDarkTheme.dividerActive
-      : button.enabled && interaction.hovered === button.id
-        ? oneDarkTheme.selected
-        : raised;
+    const fallbackBackground = interactionBackground(oneDarkTheme, raised, {
+      pressed,
+      hovered: states.hovered,
+    });
     const background = semanticColor(
       oneDarkTheme,
       "background.action.secondary",

@@ -85,7 +85,11 @@ import {
   type RuntimeSidebarPaintContext,
 } from "./runtime-paint.js";
 import { activeTheme as oneDarkTheme } from "./theme.js";
-import { semanticColor, setActiveTheme } from "./theme.js";
+import {
+  interactionBackground,
+  semanticColor,
+  setActiveTheme,
+} from "./theme.js";
 import {
   loadThemeCatalog,
   loadThemePreferences,
@@ -466,6 +470,8 @@ export class Runtime {
     showSha: true,
   };
   private historyDividerHover?: HistoryDividerKey;
+  private hoveredHistoryLine?: number;
+  private hoveredTab?: string;
   private lastDividerPress?: { key: HistoryDividerKey; at: number };
   private historyColumnDrag?: {
     key: HistoryDividerKey;
@@ -747,6 +753,14 @@ export class Runtime {
       toggleAvatars: () => this.toggleAvatars(),
       toggleDiffView: () => this.toggleDiffView(),
       tabDrag: (x) => this.handleTabDrag(x),
+      tabHover: (x) => {
+        const hit =
+          x === undefined ? undefined : repositoryTabHit(this.tabLayout, x);
+        const next = hit?.action === "open" ? "open" : hit?.tabId;
+        if (next === this.hoveredTab) return;
+        this.hoveredTab = next;
+        this.paintTabs();
+      },
       tabDragEnd: () => {
         this.draggedTabId = undefined;
       },
@@ -796,8 +810,16 @@ export class Runtime {
               )
             : undefined;
         this.setHistoryDividerHover(key);
+        this.setHoveredHistoryLine(
+          !this.commitDiff.visible && y - PANE_TOP >= 1
+            ? y - PANE_TOP - 1
+            : undefined,
+        );
       },
-      historyHoverEnd: () => this.setHistoryDividerHover(undefined),
+      historyHoverEnd: () => {
+        this.setHistoryDividerHover(undefined);
+        this.setHoveredHistoryLine(undefined);
+      },
       filesScroll: (section, delta) => this.filesScroll(section, delta),
       filesClick: (section, y, button, x) =>
         this.filesClick(section, y, button, x),
@@ -1012,7 +1034,7 @@ export class Runtime {
       zIndex: 102,
       placeholder: "Search commands",
       backgroundColor: oneDarkTheme.panelRaised,
-      focusedBackgroundColor: oneDarkTheme.panelRaised,
+      focusedBackgroundColor: oneDarkTheme.selected,
       textColor: oneDarkTheme.text,
     });
     this.commandPaletteText = new TextRenderable(renderer, {
@@ -1374,9 +1396,12 @@ export class Runtime {
           ),
         );
       }
-      const background = tab.active
-        ? oneDarkTheme.selected
-        : oneDarkTheme.panel;
+      const hovered = this.hoveredTab === tab.id;
+      const background = interactionBackground(
+        oneDarkTheme,
+        oneDarkTheme.panel,
+        { selected: tab.active, hovered },
+      );
       const label = repositoryTabText(tab);
       cells.push(
         bg(
@@ -1384,7 +1409,7 @@ export class Runtime {
             oneDarkTheme,
             "background.action.secondary",
             background,
-            { states: { selected: tab.active } },
+            { states: { selected: tab.active, hovered } },
           ),
         )(
           fg(
@@ -1410,7 +1435,10 @@ export class Runtime {
         semanticColor(
           oneDarkTheme,
           "background.action.secondary",
-          oneDarkTheme.panelRaised,
+          interactionBackground(oneDarkTheme, oneDarkTheme.panelRaised, {
+            hovered: this.hoveredTab === "open",
+          }),
+          { states: { hovered: this.hoveredTab === "open" } },
         ),
       )(
         fg(
@@ -2880,6 +2908,7 @@ export class Runtime {
       expandedFiles: this.expandedFiles,
       seenFileDirectories: this.seenFileDirectories,
       hoveredFileRow: this.hoveredFileRow,
+      hoveredHistoryLine: this.hoveredHistoryLine,
       detailsPaneWidth: this.detailsPaneWidth,
       graphRowCount: this.graphIndex.length,
       graphRowsAt: (from, count) => this.graphRowsAt(from, count),
@@ -3171,6 +3200,11 @@ export class Runtime {
     this.graphScroll = next;
     this.paintHistory();
     return true;
+  }
+  private setHoveredHistoryLine(line: number | undefined) {
+    if (this.hoveredHistoryLine === line) return;
+    this.hoveredHistoryLine = line;
+    if (this.snapshot) this.paintHistory();
   }
   private setHistoryDividerHover(key: HistoryDividerKey | undefined) {
     if (this.historyDividerHover === key) return;

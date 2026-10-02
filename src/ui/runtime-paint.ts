@@ -47,7 +47,7 @@ import {
   sidebarRowSource,
   type SidebarSection,
 } from "./runtime-presentation.js";
-import { activeTheme as oneDarkTheme } from "./theme.js";
+import { activeTheme as oneDarkTheme, interactionBackground } from "./theme.js";
 import { applyActionTheme, setActionState } from "./runtime-theme.js";
 import {
   historyColumnLayout,
@@ -91,6 +91,8 @@ export interface RuntimePaintContext extends RuntimeSidebarPaintContext {
   expandedFiles: Set<string>;
   seenFileDirectories: Set<string>;
   hoveredFileRow?: { section: ChangeSection; row: number };
+  /** Screen line under the pointer in the history body, if any. */
+  hoveredHistoryLine?: number;
   detailsPaneWidth: number;
   /** Rows are replayed from lane checkpoints rather than held per commit. */
   graphRowCount: number;
@@ -273,7 +275,7 @@ export function paintHistory(ctx: RuntimePaintContext) {
   ctx.setGraphVisibleColumns(graphVisibleColumns);
   ctx.setGraphScroll(graphScroll);
   const headerColor =
-    ctx.focus === "history" ? oneDarkTheme.text : oneDarkTheme.muted;
+    ctx.focus === "history" ? oneDarkTheme.focusRing : oneDarkTheme.muted;
   // Arrows sit at the right edge of the graph column, in the accent colour, so
   // hidden lanes are hard to miss.
   const graphArrows = graphScrollIndicator(
@@ -285,13 +287,13 @@ export function paintHistory(ctx: RuntimePaintContext) {
   // brighten on hover and while dragging, matching the pane dividers.
   const separator = (text: string, key?: HistoryDividerKey) => {
     const active = key !== undefined && ctx.historyDivider?.key === key;
-    return fg(
-      active
-        ? ctx.historyDivider!.dragging
-          ? oneDarkTheme.added
-          : oneDarkTheme.accentSoft
-        : oneDarkTheme.divider,
-    )(text);
+    const background = active
+      ? interactionBackground(oneDarkTheme, "transparent", {
+          hovered: true,
+          pressed: ctx.historyDivider!.dragging,
+        })
+      : "transparent";
+    return bg(background)(fg(oneDarkTheme.divider)(text));
   };
   const chunks = [
     fg(headerColor)(fitColumns(" Branch / tag", labelWidth)),
@@ -336,7 +338,10 @@ export function paintHistory(ctx: RuntimePaintContext) {
   // owns exactly one line after it.
   if (hasWorking && start === 0 && line < lines) {
     const selected = ctx.historySelection === "working",
-      rowBg = selected ? oneDarkTheme.selected : oneDarkTheme.panelRaised,
+      rowBg = interactionBackground(oneDarkTheme, oneDarkTheme.panelRaised, {
+        selected,
+        hovered: ctx.hoveredHistoryLine === line,
+      }),
       workingGraph = graphWindowCells(
         [{ symbol: "● ", color: oneDarkTheme.warning }],
         graphScroll,
@@ -408,9 +413,11 @@ export function paintHistory(ctx: RuntimePaintContext) {
         : "".padEnd(labelWidth),
       graphColor = row.colorAt(row.lane) ?? oneDarkTheme.accent;
     const comparisonStart = row.commit.sha === ctx.comparisonStartSha;
-    const rowBg = selected
-        ? oneDarkTheme.selected
-        : backgrounds[commitRow % 2]!,
+    const rowBg = interactionBackground(
+        oneDarkTheme,
+        backgrounds[commitRow % 2]!,
+        { selected, hovered: ctx.hoveredHistoryLine === line },
+      ),
       stash = row.commit.decorations.some(
         (d) => d === "refs/stash" || d === "stash",
       ),
@@ -532,7 +539,7 @@ export function paintSection(ctx: RuntimePaintContext, section: ChangeSection) {
   label.content = new StyledText([
     fg(
       commit || (ctx.focus === "changes" && active)
-        ? oneDarkTheme.accent
+        ? oneDarkTheme.focusRing
         : oneDarkTheme.muted,
     )(
       commit
@@ -580,6 +587,14 @@ export function paintSection(ctx: RuntimePaintContext, section: ChangeSection) {
     chunks = [];
   for (const [rowIndex, { node, depth }] of rows.entries()) {
     const selected = node.kind === "file" && node.path === selectedPath,
+      hovered =
+        !commit &&
+        ctx.hoveredFileRow?.section === section &&
+        ctx.hoveredFileRow.row === rowIndex,
+      rowBg = interactionBackground(oneDarkTheme, "transparent", {
+        selected,
+        hovered,
+      }),
       color = fileColor(node),
       icon = resolveMaterialIcon(
         node.name,
@@ -606,26 +621,34 @@ export function paintSection(ctx: RuntimePaintContext, section: ChangeSection) {
     const used = 2 + depth * 2 + 2 + 2 + Bun.stringWidth(treeLabel);
     const padding = Math.max(0, listWidth - used - actionWidth);
     chunks.push(
-      selected ? bg(oneDarkTheme.selected)("▸ ") : fg(oneDarkTheme.muted)("  "),
-      fg(oneDarkTheme.border)("│ ".repeat(depth)),
-      node.kind === "directory"
-        ? fg(oneDarkTheme.folder)(
-            ctx.expandedFiles.has(node.path) ? "▼ " : "▶ ",
-          )
-        : fg(oneDarkTheme.muted)("  "),
-      fg(color ?? icon.color ?? oneDarkTheme.folder)(`${icon.glyph} `),
-      selected
-        ? bg(oneDarkTheme.selected)(fg(nameColor)(treeLabel))
-        : fg(nameColor)(treeLabel),
-      fg(oneDarkTheme.muted)(" ".repeat(padding)),
+      bg(rowBg)(
+        fg(selected ? oneDarkTheme.text : oneDarkTheme.muted)(
+          selected ? "▸ " : "  ",
+        ),
+      ),
+      bg(rowBg)(fg(oneDarkTheme.border)("│ ".repeat(depth))),
+      bg(rowBg)(
+        node.kind === "directory"
+          ? fg(oneDarkTheme.folder)(
+              ctx.expandedFiles.has(node.path) ? "▼ " : "▶ ",
+            )
+          : fg(oneDarkTheme.muted)("  "),
+      ),
+      bg(rowBg)(
+        fg(color ?? icon.color ?? oneDarkTheme.folder)(`${icon.glyph} `),
+      ),
+      bg(rowBg)(fg(nameColor)(treeLabel)),
+      bg(rowBg)(fg(oneDarkTheme.muted)(" ".repeat(padding))),
       ...actions.map((action) =>
-        fg(
-          action.action === "discard"
-            ? oneDarkTheme.deleted
-            : action.action === "stage"
-              ? oneDarkTheme.added
-              : oneDarkTheme.warning,
-        )(action.label),
+        bg(rowBg)(
+          fg(
+            action.action === "discard"
+              ? oneDarkTheme.deleted
+              : action.action === "stage"
+                ? oneDarkTheme.added
+                : oneDarkTheme.warning,
+          )(action.label),
+        ),
       ),
       fg(oneDarkTheme.muted)("\n"),
     );

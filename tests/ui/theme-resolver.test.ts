@@ -82,7 +82,9 @@ describe("OpenCode V2 themes", () => {
       removed: "#c53b53",
     });
     expect(theme.folder).toBe("#123456");
-    expect(theme.dividerActive).toBe("transparent");
+    expect(theme.hover).toBe(theme.panelRaised);
+    expect(theme.pressed).toBe(theme.border);
+    expect(theme.focusRing).toBe("#123456");
     expect(
       semanticColor(theme, "text.action.primary", "fallback", {
         states: {

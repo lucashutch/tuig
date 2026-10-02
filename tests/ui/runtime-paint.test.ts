@@ -37,7 +37,11 @@ type Painted = RuntimePaintContext & {
   graphVisibleColumns: number;
   requests: number;
   text: string;
-  chunks: Array<{ text: string; fg?: { equals(other: unknown): boolean } }>;
+  chunks: Array<{
+    text: string;
+    fg?: { equals(other: unknown): boolean };
+    bg?: { equals(other: unknown): boolean };
+  }>;
   historyText: { visible: boolean };
 };
 
@@ -217,21 +221,22 @@ describe("history prefetch", () => {
     expect(colours().every((colour) => is(colour, oneDarkTheme.divider))).toBe(
       true,
     );
+    const separators = () =>
+      context.chunks.filter((chunk) => chunk.text.includes("│"));
+    const lit = (hex: string) =>
+      separators().filter((chunk) => chunk.bg && is(chunk.bg, hex));
     context.historyDivider = { key: "graphWidth", dragging: false };
     paintHistory(context);
-    const hovered = context.chunks.find((chunk) => chunk.text === " │ ")!;
-    expect(is(hovered.fg!, oneDarkTheme.accentSoft)).toBe(true);
-    // Only the hovered separator changes.
-    expect(
-      colours().filter((colour) => is(colour, oneDarkTheme.accentSoft)),
-    ).toHaveLength(1);
+    // Only the separator under the pointer takes the shared hover background.
+    expect(lit(oneDarkTheme.hover)).toHaveLength(1);
+    expect(lit(oneDarkTheme.hover)[0]!.text).toBe(" │ ");
+    expect(colours().every((colour) => is(colour, oneDarkTheme.divider))).toBe(
+      true,
+    );
     context.historyDivider = { key: "graphWidth", dragging: true };
     paintHistory(context);
-    expect(
-      context.chunks.some(
-        (chunk) => chunk.fg && is(chunk.fg, oneDarkTheme.added),
-      ),
-    ).toBe(true);
+    expect(lit(oneDarkTheme.pressed)).toHaveLength(1);
+    expect(lit(oneDarkTheme.hover)).toHaveLength(0);
   });
 
   test("hides history text behind an open commit diff", () => {
