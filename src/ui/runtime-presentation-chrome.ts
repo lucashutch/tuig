@@ -96,6 +96,7 @@ export type ToolbarAction =
   | "fetch"
   | "pull"
   | "push"
+  | "undo"
   | "stash"
   | "pop"
   | "refresh";
@@ -123,6 +124,7 @@ export function toolbarButtons(
     { id: "fetch", label: "Fetch", glyph: "󰇚", enabled: Boolean(snapshot) },
     { id: "pull", label: "Pull", glyph: "↓", enabled: tracked },
     { id: "push", label: "Push", glyph: "↑", enabled: tracked },
+    { id: "undo", label: "Undo", glyph: "↶", enabled: Boolean(snapshot) },
     {
       id: "stash",
       label: "Stash",

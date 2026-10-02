@@ -180,6 +180,8 @@ export interface GitRepository {
     remote: string,
     reset?: boolean,
   ): Promise<void>;
+  getUndoPreview(): Promise<UndoPreview>;
+  undo(preview: UndoPreview): Promise<void>;
   resetTo(sha: string, mode?: ResetMode): Promise<void>;
   rebaseOnto(ref: string): Promise<void>;
   cherryPick(sha: string): Promise<void>;
@@ -215,4 +217,12 @@ export interface GitRepository {
   ): Promise<void>;
   removeWorktree(path: string, force?: boolean): Promise<void>;
   lockWorktree(path: string, lock?: boolean, reason?: string): Promise<void>;
+}
+
+export interface UndoPreview {
+  head: string;
+  target: string;
+  branch: string;
+  action: string;
+  reflogToken: string;
 }

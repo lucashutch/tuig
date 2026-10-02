@@ -266,9 +266,17 @@ test("the toolbar disables actions the repository cannot take", () => {
     fetch: true,
     pull: false,
     push: false,
+    undo: true,
     stash: false,
     pop: false,
   });
+  expect(
+    toolbarButtons(undefined).find((button) => button.id === "undo")?.enabled,
+  ).toBe(false);
+  const buttons = toolbarButtons(snapshot);
+  expect(
+    buttons[buttons.findIndex((button) => button.id === "push") + 1]?.id,
+  ).toBe("undo");
   const dirty = Object.fromEntries(
     toolbarButtons({
       ...snapshot,
