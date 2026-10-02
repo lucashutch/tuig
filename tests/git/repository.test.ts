@@ -19,6 +19,22 @@ import {
 import { splitPatchHunks } from "../../src/git/hunks.js";
 
 const cleanup: string[] = [];
+test("working status lists files inside untracked directories", async () => {
+  const root = await mkdtemp(join(tmpdir(), "tuig-untracked-dir-"));
+  cleanup.push(root);
+  await runGit(["init", "-b", "main"], root);
+  await Bun.write(join(root, ".claude/notes/a.md"), "hello\n");
+  await Bun.write(join(root, ".claude/empty.txt"), "");
+  const repo = await GitRepositoryService.open(root);
+
+  const { files } = await repo.workingStatus();
+
+  expect(files.map((f) => f.path).sort()).toEqual([
+    ".claude/empty.txt",
+    ".claude/notes/a.md",
+  ]);
+});
+
 test("discard removes selected untracked content and preserves staged file content", async () => {
   const root = await mkdtemp(join(tmpdir(), "tuig-discard-"));
   cleanup.push(root);
