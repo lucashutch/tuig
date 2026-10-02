@@ -3,6 +3,7 @@ import { mkdtemp, mkdir, writeFile, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import fixture from "../../src/ui/themes/opencode.json";
+import palettes from "../../src/ui/themes/palettes.json";
 import {
   loadThemeCatalog,
   loadThemePreferences,
@@ -41,6 +42,44 @@ test("discovers ancestor overrides, reports bad files, and persists only tuig pr
       "Invalid theme name",
     );
     expect(catalog.resolve("one-dark", "light").bg).toBe("#282C34");
+    for (const [name, modes] of Object.entries(palettes)) {
+      expect(catalog.entries).toContainEqual({ name, source: "builtin" });
+      for (const mode of ["dark", "light"] as const) {
+        const theme = catalog.resolve(name, mode);
+        expect(theme.bg).toBe(modes[mode].background);
+        expect(theme.text).toBe(modes[mode].text);
+        expect(semanticColor(theme, "syntax.keyword", "missing")).toBe(
+          modes[mode].syntaxKeyword,
+        );
+        expect(
+          semanticColor(theme, "background.base", "missing", {
+            surface: "dialog",
+          }),
+        ).toBe(modes[mode].backgroundPanel);
+        expect(semanticColor(theme, "diff.highlight.added", "missing")).toBe(
+          modes[mode].diffHighlightAdded,
+        );
+        expect(
+          semanticColor(theme, "text.action.primary", "missing", {
+            states: { focused: true },
+          }),
+        ).toBe(modes[mode].background);
+        expect(theme.graph.length).toBeGreaterThan(0);
+      }
+    }
+    expect(catalog.resolve("catppuccin", "dark").bg).toBe("#1e1e2e");
+    expect(catalog.resolve("github", "light").bg).toBe("#ffffff");
+    expect(catalog.resolve("gruvbox", "dark").bg).toBe("#282828");
+    const builtinOverride = structuredClone(fixture);
+    builtinOverride.base.background.base = "#123456";
+    await writeFile(
+      join(child, "tokyonight.json"),
+      JSON.stringify(builtinOverride),
+    );
+    expect(
+      (await loadThemeCatalog(join(root, "repo"))).resolve("tokyonight", "dark")
+        .bg,
+    ).toBe("#123456");
     const custom = structuredClone(fixture);
     custom.base.background.action.primary.base = "#111111";
     custom.base.background.action.primary.$hovered = "#222222";
@@ -94,6 +133,11 @@ test("discovers ancestor overrides, reports bad files, and persists only tuig pr
     expect(await loadThemePreferences()).toEqual({
       name: "one-dark",
       mode: "system",
+    });
+    await saveThemePreferences({ name: "catppuccin", mode: "light" });
+    expect(await loadThemePreferences()).toEqual({
+      name: "catppuccin",
+      mode: "light",
     });
     await saveThemePreferences({ name: "Mon thème.v2", mode: "system" });
     expect(await loadThemePreferences()).toEqual({

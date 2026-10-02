@@ -333,6 +333,8 @@ export class Runtime {
     mode: "dark",
   };
   private palettePage: "commands" | "themes" | "theme-mode" = "commands";
+  private paletteThemeOriginal?: typeof oneDarkTheme;
+  private paletteThemePreview?: string;
 
   configureThemes(
     catalog: Awaited<ReturnType<typeof loadThemeCatalog>>,
@@ -354,6 +356,7 @@ export class Runtime {
     selection: typeof this.themeSelection,
     persist = true,
     appearance?: "dark" | "light",
+    preview = false,
   ) {
     if (!this.themeCatalog) return;
     try {
@@ -362,37 +365,8 @@ export class Runtime {
           ? (appearance ?? this.renderer.themeMode ?? "dark")
           : selection.mode;
       setActiveTheme(this.themeCatalog.resolve(selection.name, mode));
-      this.themeSelection = selection;
-      this.renderer.setBackgroundColor(oneDarkTheme.bg);
-      updateWidgetTheme(this.renderer.root);
-      this.commitDiff.updateTheme();
-      const commit =
-        this.historyFilter?.commits[this.historyFilter.index] ??
-        this.snapshot?.commits[this.commitIndex];
-      if (commit && this.view === "commit") {
-        const meta = presentCommitMeta(commit);
-        this.commitInfo.content = meta.info;
-        this.commitHeader.content = meta.header;
-        this.commitBody.content = meta.body;
-        this.commitCoAuthors.content = presentCommitCoAuthors(
-          parseCoAuthors(commit.body),
-        );
-      }
-      const headSha = this.snapshot
-        ? resolveHeadSha(this.snapshot.branches, this.snapshot.commits)
-        : undefined;
-      this.graphIndex = emptyGraphIndex(
-        this.snapshot?.files.length ? headSha : undefined,
-        oneDarkTheme.graph,
-      );
-      if (this.snapshot)
-        extendGraphIndex(
-          this.graphIndex,
-          this.snapshot.commits,
-          oneDarkTheme.graph,
-          headSha,
-        );
-      this.paint();
+      if (!preview) this.themeSelection = selection;
+      this.repaintTheme();
       if (persist) await saveThemePreferences(selection);
     } catch (error) {
       this.notify(
@@ -400,6 +374,39 @@ export class Runtime {
         "error",
       );
     }
+  }
+
+  private repaintTheme() {
+    this.renderer.setBackgroundColor(oneDarkTheme.bg);
+    updateWidgetTheme(this.renderer.root);
+    this.commitDiff.updateTheme();
+    const commit =
+      this.historyFilter?.commits[this.historyFilter.index] ??
+      this.snapshot?.commits[this.commitIndex];
+    if (commit && this.view === "commit") {
+      const meta = presentCommitMeta(commit);
+      this.commitInfo.content = meta.info;
+      this.commitHeader.content = meta.header;
+      this.commitBody.content = meta.body;
+      this.commitCoAuthors.content = presentCommitCoAuthors(
+        parseCoAuthors(commit.body),
+      );
+    }
+    const headSha = this.snapshot
+      ? resolveHeadSha(this.snapshot.branches, this.snapshot.commits)
+      : undefined;
+    this.graphIndex = emptyGraphIndex(
+      this.snapshot?.files.length ? headSha : undefined,
+      oneDarkTheme.graph,
+    );
+    if (this.snapshot)
+      extendGraphIndex(
+        this.graphIndex,
+        this.snapshot.commits,
+        oneDarkTheme.graph,
+        headSha,
+      );
+    this.paint();
   }
 
   private async showThemePicker(page: "themes" | "theme-mode") {
@@ -1728,6 +1735,11 @@ export class Runtime {
       | TextareaRenderable
       | undefined;
     this.commandPaletteOpen = true;
+    if (this.palettePage === "themes" || this.palettePage === "theme-mode")
+      this.paletteThemeOriginal = {
+        ...oneDarkTheme,
+        graph: [...oneDarkTheme.graph],
+      };
     this.commandPaletteInput.value = "";
     this.commandPaletteIndex = 0;
     this.commandPaletteStart = 0;
@@ -1740,12 +1752,19 @@ export class Runtime {
   private closeCommandPalette(restoreFocus = true) {
     if (!this.commandPaletteOpen) return;
     this.commandPaletteOpen = false;
+    const original = this.paletteThemeOriginal;
+    this.paletteThemeOriginal = undefined;
+    this.paletteThemePreview = undefined;
     this.palettePage = "commands";
     this.commandPaletteInput.blur();
     this.commandPaletteBox.visible = false;
     this.overlayCatcher.visible = this.popupController.isOpen;
     const previous = this.palettePreviousEditor;
     this.palettePreviousEditor = undefined;
+    if (original) {
+      setActiveTheme(original);
+      this.repaintTheme();
+    }
     if (restoreFocus && previous) setTimeout(() => previous.focus(), 0);
     this.renderer.requestRender();
   }
@@ -1794,6 +1813,7 @@ export class Runtime {
       this.commandPaletteRows,
       this.commandPaletteMatches.length,
     );
+    this.previewPaletteTheme();
     const visible = this.commandPaletteMatches.slice(
       this.commandPaletteStart,
       this.commandPaletteStart + this.commandPaletteRows,
@@ -1849,6 +1869,28 @@ export class Runtime {
       );
     });
     this.commandPaletteText.content = new StyledText(content);
+  }
+
+  private previewPaletteTheme() {
+    if (!this.paletteThemeOriginal) return;
+    const command =
+      this.commandPaletteMatches[this.commandPaletteIndex]?.command;
+    const id = command?.enabled === false ? "" : (command?.id ?? "");
+    if (id === this.paletteThemePreview) return;
+    this.paletteThemePreview = id;
+    if (!id) {
+      setActiveTheme(this.paletteThemeOriginal);
+      this.repaintTheme();
+      return;
+    }
+    const selection =
+      this.palettePage === "themes"
+        ? { ...this.themeSelection, name: id.slice("theme.".length) }
+        : {
+            ...this.themeSelection,
+            mode: id.slice("theme-mode.".length) as "dark" | "light" | "system",
+          };
+    void this.activateTheme(selection, false, undefined, true);
   }
 
   private movePaletteSelection(delta: number) {

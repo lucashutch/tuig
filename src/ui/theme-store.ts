@@ -2,6 +2,7 @@ import { mkdir, readFile, readdir, writeFile, rename } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import opencode from "./themes/opencode.json";
+import { builtinThemeDocuments } from "./themes/builtins";
 import { oneDarkTheme, type Theme } from "./theme";
 import { themeFromDocument, type ThemeMode } from "./theme-resolver";
 
@@ -88,6 +89,9 @@ export async function loadThemeCatalog(
   >([
     ["one-dark", { source: "builtin" }],
     ["opencode", { source: "builtin", document: opencode }],
+    ...Object.entries(builtinThemeDocuments).map(
+      ([name, document]) => [name, { source: "builtin", document }] as const,
+    ),
   ]);
   const directories = [join(configRoot(), "themes")];
   if (repositoryRoot) {

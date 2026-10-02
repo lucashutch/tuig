@@ -137,7 +137,11 @@ History rows show one ref label. When a commit carries more refs than fit, the e
 
 ## Themes
 
-Press `Ctrl+P` and select **Change theme** to choose a theme. Select **Change theme mode** to choose light, dark, or system mode. Changes apply without restarting Tuig. Tuig saves the selection in `~/.config/tuig/theme.json` for the next launch. One Dark and OpenCode are built in.
+Press `Ctrl+P` and select **Change theme** to choose a theme. Select **Change theme mode** to choose light, dark, or system mode. Changes apply without restarting Tuig. Tuig saves the selection in `~/.config/tuig/theme.json` for the next launch.
+
+Built-in themes include One Dark (the default), OpenCode, Catppuccin, Dracula, Everforest, GitHub, Gruvbox, Monokai, Nord, Rose Pine (`rosepine`), Solarized, and Tokyo Night (`tokyonight`). The additional palettes come from OpenCode and support light and dark modes.
+
+Highlight a theme or mode to preview it. Press Enter or click to save the selection. Dismiss the palette to restore the previous theme.
 
 System mode follows the terminal's reported appearance and uses dark when the terminal does not report it. If a theme provides only one mode, Tuig uses that mode for either selection.
 
@@ -183,7 +187,7 @@ See the [roadmap](docs/roadmap.md) for planned work. Bugs and focused contributi
 ## Credits
 
 - [OpenTUI](https://github.com/anomalyco/opentui) provides the terminal renderer and diff component.
-- The diff workflow and theme format follow [OpenCode](https://github.com/anomalyco/opencode). The bundled OpenCode V2 theme includes its MIT attribution in `src/ui/themes/`.
+- The diff workflow and theme format follow [OpenCode](https://github.com/anomalyco/opencode). The bundled theme and palettes include their MIT attribution in `src/ui/themes/`.
 - The virtual file-tree and icon matching approach follows [Druk](https://github.com/letstri/druk).
 - Graph-routing design is independently inspired by [Serie](https://github.com/lusingander/serie) (MIT); no Serie code is copied.
 - Material icon associations derive from [Material Icon Theme](https://github.com/material-extensions/vscode-material-icon-theme). The bundled attribution is in [`licenses/`](licenses/).
