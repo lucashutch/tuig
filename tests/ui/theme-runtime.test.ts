@@ -515,6 +515,12 @@ test("command palette searches themes, marks the current choice, and persists se
     await Bun.sleep(30);
     await renderOnce();
     expect(captureCharFrame()).toContain("one-dark (current)");
+    expect(captureCharFrame()).toContain("Search themes");
+    expect(palette.commandPaletteBox.border).toBe(false);
+    expect(captureCharFrame()).toContain(
+      "↑↓ navigate   enter select   esc close",
+    );
+    const fullHeight = Number(palette.commandPaletteBox.height);
     palette.movePaletteSelection(1);
     expect(activeTheme.bg).not.toBe(oneDarkTheme.bg);
     expect(await loadThemePreferences()).toEqual({
@@ -526,6 +532,10 @@ test("command palette searches themes, marks the current choice, and persists se
     palette.commandPaletteInput.value = "opencode";
     palette.paintCommandPalette();
     expect(palette.commandPaletteMatches).toHaveLength(1);
+    await renderOnce();
+    expect(Number(palette.commandPaletteBox.height)).toBeLessThan(fullHeight);
+    expect(captureCharFrame()).toContain("opencode");
+    expect(captureCharFrame()).not.toContain("Settings ·");
     expect(activeTheme.bg).not.toBe(oneDarkTheme.bg);
     palette.commandPaletteInput.value = "no-such-theme-xyz";
     palette.paintCommandPalette();

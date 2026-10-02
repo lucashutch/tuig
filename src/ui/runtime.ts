@@ -584,6 +584,7 @@ export class Runtime {
   private readonly commandPaletteBox: BoxRenderable;
   private readonly commandPaletteInput: InputRenderable;
   private readonly commandPaletteText: TextRenderable;
+  private readonly commandPaletteFooter: TextRenderable;
   private repository: GitRepository;
   private tabs: Array<{
     id: string;
@@ -975,23 +976,20 @@ export class Runtime {
       height: 14,
       zIndex: 100,
       visible: false,
-      border: true,
-      borderColor: oneDarkTheme.border,
+      border: false,
       backgroundColor: oneDarkTheme.panelRaised,
       shouldFill: true,
-      title: " Command palette ",
-      titleAlignment: "left",
     });
     this.commandPaletteInput = new InputRenderable(renderer, {
       position: "absolute",
       id: "command-palette-search",
-      left: 1,
+      left: 2,
       top: 1,
       width: 66,
       zIndex: 102,
       placeholder: "Search commands",
-      backgroundColor: oneDarkTheme.selected,
-      focusedBackgroundColor: oneDarkTheme.selected,
+      backgroundColor: oneDarkTheme.panelRaised,
+      focusedBackgroundColor: oneDarkTheme.panelRaised,
       textColor: oneDarkTheme.text,
     });
     this.commandPaletteText = new TextRenderable(renderer, {
@@ -1012,6 +1010,19 @@ export class Runtime {
     });
     this.commandPaletteBox.add(this.commandPaletteInput);
     this.commandPaletteBox.add(this.commandPaletteText);
+    this.commandPaletteFooter = new TextRenderable(renderer, {
+      id: "command-palette-footer",
+      position: "absolute",
+      left: 2,
+      top: 12,
+      height: 1,
+      zIndex: 102,
+      fg: oneDarkTheme.muted,
+      wrapMode: "none",
+      selectable: false,
+      content: "↑↓ navigate   enter select   esc close",
+    });
+    this.commandPaletteBox.add(this.commandPaletteFooter);
     this.popupController = new RuntimePopupController({
       terminalSize: () => ({
         width: this.renderer.terminalWidth,
@@ -1774,27 +1785,47 @@ export class Runtime {
     const terminalWidth = Math.max(1, this.renderer.terminalWidth);
     const terminalHeight = Math.max(1, this.renderer.terminalHeight);
     const width = Math.max(1, Math.min(76, terminalWidth - 2));
-    // Keep one blank row below the results. OpenTUI text can occupy its full
-    // declared height, so the spare row prevents the final result touching or
-    // painting over the bottom border.
-    this.commandPaletteRows = Math.max(1, Math.min(14, terminalHeight - 5));
+    this.commandPaletteMatches = commandMatches(
+      this.paletteCommands(),
+      this.commandPaletteInput.value,
+    );
+    // Reserve space for the search field, spacing, footer, and outer padding.
+    this.commandPaletteRows = Math.max(
+      1,
+      Math.min(12, this.commandPaletteMatches.length, terminalHeight - 7),
+    );
     this.commandPaletteBox.left = Math.max(
       0,
       Math.floor((terminalWidth - width) / 2),
     );
     this.commandPaletteBox.top = Math.max(
       0,
-      Math.floor((terminalHeight - this.commandPaletteRows - 5) / 2),
+      Math.floor((terminalHeight - this.commandPaletteRows - 7) / 3),
     );
     this.commandPaletteBox.width = width;
-    this.commandPaletteBox.height = this.commandPaletteRows + 5;
-    this.commandPaletteInput.width = Math.max(1, width - 4);
-    this.commandPaletteText.width = Math.max(1, width - 2);
-    this.commandPaletteText.height = this.commandPaletteRows;
-    this.commandPaletteMatches = commandMatches(
-      this.paletteCommands(),
-      this.commandPaletteInput.value,
+    this.commandPaletteBox.height = Math.min(
+      terminalHeight,
+      this.commandPaletteRows + 7,
     );
+    this.commandPaletteInput.placeholder =
+      this.palettePage === "commands"
+        ? "Search commands"
+        : this.palettePage === "themes"
+          ? "Search themes"
+          : "Search modes";
+    this.commandPaletteInput.width = Math.max(1, width - 4);
+    this.commandPaletteText.width = Math.max(1, width - 4);
+    this.commandPaletteText.height = this.commandPaletteRows;
+    this.commandPaletteFooter.top = this.commandPaletteRows + 4;
+    this.commandPaletteFooter.width = Math.max(1, width - 4);
+    this.commandPaletteFooter.content = new StyledText([
+      fg(dialogColor("text.muted", oneDarkTheme.muted))(
+        clipColumns(
+          "↑↓ navigate   enter select   esc close",
+          Math.max(1, width - 4),
+        ),
+      ),
+    ]);
     if (this.commandPaletteMatches.length === 0) this.commandPaletteIndex = -1;
     else if (
       this.commandPaletteIndex < 0 ||
@@ -1834,24 +1865,16 @@ export class Runtime {
         command.enabled === false
           ? (command.disabledReason ?? "Unavailable")
           : (command.shortcut ?? "");
-      const innerWidth = Math.max(1, width - 2);
+      const innerWidth = Math.max(1, width - 4);
       const contentWidth = Math.max(1, innerWidth - 2);
-      const categoryWidth = Math.min(13, Math.max(0, contentWidth - 1));
       const detailWidth = Math.min(
+        rawSuffix.length,
         24,
-        Math.max(0, contentWidth - categoryWidth - 8),
+        Math.max(0, contentWidth - 24),
       );
-      const titleWidth = Math.max(
-        1,
-        contentWidth - categoryWidth - detailWidth,
-      );
-      const category = clipColumns(
-        `${command.category} ·`,
-        categoryWidth,
-      ).padEnd(categoryWidth);
+      const titleWidth = Math.max(1, contentWidth - detailWidth);
       const title = clipColumns(command.title, titleWidth).padEnd(titleWidth);
       const suffix = clipColumns(rawSuffix, detailWidth).padStart(detailWidth);
-      const line = clipColumns(` ${category}${title}${suffix} `, innerWidth);
       const background = selected
         ? oneDarkTheme.selected
         : oneDarkTheme.panelRaised;
@@ -1862,13 +1885,23 @@ export class Runtime {
         focused: selected,
         disabled: command.enabled === false,
       };
-      return bg(dialogColor("background.action.primary", background, states))(
-        fg(dialogColor("text.action.primary", color, states))(
-          `${line}${row === visible.length - 1 ? "" : "\n"}`,
-        ),
+      const rowBackground = dialogColor(
+        "background.action.primary",
+        background,
+        states,
       );
+      return [
+        bg(rowBackground)(
+          fg(dialogColor("text.action.primary", color, states))(` ${title}`),
+        ),
+        bg(rowBackground)(
+          fg(dialogColor("text.muted", oneDarkTheme.muted, states))(
+            `${suffix} ${row === visible.length - 1 ? "" : "\n"}`,
+          ),
+        ),
+      ];
     });
-    this.commandPaletteText.content = new StyledText(content);
+    this.commandPaletteText.content = new StyledText(content.flat());
   }
 
   private previewPaletteTheme() {

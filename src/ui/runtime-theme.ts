@@ -172,7 +172,9 @@ export function updateWidgetTheme(root: Renderable) {
   } else if (root instanceof BoxRenderable) {
     if (dialog) {
       root.backgroundColor = dialogColor("background.base", theme.panelRaised);
-      root.borderColor = dialogColor("border.base", theme.border);
+      // OpenTUI enables borders when borderColor is assigned.
+      if (root.id !== "command-palette")
+        root.borderColor = dialogColor("border.base", theme.border);
     } else if (
       /^(sidebar|details|composer-box|commit-info-box|sidebar-[^-]+)$/.test(
         root.id,
