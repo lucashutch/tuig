@@ -36,7 +36,7 @@ export function renderHeader({
   const name = repositoryRoot.split("/").filter(Boolean).at(-1) ?? "repository";
   const raised = oneDarkTheme.panelRaised;
   const segments: Array<{ text: string; color: string }> = [
-    { text: ` ◉ ${name}`, color: oneDarkTheme.accent },
+    { text: ` ${name}`, color: oneDarkTheme.accent },
   ];
   if (!snapshot) {
     segments.push({ text: "  loading…", color: oneDarkTheme.muted });
@@ -241,15 +241,48 @@ export function formatHints({
   composing,
   lineSelection,
 }: HintContext): string {
-  if (composing) return "COMPOSER  ↵ commit  ⇥ summary/description  esc cancel";
+  const join = (...hints: string[]) => hints.join("  ·  ");
+  if (composing) return join("↵ commit", "⇥ summary/description", "esc cancel");
   if (lineSelection?.count)
-    return `LINES: ${lineSelection.count} selected  Alt-drag range  Enter ${lineSelection.action}  Right-click actions  Esc clear`;
-  const shared = "⇥ pane  [ ] collapse  r refresh  q quit";
+    return join(
+      `${lineSelection.count} lines selected`,
+      `↵ ${lineSelection.action}`,
+      "alt-drag range",
+      "right-click actions",
+      "esc clear",
+    );
+  const shared = ["⇥ pane", "[ ] collapse", "r refresh", "q quit"];
   if (view === "working")
-    return `DIFF  click select  Ctrl/Alt-click add  Alt-drag range  right-click actions  Esc back  ${shared}`;
+    return join(
+      "click select",
+      "ctrl/alt-click add",
+      "alt-drag range",
+      "esc back",
+      ...shared,
+    );
   if (view !== "history")
-    return `${focus === "changes" ? "CHANGES" : "DIFF"}  esc back to graph  ←/→ file  s stage  u unstage  ${shared}`;
+    return join(
+      "esc back to graph",
+      "←/→ file",
+      "s stage",
+      "u unstage",
+      ...shared,
+    );
   if (focus === "changes")
-    return `CHANGES  ←/→ file  s stage  u unstage  h hunk  t section  c commit  ${shared}`;
-  return `HISTORY  j/k move  ←/→ pan graph  ↵ open commit  / filter branches  esc cancel/clear  dbl-click branch checkout  right-click actions  ${shared}`;
+    return join(
+      "←/→ file",
+      "s stage",
+      "u unstage",
+      "h hunk",
+      "t section",
+      "c commit",
+      ...shared,
+    );
+  return join(
+    "j/k move",
+    "←/→ pan graph",
+    "↵ open commit",
+    "/ filter branches",
+    ...shared,
+  );
 }
