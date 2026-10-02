@@ -45,14 +45,11 @@ export interface GraphWindow {
   hiddenRight: number;
 }
 
-const MORE_LEFT = "◂ ";
-const MORE_RIGHT = " ▸";
-
 /**
  * Slice one row's cells to the visible window.
  *
- * The edge columns become markers when lanes are hidden beyond them, so the
- * row width stays constant and the reader can tell the graph continues.
+ * The row width stays constant. The history header shows the only indicator
+ * that lanes are hidden, so rows stay free of per-line markers.
  */
 export function graphWindowCells(
   cells: readonly GraphCell[],
@@ -68,14 +65,10 @@ export function graphWindowCells(
   const window: GraphCell[] = [];
   for (let column = offset; column < offset + visible; column++)
     window.push(cells[column] ?? { symbol: "  ", color: markerColor });
-  if (hiddenLeft > 0 && window[0])
-    window[0] = { symbol: MORE_LEFT, color: markerColor };
-  if (hiddenRight > 0 && window.length > 0)
-    window[window.length - 1] = { symbol: MORE_RIGHT, color: markerColor };
   return { cells: window, hiddenLeft, hiddenRight };
 }
 
-/** Whether a lane's dot is drawn inside the window (and not under a marker). */
+/** Whether a lane's dot is drawn inside the window. */
 export function laneVisible(
   lane: number,
   scroll: number,
@@ -85,8 +78,17 @@ export function laneVisible(
   const visible = Math.max(1, Math.trunc(visibleColumns));
   const offset = clampGraphScroll(scroll, totalColumns, visible);
   if (lane < offset || lane >= offset + visible) return false;
-  if (offset > 0 && lane === offset) return false;
-  if (totalColumns > offset + visible && lane === offset + visible - 1)
-    return false;
   return true;
+}
+
+/**
+ * Arrows for the graph column header: a fixed left slot and right slot, so an
+ * arrow keeps its column as the graph pans. Empty when nothing is hidden.
+ */
+export function graphScrollIndicator(
+  hiddenLeft: number,
+  hiddenRight: number,
+): string {
+  if (hiddenLeft <= 0 && hiddenRight <= 0) return "";
+  return `${hiddenLeft > 0 ? "◀" : " "} ${hiddenRight > 0 ? "▶" : " "}`;
 }

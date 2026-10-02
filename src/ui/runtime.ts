@@ -35,7 +35,9 @@ import { type GraphRow } from "./graph.js";
 import {
   historyColumnLayout,
   historyDividerAt,
+  isDividerDoubleClick,
   type HistoryColumns,
+  type HistoryDividerKey,
 } from "./history-columns.js";
 import {
   emptyGraphIndex,
@@ -463,8 +465,10 @@ export class Runtime {
     showCommitter: true,
     showSha: true,
   };
+  private historyDividerHover?: HistoryDividerKey;
+  private lastDividerPress?: { key: HistoryDividerKey; at: number };
   private historyColumnDrag?: {
-    key: "branchWidth" | "graphWidth" | "messageWidth";
+    key: HistoryDividerKey;
     x: number;
     width: number;
   };
@@ -763,7 +767,10 @@ export class Runtime {
       historyDrag: (x) => {
         const drag = this.historyColumnDrag;
         if (!drag) return;
-        this.historyColumns[drag.key] = Math.max(4, drag.width + x - drag.x);
+        // The committer's left edge is its separator, so dragging right
+        // narrows it.
+        const delta = drag.key === "committerWidth" ? drag.x - x : x - drag.x;
+        this.historyColumns[drag.key] = Math.max(4, drag.width + delta);
         const layout = historyColumnLayout(
           this.historyContentWidth,
           this.graphIndex.columns,
@@ -774,7 +781,23 @@ export class Runtime {
       },
       historyDragEnd: () => {
         this.historyColumnDrag = undefined;
+        this.setHistoryDividerHover(undefined);
       },
+      historyHover: (x, y) => {
+        const key =
+          y - PANE_TOP === 0 && !this.commitDiff.visible
+            ? historyDividerAt(
+                x - this.historyContentLeft,
+                historyColumnLayout(
+                  this.historyContentWidth,
+                  this.graphIndex.columns,
+                  this.historyColumns,
+                ),
+              )
+            : undefined;
+        this.setHistoryDividerHover(key);
+      },
+      historyHoverEnd: () => this.setHistoryDividerHover(undefined),
       filesScroll: (section, delta) => this.filesScroll(section, delta),
       filesClick: (section, y, button, x) =>
         this.filesClick(section, y, button, x),
@@ -2880,6 +2903,11 @@ export class Runtime {
       historyViewportDetached: this.historyViewportDetached,
       historyContentWidth: this.historyContentWidth,
       historyColumns: this.historyColumns,
+      historyDivider: this.historyColumnDrag
+        ? { key: this.historyColumnDrag.key, dragging: true }
+        : this.historyDividerHover
+          ? { key: this.historyDividerHover, dragging: false }
+          : undefined,
       historyShaHits: this.historyShaHits,
       historyLabelHits: this.historyLabelHits,
       historyText: this.historyText,
@@ -3144,9 +3172,14 @@ export class Runtime {
     this.paintHistory();
     return true;
   }
+  private setHistoryDividerHover(key: HistoryDividerKey | undefined) {
+    if (this.historyDividerHover === key) return;
+    this.historyDividerHover = key;
+    if (this.snapshot) this.paintHistory();
+  }
   private historyClick(x: number, y: number, button: number) {
     this.historyColumnDrag = undefined;
-    if (y === 1 && !this.commitDiff.visible) {
+    if (y === 0 && !this.commitDiff.visible) {
       if (button === MouseButton.RIGHT) {
         const committer = {
           label: `${this.historyColumns.showCommitter ? "[x]" : "[ ]"} Committer`,
@@ -3175,12 +3208,24 @@ export class Runtime {
           this.historyColumns,
         );
         const key = historyDividerAt(x - this.historyContentLeft, layout);
-        if (key)
+        const now = Date.now();
+        if (
+          key &&
+          isDividerDoubleClick(this.lastDividerPress, key, now, DOUBLE_CLICK_MS)
+        ) {
+          // Double-click restores the column's default width.
+          this.lastDividerPress = undefined;
+          delete this.historyColumns[key];
+          this.paintHistory();
+        } else if (key) {
+          this.lastDividerPress = { key, at: now };
           this.historyColumnDrag = {
             key,
             x,
             width: layout[key],
           };
+          this.paintHistory();
+        }
       }
       return;
     }

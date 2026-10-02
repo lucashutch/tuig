@@ -48,7 +48,7 @@ export function historyStartForCommit(
   contentHeight: number,
   totalCommits: number,
 ): number {
-  const rows = Math.max(1, contentHeight - 3);
+  const rows = Math.max(1, contentHeight - 2);
   const leadingWorkingRow = hasWorkingChanges ? 1 : 0;
   const selectedRow = commitIndex + leadingWorkingRow;
   const totalRows = totalCommits + leadingWorkingRow;
@@ -111,7 +111,7 @@ export function scrollHistoryViewport(
 ) {
   if (!context.snapshot) return;
   const hasWorking = context.snapshot.files.length > 0;
-  const lines = Math.max(1, context.contentHeight - 3);
+  const lines = Math.max(1, context.contentHeight - 2);
   const total =
     context.graphRowCount + (context.snapshot.files.length > 0 ? 1 : 0);
   const reserved = hasWorking && context.historyStart === 0 ? 1 : 0;
@@ -155,9 +155,9 @@ export function historyClick(
   context.pendingScroll = 0;
   context.historyViewportDetached = false;
   const hasWorking = (context.snapshot?.files.length ?? 0) > 0;
-  // Header occupies the first body line offset, followed by one line per row.
-  const row = commitRowAtLine(y - 2, context.historyStart, hasWorking);
-  if (hasWorking && context.historyStart === 0 && y - 2 === 0) {
+  // The header occupies the first line, followed by one line per row.
+  const row = commitRowAtLine(y - 1, context.historyStart, hasWorking);
+  if (hasWorking && context.historyStart === 0 && y - 1 === 0) {
     context.diffOrigin = undefined;
     context.closeDiff();
     context.mode = "unstaged";
