@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import { mkdtemp, mkdir, writeFile, rm } from "node:fs/promises";
 import { join } from "node:path";
+import { tmpdir } from "node:os";
 import fixture from "../../src/ui/themes/opencode.json";
 import {
   loadThemeCatalog,
@@ -15,7 +16,7 @@ import {
 } from "../../src/ui/theme";
 
 test("discovers ancestor overrides, reports bad files, and persists only tuig preferences", async () => {
-  const root = await mkdtemp("/tmp/opencode/tuig-theme-test-");
+  const root = await mkdtemp(join(tmpdir(), "tuig-theme-test-"));
   const previous = process.env.XDG_CONFIG_HOME;
   process.env.XDG_CONFIG_HOME = join(root, "config");
   try {
