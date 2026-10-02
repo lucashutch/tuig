@@ -10,7 +10,7 @@ Tuig is built with TypeScript, Bun, OpenTUI, and the Git executable already inst
 
 ## What it looks like
 
-A tab row keeps multiple repositories open in one Tuig session. Under it, a header spans the screen with the active repository name, current branch, ahead/behind counts, dirty file count, and how long ago you last fetched. A centred toolbar carries Fetch, Pull, Push, Stash, Pop, and Refresh, each greyed out when the repository cannot take that action. Below those sit three resizable panes:
+A tab row keeps multiple repositories open in one Tuig session. Under it, a header spans the screen with the active repository name, current branch, ahead/behind counts, dirty file count, and how long ago you last fetched. A centred toolbar carries Fetch, Pull, Push, Undo, Stash, Pop, and Refresh, each greyed out when the repository cannot take that action. Below those sit three resizable panes:
 
 - **Repository.** Local and remote branches, with markers showing checked-out and local/remote state, plus submodules, stashes, and worktrees. The worktree you have open carries the same `◉` marker as the checked-out branch, and a prunable worktree is flagged with `⚠`.
 - **History.** A compact, one-line-per-commit colored graph with branch labels, subjects, committers, and short SHAs. Select a commit to see its changed-file tree, then click a file to open its diff.
@@ -109,6 +109,7 @@ Tuig is designed for the mouse, with keyboard controls for common actions.
 | Write a commit message         | Click summary or description | `c`, `Tab` between fields |
 | Commit staged changes          | Click the commit button      | `Enter` in the summary    |
 | Fetch / pull / push            | Toolbar                      | `f` / `l` / `p`           |
+| Undo a local history change    | Toolbar                      |                           |
 | Stash or pop changes           | Toolbar                      |                           |
 | Refresh                        | Toolbar                      | `r` (when not typing)     |
 | Resize a pane                  | Drag divider                 |                           |
@@ -132,6 +133,10 @@ Right-clicking a graph row opens a menu. On a branch label it offers checkout, r
 Tuig fetches and prunes remote refs every minute by default. This picks up new and deleted remote branches, including branches removed after a pull request is merged. Set `remoteFetchIntervalMinutes` in `~/.config/tuig/layout.json` to change the interval. Use `0` to disable automatic fetching. The setting takes effect the next time Tuig starts.
 
 Press `Esc` to cancel a fetch, pull, or push that is still running. Tuig prevents a second repository mutation from starting until the first one finishes.
+
+Click Undo to preview and confirm restoration of the previous local history state from the HEAD reflog. Undo supports commits, amended commits, resets, and merges with standard reflog messages. It requires a clean working tree and refuses unsupported or ambiguous actions, including checkout, rebase, and cherry-pick. It does not change remotes or recover discarded file edits. An undo cannot itself be undone with this button.
+
+Do not run Git commands from another terminal or tool during Undo. Tuig rechecks the preview before restoring history, but that check and the reset are not atomic. Custom reflog messages can also prevent Tuig from identifying an action correctly.
 
 History rows show one ref label. When a commit carries more refs than fit, the extra count appears as `+N`, and tags are included rather than hidden. Branch labels use a laptop for local refs and a globe for remote refs. In the repository pane, `◉` marks the checked-out branch, `◆` marks a branch available locally and remotely, `○` marks a local branch, and `◌` marks a remote-only branch.
 

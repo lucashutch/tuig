@@ -6,6 +6,7 @@ import {
   perform,
   runMenuAction,
   runFileAction,
+  runToolbarAction,
   type RuntimeCommandsContext,
 } from "../../src/ui/runtime-commands.js";
 import type { GraphMenuItem } from "../../src/ui/graph-menu.js";
@@ -14,6 +15,7 @@ import type {
   ChangedFile,
   GitRepository,
   RepositorySnapshot,
+  UndoPreview,
 } from "../../src/git/types.js";
 import type { RuntimePopupController } from "../../src/ui/runtime-popup.js";
 
@@ -40,6 +42,115 @@ function stubContext(
 }
 
 describe("mutation runner", () => {
+  test("undo previews its scope, cancels without mutation, and refreshes after confirmation", async () => {
+    const preview: UndoPreview = {
+      head: "a".repeat(40),
+      target: "b".repeat(40),
+      branch: "topic",
+      action: "commit: save work",
+      reflogToken: "token",
+    };
+    const undone: UndoPreview[] = [];
+    let items: GraphMenuItem[] = [];
+    let select!: (item: GraphMenuItem) => void;
+    let refreshed!: () => void;
+    const done = new Promise<void>((resolve) => {
+      refreshed = resolve;
+    });
+    const context = stubContext({
+      terminalWidth: 100,
+      terminalHeight: 30,
+      repository: {
+        async getUndoPreview() {
+          return preview;
+        },
+        async undo(value: UndoPreview) {
+          undone.push(value);
+        },
+      } as unknown as GitRepository,
+      popupController: {
+        open(
+          _title: string,
+          rows: GraphMenuItem[],
+          _x: number,
+          _y: number,
+          callback: (item: GraphMenuItem) => void,
+        ) {
+          items = rows;
+          select = callback;
+        },
+      } as unknown as RuntimePopupController,
+      async refresh() {
+        refreshed();
+      },
+    });
+    await runToolbarAction(context, "undo");
+    expect(items.map((item) => item.label).join("\n")).toContain(
+      "Action: commit: save work\nBranch: topic\nMove to bbbbbbbb.",
+    );
+    expect(items.map((item) => item.label)).toContain(
+      "This changes local history only.",
+    );
+    expect(items.map((item) => item.label)).toContain(
+      "It does not undo remote changes or recover discarded edits.",
+    );
+    expect(undone).toEqual([]);
+    select(items.find((item) => item.label === "Cancel")!);
+    expect(undone).toEqual([]);
+    await runToolbarAction(context, "undo");
+    select(items.find((item) => item.destructive)!);
+    await done;
+    expect(undone).toEqual([preview]);
+  });
+
+  test("undo reports preview and mutation errors and refuses requests while busy", async () => {
+    let selected!: () => void;
+    let previews = 0;
+    let rejectPreview = true;
+    const context = stubContext({
+      repository: {
+        async getUndoPreview() {
+          previews++;
+          if (rejectPreview) throw new Error("Dirty repository");
+          return {
+            head: "a",
+            target: "b",
+            branch: "main",
+            action: "commit",
+            reflogToken: "t",
+          };
+        },
+        async undo() {
+          throw new Error("Stale preview");
+        },
+      } as unknown as GitRepository,
+      popupController: {
+        open(
+          _title: string,
+          items: GraphMenuItem[],
+          _x: number,
+          _y: number,
+          select: (item: GraphMenuItem) => void,
+        ) {
+          selected = () => select(items.find((item) => item.destructive)!);
+        },
+      } as unknown as RuntimePopupController,
+    });
+    context.busy = "Committing…";
+    await runToolbarAction(context, "undo");
+    expect(previews).toBe(0);
+    context.busy = undefined;
+    await runToolbarAction(context, "undo");
+    expect(context.notifications.at(-1)?.text).toContain("Dirty repository");
+    expect(context.busy).toBeUndefined();
+    rejectPreview = false;
+    await runToolbarAction(context, "undo");
+    selected();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(context.notifications.at(-1)?.text).toContain("Stale preview");
+    expect(context.busy).toBeUndefined();
+  });
+
   test("tracked file discard is immediate", async () => {
     const discarded: string[][] = [];
     let opened = false;

@@ -115,6 +115,38 @@ export async function runToolbarAction(
   action: ToolbarAction,
 ) {
   if (action === "refresh") return void context.refresh();
+  if (action === "undo") {
+    if (context.busy !== undefined)
+      return context.notify(`${context.busy} is still running`, "error");
+    context.busy = "Checking undo…";
+    context.notify(context.busy, "busy");
+    try {
+      const preview = await context.repository.getUndoPreview();
+      confirmThen(
+        context,
+        {
+          title: "Undo local history",
+          lines: [
+            `Action: ${preview.action}`,
+            `Branch: ${preview.branch}`,
+            `Move to ${shortSha(preview.target)}.`,
+            "This changes local history only.",
+            "It does not undo remote changes or recover discarded edits.",
+            "Do not run other Git commands during Undo.",
+          ],
+          confirmLabel: "Undo",
+          destructive: true,
+        },
+        () =>
+          perform(context, "Undoing…", () => context.repository.undo(preview)),
+      );
+    } catch (error) {
+      context.fail(error);
+    } finally {
+      context.busy = undefined;
+    }
+    return;
+  }
   if (action === "fetch")
     return void perform(
       context,
