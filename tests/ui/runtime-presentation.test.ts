@@ -157,7 +157,7 @@ test("hints follow focus and composer state", () => {
   ).toContain("esc back to graph");
   expect(
     formatHints({ focus: "history", view: "history", composing: true }),
-  ).toBe("COMPOSER  ↵ commit  ⇥ summary/description  esc cancel");
+  ).toBe("↵ commit  ·  ⇥ summary/description  ·  esc cancel");
   expect(
     formatHints({
       focus: "changes",
@@ -166,7 +166,7 @@ test("hints follow focus and composer state", () => {
       lineSelection: { count: 2, action: "stage" },
     }),
   ).toBe(
-    "LINES: 2 selected  Alt-drag range  Enter stage  Right-click actions  Esc clear",
+    "2 lines selected  ·  ↵ stage  ·  alt-drag range  ·  right-click actions  ·  esc clear",
   );
 });
 
