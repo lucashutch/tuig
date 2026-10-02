@@ -220,9 +220,9 @@ export function paintSidebar(ctx: RuntimeSidebarPaintContext) {
     widgets.dividerBar.top = rect.dividerTop ?? 0;
     widgets.dividerBar.width = ctx.sidebarPaneWidth;
     const width = Math.max(1, ctx.sidebarPaneWidth),
-      grip = Math.max(3, Math.min(9, Math.floor(width / 3))),
+      grip = Math.max(3, Math.min(5, Math.floor(width / 3))),
       gripStart = Math.max(0, Math.floor((width - grip) / 2));
-    widgets.dividerBar.content = `${"─".repeat(gripStart)}${"═".repeat(grip)}${"─".repeat(Math.max(0, width - gripStart - grip))}`;
+    widgets.dividerBar.content = `${"─".repeat(gripStart)}${"━".repeat(grip)}${"─".repeat(Math.max(0, width - gripStart - grip))}`;
     widgets.dividerBar.visible = showDivider;
   }
 }
