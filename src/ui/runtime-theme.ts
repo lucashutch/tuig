@@ -8,6 +8,7 @@ import {
 } from "@opentui/core";
 import {
   activeTheme as theme,
+  interactionBackground,
   oneDarkTheme,
   semanticColor,
   type Theme,
@@ -101,11 +102,12 @@ export function applyActionTheme(widget: TextBufferRenderable) {
   widget.bg = semanticColor(
     theme,
     `background.action.${variant}`,
-    !states.disabled && states.pressed
-      ? theme.dividerActive
-      : !states.disabled && states.hovered
-        ? theme.selected
-        : base,
+    states.disabled
+      ? base
+      : interactionBackground(theme, base, {
+          pressed: states.pressed,
+          hovered: states.hovered,
+        }),
     { states },
   );
 }
@@ -148,7 +150,9 @@ export function updateWidgetTheme(root: Renderable) {
     root.focusedTextColor = color("text.formfield", theme.text, {
       focused: true,
     });
-    root.cursorColor = color("text.formfield", theme.accent, { focused: true });
+    root.cursorColor = color("text.formfield", theme.focusRing, {
+      focused: true,
+    });
     root.placeholderColor = color("text.muted", theme.muted);
   } else if (root instanceof TextRenderable) {
     let role: keyof Theme = "text";

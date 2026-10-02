@@ -10,13 +10,13 @@ test("buttons highlight, press, release, and cancel on exit", () => {
     bg: oneDarkTheme.panelRaised,
   } as unknown as TextBufferRenderable;
   events.onMouseOver.call(widget);
-  expect<unknown>(widget.bg).toBe(oneDarkTheme.selected);
+  expect<unknown>(widget.bg).toBe(oneDarkTheme.hover);
   events.onMouseDown.call(widget, { button: 0 });
-  expect<unknown>(widget.bg).toBe(oneDarkTheme.dividerActive);
+  expect<unknown>(widget.bg).toBe(oneDarkTheme.pressed);
   expect(clicks).toBe(0);
   events.onMouseUp.call(widget, { button: 0 });
   expect(clicks).toBe(1);
-  expect<unknown>(widget.bg).toBe(oneDarkTheme.selected);
+  expect<unknown>(widget.bg).toBe(oneDarkTheme.hover);
   events.onMouseDown.call(widget, { button: 0 });
   events.onMouseOut.call(widget);
   events.onMouseUp.call(widget, { button: 0 });

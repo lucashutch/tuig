@@ -14,7 +14,7 @@ import {
   type KeyEvent,
   type TextBufferRenderable,
 } from "@opentui/core";
-import { activeTheme as oneDarkTheme } from "./theme.js";
+import { activeTheme as oneDarkTheme, interactionBackground } from "./theme.js";
 import {
   actionEnabled,
   bindWidgetTheme,
@@ -33,6 +33,14 @@ import {
 
 export type ChangeSection = "unstaged" | "staged";
 
+/** Dividers share the button hover and pressed backgrounds. */
+export function dividerBackground(hovered: boolean, dragging: boolean) {
+  return interactionBackground(oneDarkTheme, "transparent", {
+    hovered,
+    pressed: dragging,
+  });
+}
+
 /** Activate on release, and cancel a press when the pointer leaves. */
 export function buttonMouse(onPress: () => void, enabled = () => true) {
   let pressed = false;
@@ -43,7 +51,7 @@ export function buttonMouse(onPress: () => void, enabled = () => true) {
       if (!enabled() || !actionEnabled(this)) return;
       if (!hovered) resting = this.bg;
       hovered = true;
-      this.bg = oneDarkTheme.selected;
+      this.bg = oneDarkTheme.hover;
       setActionState(this, { hovered: true, disabled: !enabled() });
       applyActionTheme(this);
     },
@@ -60,14 +68,14 @@ export function buttonMouse(onPress: () => void, enabled = () => true) {
       if (!hovered) resting = this.bg;
       hovered = true;
       pressed = true;
-      this.bg = oneDarkTheme.dividerActive;
+      this.bg = oneDarkTheme.pressed;
       setActionState(this, { hovered: true, pressed: true });
       applyActionTheme(this);
     },
     onMouseUp(this: TextBufferRenderable, e: { button: number }) {
       if (e.button !== 0 || !pressed) return;
       pressed = false;
-      this.bg = oneDarkTheme.selected;
+      this.bg = oneDarkTheme.hover;
       setActionState(this, { pressed: false, hovered: true });
       applyActionTheme(this);
       if (enabled() && actionEnabled(this)) onPress();
@@ -158,6 +166,7 @@ export type RuntimeWidgetActions = {
   toggleDiffView(): void;
   tabDrag(x: number): void;
   tabDragEnd(): void;
+  tabHover(x?: number): void;
   sidebarClick(x: number, y: number, button: number): void;
   sidebarToggle(section: SidebarSection): void;
   sidebarScroll(y: number, delta: number): void;
@@ -274,11 +283,7 @@ export function createRuntimeWidgets(
     let hovered = false;
     let dragging = false;
     const paint = () => {
-      bar.fg = dragging
-        ? oneDarkTheme.added
-        : hovered
-          ? oneDarkTheme.accentSoft
-          : oneDarkTheme.divider;
+      bar.bg = dividerBackground(hovered, dragging);
     };
     bindWidgetTheme(bar, paint);
     return new BoxRenderable(renderer, {
@@ -388,11 +393,7 @@ export function createRuntimeWidgets(
     // eslint-disable-next-line prefer-const
     let dividerBar: TextRenderable;
     const paintDividerState = () => {
-      dividerBar.fg = dragging
-        ? oneDarkTheme.added
-        : hovered
-          ? oneDarkTheme.accentSoft
-          : oneDarkTheme.divider;
+      dividerBar.bg = dividerBackground(hovered, dragging);
     };
     const divider = new BoxRenderable(renderer, {
       ...absolute,
@@ -527,11 +528,7 @@ export function createRuntimeWidgets(
     let hovered = false;
     let dragging = false;
     const paint = () => {
-      bar.fg = dragging
-        ? oneDarkTheme.added
-        : hovered
-          ? oneDarkTheme.accentSoft
-          : oneDarkTheme.divider;
+      bar.bg = dividerBackground(hovered, dragging);
     };
     bindWidgetTheme(bar, paint);
     return new BoxRenderable(renderer, {
@@ -914,6 +911,9 @@ export function createRuntimeWidgets(
     onMouseDrag: (event) => actions.tabDrag(event.x),
     onMouseUp: () => actions.tabDragEnd(),
     onMouseDragEnd: () => actions.tabDragEnd(),
+    onMouseOver: (event) => actions.tabHover(event.x),
+    onMouseMove: (event) => actions.tabHover(event.x),
+    onMouseOut: () => actions.tabHover(),
   });
   const header = new TextRenderable(renderer, {
     ...absolute,

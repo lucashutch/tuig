@@ -384,7 +384,11 @@ export function themeFromDocument(input: unknown, mode: ThemeMode): Theme {
     warning: color("text.feedback.warning.base"),
     author: color("syntax.keyword"),
     divider: color("border.base"),
-    dividerActive: color("background.action.primary.pressed"),
+    // The bundled action tokens are transparent or equal to the panel, so
+    // hover and pressed use surfaces that stay visible on every pane.
+    hover: color("background.raised.high"),
+    pressed: color("border.base"),
+    focusRing: color("text.action.primary.base"),
     folder: color("text.action.primary.base"),
     folderBg: color("background.raised.base"),
     diffAddedBg: color("diff.background.added"),

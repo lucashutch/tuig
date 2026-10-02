@@ -17,7 +17,10 @@ export interface Theme {
   warning: string;
   author: string;
   divider: string;
-  dividerActive: string;
+  /** Shared interaction colors: hover and pressed backgrounds, focus accent. */
+  hover: string;
+  pressed: string;
+  focusRing: string;
   folder: string;
   folderBg: string;
   diffAddedBg: string;
@@ -42,7 +45,9 @@ export const oneDarkTheme: Theme = {
   warning: "#E5C07B",
   author: "#C678DD",
   divider: "#2B5B61",
-  dividerActive: "#315878",
+  hover: "#353B45",
+  pressed: "#315878",
+  focusRing: "#61AFEF",
   folder: "#61AFEF",
   folderBg: "#2C313A",
   diffAddedBg: "#30402F",
@@ -106,4 +111,19 @@ export function semanticColor(
   ).find((state) => options?.states?.[state]);
   const color = colors[state ?? "base"];
   return typeof color === "string" ? color : fallback;
+}
+
+/**
+ * Background for any interactive element. Pressed beats selected, and selected
+ * beats hovered so a selected row keeps its color under the pointer.
+ */
+export function interactionBackground(
+  theme: Theme,
+  base: string,
+  states: { pressed?: boolean; selected?: boolean; hovered?: boolean },
+): string {
+  if (states.pressed) return theme.pressed;
+  if (states.selected) return theme.selected;
+  if (states.hovered) return theme.hover;
+  return base;
 }

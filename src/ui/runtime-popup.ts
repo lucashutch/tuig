@@ -14,7 +14,7 @@ import {
   type GraphMenuItem,
 } from "./graph-menu.js";
 import { clipColumns } from "./runtime-presentation.js";
-import { activeTheme as oneDarkTheme } from "./theme.js";
+import { activeTheme as oneDarkTheme, interactionBackground } from "./theme.js";
 import { dialogColor, updateWidgetTheme } from "./runtime-theme.js";
 
 interface PopupPane {
@@ -204,14 +204,14 @@ export class RuntimePopupController {
           );
         const states = {
           hovered: index === pane.hover,
-          selected: index === pane.hover,
           disabled: !!item.disabled,
         };
         const variant = item.destructive ? "destructive" : "primary";
-        const rowBg =
-          index === pane.hover && !item.disabled
-            ? oneDarkTheme.selected
-            : oneDarkTheme.panelRaised;
+        const rowBg = interactionBackground(
+          oneDarkTheme,
+          oneDarkTheme.panelRaised,
+          { hovered: states.hovered && !states.disabled },
+        );
         const color = item.disabled
           ? oneDarkTheme.muted
           : item.destructive
