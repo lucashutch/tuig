@@ -268,7 +268,7 @@ export function layoutRuntime(context: RuntimeLayoutContext) {
   context.commitDiffEmpty.width = Math.max(1, historyWidth - 6);
   const verticalGripHeight = Math.max(
     3,
-    Math.min(9, Math.floor(dividerHeight / 3)),
+    Math.min(5, Math.floor(dividerHeight / 3)),
   );
   const verticalGripStart = Math.max(
     0,
@@ -276,7 +276,7 @@ export function layoutRuntime(context: RuntimeLayoutContext) {
   );
   const dividerContent = Array.from({ length: dividerHeight }, (_, row) =>
     row >= verticalGripStart && row < verticalGripStart + verticalGripHeight
-      ? "║"
+      ? "┃"
       : "│",
   ).join("\n");
   context.leftDividerBar.content = dividerContent;
@@ -431,9 +431,9 @@ export function layoutChanges(context: RuntimeLayoutContext, height: number) {
   context.composerBody.width = fieldWidth;
   context.commitButton.width = fieldWidth;
   layoutComposerChildren(context, layout.composerHeight, boxWidth);
-  const gripWidth = Math.max(3, Math.min(9, Math.floor(width / 3)));
+  const gripWidth = Math.max(3, Math.min(5, Math.floor(width / 3)));
   const gripStart = Math.max(0, Math.floor((width - gripWidth) / 2));
-  const divider = `${"─".repeat(gripStart)}${"═".repeat(gripWidth)}${"─".repeat(Math.max(0, width - gripStart - gripWidth))}`;
+  const divider = `${"─".repeat(gripStart)}${"━".repeat(gripWidth)}${"─".repeat(Math.max(0, width - gripStart - gripWidth))}`;
   context.unstagedDivider.top = Math.max(0, layout.unstagedDividerTop - 1);
   context.unstagedDivider.left = Math.floor(width / 4);
   context.unstagedDivider.width = Math.min(
