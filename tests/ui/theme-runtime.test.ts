@@ -24,6 +24,8 @@ import { loadThemePreferences } from "../../src/ui/theme-store.js";
 import type { GitRepository, RepositorySnapshot } from "../../src/git/types.js";
 import { graphWindow, type GraphIndex } from "../../src/ui/graph-index.js";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
 import themeDocument from "../../src/ui/themes/opencode.json";
 import { themeFromDocument } from "../../src/ui/theme-resolver.js";
 
@@ -204,7 +206,7 @@ test("semantic controls retain their roles across coincident palettes and hovere
 });
 
 test("invalid saved preferences recover without overwriting settings or trusting a poisoned one-dark", async () => {
-  const directory = await mkdtemp("/tmp/opencode/theme-startup-");
+  const directory = await mkdtemp(join(tmpdir(), "tuig-theme-startup-"));
   const previous = process.env.XDG_CONFIG_HOME;
   process.env.XDG_CONFIG_HOME = directory;
   const path = `${directory}/tuig/theme.json`;
@@ -465,7 +467,7 @@ for (const mode of ["unified", "split"] as const) {
 }
 
 test("command palette searches themes, marks the current choice, and persists selection", async () => {
-  const directory = await mkdtemp("/tmp/opencode/theme-runtime-");
+  const directory = await mkdtemp(join(tmpdir(), "tuig-theme-runtime-"));
   const config = process.env.XDG_CONFIG_HOME;
   process.env.XDG_CONFIG_HOME = directory;
   const previous = { ...activeTheme };
