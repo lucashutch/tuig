@@ -495,6 +495,11 @@ test("command palette searches themes, marks the current choice, and persists se
     showCommandPalette(): void;
     paintCommandPalette(): void;
     activatePaletteCommand(): void;
+    closeCommandPalette(): void;
+    movePaletteSelection(delta: number): void;
+    hoverPaletteRow(y: number): void;
+    commandPaletteBox: BoxRenderable;
+    commandPaletteStart: number;
     commandPaletteInput: InputRenderable;
     commandPaletteIndex: number;
     commandPaletteMatches: { command: { id: string } }[];
@@ -510,9 +515,36 @@ test("command palette searches themes, marks the current choice, and persists se
     await Bun.sleep(30);
     await renderOnce();
     expect(captureCharFrame()).toContain("one-dark (current)");
+    palette.movePaletteSelection(1);
+    expect(activeTheme.bg).not.toBe(oneDarkTheme.bg);
+    expect(await loadThemePreferences()).toEqual({
+      name: "one-dark",
+      mode: "system",
+    });
+    palette.hoverPaletteRow(Number(palette.commandPaletteBox.top) + 3);
+    expect(activeTheme.bg).toBe(oneDarkTheme.bg);
     palette.commandPaletteInput.value = "opencode";
     palette.paintCommandPalette();
     expect(palette.commandPaletteMatches).toHaveLength(1);
+    expect(activeTheme.bg).not.toBe(oneDarkTheme.bg);
+    palette.commandPaletteInput.value = "no-such-theme-xyz";
+    palette.paintCommandPalette();
+    expect(activeTheme.bg).toBe(oneDarkTheme.bg);
+    palette.commandPaletteInput.value = "opencode";
+    palette.paintCommandPalette();
+    palette.closeCommandPalette();
+    expect(activeTheme.bg).toBe(oneDarkTheme.bg);
+    expect((await loadThemePreferences()).name).toBe("one-dark");
+    palette.showCommandPalette();
+    palette.commandPaletteInput.value = "Change theme";
+    palette.paintCommandPalette();
+    palette.commandPaletteIndex = palette.commandPaletteMatches.findIndex(
+      ({ command }) => command.id === "theme.change",
+    );
+    palette.activatePaletteCommand();
+    await Bun.sleep(30);
+    palette.commandPaletteInput.value = "opencode";
+    palette.paintCommandPalette();
     palette.activatePaletteCommand();
     for (let attempt = 0; attempt < 50; attempt++) {
       if ((await loadThemePreferences()).name === "opencode") break;
