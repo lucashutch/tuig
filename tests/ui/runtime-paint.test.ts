@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { RGBA } from "@opentui/core";
 import type {
   ChangedFile,
   Commit,
@@ -36,6 +37,7 @@ type Painted = RuntimePaintContext & {
   graphVisibleColumns: number;
   requests: number;
   text: string;
+  chunks: Array<{ text: string; fg?: { equals(other: unknown): boolean } }>;
   historyText: { visible: boolean };
 };
 
@@ -111,9 +113,10 @@ function paintContext(
   const context = {
     requests: 0,
     text: "",
+    chunks: [] as Painted["chunks"],
     snapshot,
     // paintHistory reserves three rows of chrome.
-    contentHeight: options.viewport + 3,
+    contentHeight: options.viewport + 2,
     focus: "history",
     // The runtime replays these from lane checkpoints; a stub can just hold
     // them, since what is painted is the window it hands back.
@@ -146,7 +149,8 @@ function paintContext(
     historyLabelHits: new Map(),
     historyText: {
       visible: true,
-      set content(value: { chunks: Array<{ text: string }> }) {
+      set content(value: { chunks: Painted["chunks"] }) {
+        context.chunks = value.chunks;
         context.text = value.chunks.map((chunk) => chunk.text).join("");
       },
     },
@@ -171,17 +175,16 @@ describe("history prefetch", () => {
     });
     context.historyColumns = {
       branchWidth: 30,
-      messageWidth: 24,
+      committerWidth: 14,
       showCommitter: true,
       showSha: true,
     };
     paintHistory(context);
     let [header, row] = context.text.split("\n");
-    expect(header).toContain("GRAPH │ MESSAGE");
-    const graphDivider = header!.indexOf("MESSAGE") - 2;
-    expect(row![graphDivider]).toBe("│");
-    expect(header!.indexOf("MESSAGE")).toBe(row!.indexOf("commit 0"));
-    expect(header!.indexOf("COMMITTER")).toBe(row!.indexOf("Integrator"));
+    expect(header).toContain("Graph │ Message");
+    expect(row).not.toContain("│");
+    expect(header!.indexOf("Message")).toBe(row!.indexOf("commit 0"));
+    expect(header!.indexOf("Committer")).toBe(row!.indexOf("Integrator"));
     expect(header!.indexOf("SHA")).toBe(row!.indexOf("12345678"));
     expect(context.historyShaHits.get(0)?.start).toBe(row!.indexOf("12345678"));
     context.historyColumns.showCommitter = false;
@@ -196,6 +199,39 @@ describe("history prefetch", () => {
     context.historyColumns.showSha = true;
     paintHistory(context);
     expect(context.historyShaHits.size).toBe(1);
+  });
+
+  test("themes the header separators and highlights the one under the pointer", () => {
+    const context = paintContext(history(1), {
+      complete: true,
+      historyStart: 0,
+      viewport: 10,
+    });
+    const colours = () =>
+      context.chunks
+        .filter((chunk) => chunk.text.includes("│"))
+        .map((chunk) => chunk.fg!);
+    const is = (colour: { equals(other: unknown): boolean }, hex: string) =>
+      colour.equals(RGBA.fromHex(hex));
+    paintHistory(context);
+    expect(colours().every((colour) => is(colour, oneDarkTheme.divider))).toBe(
+      true,
+    );
+    context.historyDivider = { key: "graphWidth", dragging: false };
+    paintHistory(context);
+    const hovered = context.chunks.find((chunk) => chunk.text === " │ ")!;
+    expect(is(hovered.fg!, oneDarkTheme.accentSoft)).toBe(true);
+    // Only the hovered separator changes.
+    expect(
+      colours().filter((colour) => is(colour, oneDarkTheme.accentSoft)),
+    ).toHaveLength(1);
+    context.historyDivider = { key: "graphWidth", dragging: true };
+    paintHistory(context);
+    expect(
+      context.chunks.some(
+        (chunk) => chunk.fg && is(chunk.fg, oneDarkTheme.added),
+      ),
+    ).toBe(true);
   });
 
   test("hides history text behind an open commit diff", () => {
@@ -262,14 +298,14 @@ describe("history prefetch", () => {
       viewport: 40,
     });
     paintHistory(partial);
-    expect(partial.text).toContain("250+ COMMITS");
+    expect(partial.text).toContain("250+ commits");
     const whole = paintContext(history(250), {
       complete: true,
       historyStart: 0,
       viewport: 40,
     });
     paintHistory(whole);
-    expect(whole.text).toContain("250 COMMITS");
+    expect(whole.text).toContain("250 commits");
     expect(whole.text).not.toContain("250+");
   });
 });
@@ -317,7 +353,7 @@ describe("wide graphs", () => {
     expect(context.graphScroll).toBe(25);
     const [header, row] = context.text.split("\n");
     expect(row!.indexOf("commit 0")).toBe(narrowMessage + 20);
-    expect(header!.indexOf("MESSAGE")).toBe(row!.indexOf("commit 0"));
+    expect(header!.indexOf("Message")).toBe(row!.indexOf("commit 0"));
     expect(header!.indexOf("SHA")).toBe(context.historyShaHits.get(0)!.start);
     expect(Bun.stringWidth(row!)).toBeLessThanOrEqual(
       context.historyContentWidth,
@@ -333,8 +369,12 @@ describe("wide graphs", () => {
     widen(context, 40);
     paintHistory(context);
     expect(context.graphVisibleColumns).toBe(16);
-    expect(context.text).toContain(" ▸");
-    const line = context.text.split("\n")[1]!;
+    const [header, line] = context.text.split("\n") as [string, string];
+    // One indicator in the header, none on the rows.
+    expect(header).toContain("▶");
+    expect(line).not.toContain("▶");
+    // Right-aligned: the arrow ends the graph column, before the next rule.
+    expect(header).toContain("▶ │ Message");
     expect(Bun.stringWidth(line)).toBeLessThanOrEqual(
       context.historyContentWidth,
     );
@@ -352,10 +392,10 @@ describe("wide graphs", () => {
     paintHistory(context);
     // Clamped to the last window, which hides lanes only on the left.
     expect(context.graphScroll).toBe(24);
-    // The graph window sits after the 22-column label and the selection mark.
-    const graph = context.text.split("\n")[1]!.slice(24, 24 + 16 * 2);
-    expect(graph).toContain("◂ ");
-    expect(graph).not.toContain("▸");
+    const [header, row] = context.text.split("\n") as [string, string];
+    expect(header).toContain("◀");
+    expect(header).not.toContain("▶");
+    expect(row).not.toContain("◀");
   });
 });
 

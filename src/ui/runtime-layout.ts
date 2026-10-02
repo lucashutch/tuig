@@ -153,7 +153,7 @@ export function layoutRuntime(context: RuntimeLayoutContext) {
   context.historyContentLeft = historyLeft + 1;
   context.historyContentWidth = Math.max(1, historyWidth - 2);
   context.historyText.width = context.historyContentWidth;
-  context.historyText.height = Math.max(1, height - 2);
+  context.historyText.height = Math.max(1, height - 1);
   context.rightDivider.left = Math.max(
     0,
     Math.min(total - 1, rightBoundary - 1),

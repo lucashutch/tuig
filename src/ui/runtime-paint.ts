@@ -20,6 +20,7 @@ import {
 import type { GraphRow } from "./graph.js";
 import {
   clampGraphScroll,
+  graphScrollIndicator,
   graphWindowCells,
   laneVisible,
 } from "./graph-viewport.js";
@@ -48,7 +49,11 @@ import {
 } from "./runtime-presentation.js";
 import { activeTheme as oneDarkTheme } from "./theme.js";
 import { applyActionTheme, setActionState } from "./runtime-theme.js";
-import { historyColumnLayout, type HistoryColumns } from "./history-columns.js";
+import {
+  historyColumnLayout,
+  type HistoryColumns,
+  type HistoryDividerKey,
+} from "./history-columns.js";
 import { createRuntimeWidgets, type ChangeSection } from "./runtime-widgets.js";
 
 type SidebarWidgets = ReturnType<
@@ -104,6 +109,8 @@ export interface RuntimePaintContext extends RuntimeSidebarPaintContext {
   historyViewportDetached: boolean;
   historyContentWidth: number;
   historyColumns?: HistoryColumns;
+  /** The header separator under the pointer or being dragged. */
+  historyDivider?: { key: HistoryDividerKey; dragging: boolean };
   historyShaHits: Map<number, { start: number; end: number }>;
   historyLabelHits: Map<
     number,
@@ -231,7 +238,7 @@ export function paintHistory(ctx: RuntimePaintContext) {
   const s = ctx.snapshot;
   if (!s) return;
   const hasWorking = s.files.length > 0,
-    lines = Math.max(1, ctx.contentHeight - 3),
+    lines = Math.max(1, ctx.contentHeight - 2),
     total = ctx.graphRowCount + (hasWorking ? 1 : 0);
   const selectedDisplay =
     ctx.historySelection === "working" && hasWorking
@@ -257,29 +264,6 @@ export function paintHistory(ctx: RuntimePaintContext) {
     messageWidth: subjectWidth,
     committerWidth: authorWidth,
   } = geometry;
-  const chunks = [
-    fg(ctx.focus === "history" ? oneDarkTheme.accent : oneDarkTheme.muted)(
-      // The trailing marker distinguishes "all of history" from "as much of
-      // it as has been read so far".
-      fitColumns(" BRANCH / TAG", labelWidth) +
-        "│ " +
-        fitColumns("GRAPH", geometry.graphWidth) +
-        " │ " +
-        fitColumns(
-          `MESSAGE (${s.commits.length}${s.commitsComplete ? "" : "+"} COMMITS)`,
-          subjectWidth,
-        ) +
-        (columns.showCommitter
-          ? " │ " + fitColumns("COMMITTER", authorWidth)
-          : "") +
-        (columns.showSha ? " │ SHA     " : "") +
-        (geometry.padding ? "│" + " ".repeat(geometry.padding - 1) : "") +
-        "│\n",
-    ),
-  ];
-  ctx.historyShaHits.clear();
-  ctx.historyLabelHits.clear();
-  const backgrounds = [oneDarkTheme.bg, oneDarkTheme.panelRaised];
   const graphVisibleColumns = geometry.graphColumns,
     graphScroll = clampGraphScroll(
       ctx.graphScroll,
@@ -288,6 +272,53 @@ export function paintHistory(ctx: RuntimePaintContext) {
     );
   ctx.setGraphVisibleColumns(graphVisibleColumns);
   ctx.setGraphScroll(graphScroll);
+  const headerColor =
+    ctx.focus === "history" ? oneDarkTheme.text : oneDarkTheme.muted;
+  // Arrows sit at the right edge of the graph column, in the accent colour, so
+  // hidden lanes are hard to miss.
+  const graphArrows = graphScrollIndicator(
+    graphScroll,
+    Math.max(0, ctx.graphColumns - graphScroll - graphVisibleColumns),
+  );
+  const arrowWidth = Bun.stringWidth(graphArrows);
+  // Separators take the theme's divider colour. The three that resize columns
+  // brighten on hover and while dragging, matching the pane dividers.
+  const separator = (text: string, key?: HistoryDividerKey) => {
+    const active = key !== undefined && ctx.historyDivider?.key === key;
+    return fg(
+      active
+        ? ctx.historyDivider!.dragging
+          ? oneDarkTheme.added
+          : oneDarkTheme.accentSoft
+        : oneDarkTheme.divider,
+    )(text);
+  };
+  const chunks = [
+    fg(headerColor)(fitColumns(" Branch / tag", labelWidth)),
+    separator("│ ", "branchWidth"),
+    fg(headerColor)(fitColumns("Graph", geometry.graphWidth - arrowWidth)),
+    fg(oneDarkTheme.accent)(graphArrows),
+    separator(" │ ", "graphWidth"),
+    // The trailing marker distinguishes "all of history" from "as much of
+    // it as has been read so far".
+    fg(headerColor)(
+      fitColumns(
+        `Message (${s.commits.length}${s.commitsComplete ? "" : "+"} commits)`,
+        subjectWidth,
+      ),
+    ),
+    ...(columns.showCommitter
+      ? [
+          separator(" │ ", "committerWidth"),
+          fg(headerColor)(fitColumns("Committer", authorWidth)),
+        ]
+      : []),
+    ...(columns.showSha ? [separator(" │ "), fg(headerColor)("SHA     ")] : []),
+    separator("│\n"),
+  ];
+  ctx.historyShaHits.clear();
+  ctx.historyLabelHits.clear();
+  const backgrounds = [oneDarkTheme.bg, oneDarkTheme.panelRaised];
   const maxStart = Math.max(0, total - visible),
     thumbSize = Math.max(
       1,
@@ -297,7 +328,7 @@ export function paintHistory(ctx: RuntimePaintContext) {
       ? Math.floor((start / maxStart) * Math.max(0, visible - thumbSize))
       : 0;
   const thumb = (o: number) => o >= thumbStart && o < thumbStart + thumbSize,
-    scroll = (o: number) => (thumb(o) ? "█" : "│");
+    scroll = (o: number) => (thumb(o) ? "▐" : " ");
   const avatarRequests: GraphAvatarRequest[] = [];
   const decorationIndex = decorationRefIndexFor(s.branches);
   let line = 0;
@@ -330,17 +361,16 @@ export function paintHistory(ctx: RuntimePaintContext) {
           " ".repeat(geometry.graphWidth - graphVisibleColumns * 2),
         ),
       ),
-      bg(rowBg)(fg(oneDarkTheme.border)(" │ ")),
+      bg(rowBg)(fg(oneDarkTheme.border)("   ")),
       bg(rowBg)(fg(oneDarkTheme.warning)(subject)),
-      bg(rowBg)(fg(oneDarkTheme.border)(columns.showCommitter ? " │ " : "")),
+      bg(rowBg)(fg(oneDarkTheme.border)(columns.showCommitter ? "   " : "")),
       bg(rowBg)(
         fg(oneDarkTheme.muted)(
           columns.showCommitter ? "".padEnd(authorWidth) : "",
         ),
       ),
-      bg(rowBg)(fg(oneDarkTheme.border)(columns.showSha ? " │ " : "")),
+      bg(rowBg)(fg(oneDarkTheme.border)(columns.showSha ? "   " : "")),
       bg(rowBg)(columns.showSha ? "".padEnd(8) : ""),
-      bg(rowBg)(" ".repeat(geometry.padding)),
       bg(rowBg)(
         fg(thumb(0) ? oneDarkTheme.accent : oneDarkTheme.border)(
           `${scroll(0)}\n`,
@@ -407,21 +437,20 @@ export function paintHistory(ctx: RuntimePaintContext) {
       ...graphWindow.cells.map((c) => bg(rowBg)(fg(c.color)(c.symbol))),
       bg(rowBg)(
         fg(oneDarkTheme.border)(
-          " ".repeat(geometry.graphWidth - graphVisibleColumns * 2) + " │ ",
+          " ".repeat(geometry.graphWidth - graphVisibleColumns * 2) + "   ",
         ),
       ),
       bg(rowBg)(
         fg(row.head ? oneDarkTheme.warning : oneDarkTheme.text)(subject),
       ),
-      bg(rowBg)(fg(oneDarkTheme.border)(columns.showCommitter ? " │ " : "")),
+      bg(rowBg)(fg(oneDarkTheme.border)(columns.showCommitter ? "   " : "")),
       bg(rowBg)(fg(oneDarkTheme.author)(columns.showCommitter ? author : "")),
-      bg(rowBg)(fg(oneDarkTheme.border)(columns.showSha ? " │ " : "")),
+      bg(rowBg)(fg(oneDarkTheme.border)(columns.showSha ? "   " : "")),
       bg(rowBg)(
         fg(oneDarkTheme.accent)(
           columns.showSha ? shortSha(row.commit.sha) : "",
         ),
       ),
-      bg(rowBg)(" ".repeat(geometry.padding)),
       bg(rowBg)(
         fg(thumb(offset) ? oneDarkTheme.accent : oneDarkTheme.border)(
           `${scroll(offset)}\n`,
@@ -446,7 +475,7 @@ export function paintHistory(ctx: RuntimePaintContext) {
         // The working-changes row adds one real text line at the top only while
         // the viewport is at offset zero. Account for it in the image layer as
         // well, otherwise every avatar is one row low after scrolling past it.
-        top: 2 + dotLine,
+        top: 1 + dotLine,
       });
     if (columns.showSha)
       ctx.historyShaHits.set(commitRow, {
@@ -479,7 +508,7 @@ export function paintHistory(ctx: RuntimePaintContext) {
 
 /** Commit rows that fit in the history viewport from a given scroll offset. */
 function visibleUnits(ctx: RuntimePaintContext): number {
-  const lines = Math.max(1, ctx.contentHeight - 3);
+  const lines = Math.max(1, ctx.contentHeight - 2);
   return lines;
 }
 

@@ -165,6 +165,8 @@ export type RuntimeWidgetActions = {
   historyScroll(delta: number, axis?: "vertical" | "horizontal"): void;
   historyClick(x: number, y: number, button: number): void;
   historyDrag(x: number): void;
+  historyHover(x: number, y: number): void;
+  historyHoverEnd(): void;
   historyDragEnd(): void;
   filesScroll(section: ChangeSection, delta: number): void;
   filesClick(
@@ -448,7 +450,7 @@ export function createRuntimeWidgets(
     ...absolute,
     id: "history-content",
     left: 1,
-    top: 1,
+    top: 0,
     width: "97%",
     height: "95%",
     fg: oneDarkTheme.text,
@@ -457,6 +459,9 @@ export function createRuntimeWidgets(
     wrapMode: "none",
     selectable: false,
     onMouseDown: (e) => actions.historyClick(e.x, e.y, e.button),
+    onMouseMove: (e) => actions.historyHover(e.x, e.y),
+    onMouseOver: (e) => actions.historyHover(e.x, e.y),
+    onMouseOut: () => actions.historyHoverEnd(),
     onMouseDrag: (e) => actions.historyDrag(e.x),
     onMouseUp: () => actions.historyDragEnd(),
     onMouseDragEnd: () => actions.historyDragEnd(),

@@ -39,7 +39,7 @@ describe("checked-out commit positioning", () => {
   test("centres a deep checked-out commit without scrolling past either end", () => {
     expect(historyStartForCommit(50, false, 23, 100)).toBe(40);
     expect(historyStartForCommit(1, false, 23, 100)).toBe(0);
-    expect(historyStartForCommit(99, false, 23, 100)).toBe(80);
+    expect(historyStartForCommit(99, false, 23, 100)).toBe(79);
   });
 
   test("accounts for the working changes row", () => {
@@ -130,7 +130,7 @@ describe("graph row hit testing", () => {
       renderer: undefined,
     } as unknown as RuntimeHistoryContext;
 
-    historyClick(context, 25, 2, MouseButton.RIGHT);
+    historyClick(context, 25, 1, MouseButton.RIGHT);
 
     expect(target).toEqual({ sha: stash.sha, branch: undefined, stash });
   });

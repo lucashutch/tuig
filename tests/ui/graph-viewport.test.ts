@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import type { GraphCell } from "../../src/ui/graph.js";
 import {
   clampGraphScroll,
+  graphScrollIndicator,
   graphWindowCells,
   laneVisible,
   visibleGraphColumns,
@@ -36,14 +37,13 @@ describe("clampGraphScroll", () => {
 });
 
 describe("graphWindowCells", () => {
-  test("keeps a constant width and marks hidden lanes", () => {
+  test("keeps a constant width and reports hidden lanes without marking rows", () => {
     const window = graphWindowCells(cells(10), 3, 4, 10, "#888888");
     expect(window.cells).toHaveLength(4);
     expect(window.hiddenLeft).toBe(3);
     expect(window.hiddenRight).toBe(3);
-    expect(window.cells[0]!.symbol).toBe("◂ ");
-    expect(window.cells[3]!.symbol).toBe(" ▸");
-    expect(window.cells[1]!.symbol.trim()).toBe("4");
+    expect(window.cells[0]!.symbol.trim()).toBe("3");
+    expect(window.cells[3]!.symbol.trim()).toBe("6");
   });
 
   test("pads short rows out to the window", () => {
@@ -56,11 +56,21 @@ describe("graphWindowCells", () => {
 });
 
 describe("laneVisible", () => {
-  test("excludes lanes outside the window or under a marker", () => {
+  test("includes only lanes inside the window", () => {
     expect(laneVisible(5, 3, 4, 10)).toBe(true);
-    expect(laneVisible(3, 3, 4, 10)).toBe(false);
-    expect(laneVisible(6, 3, 4, 10)).toBe(false);
+    expect(laneVisible(3, 3, 4, 10)).toBe(true);
+    expect(laneVisible(6, 3, 4, 10)).toBe(true);
+    expect(laneVisible(7, 3, 4, 10)).toBe(false);
     expect(laneVisible(0, 3, 4, 10)).toBe(false);
     expect(laneVisible(0, 0, 4, 4)).toBe(true);
+  });
+});
+
+describe("graphScrollIndicator", () => {
+  test("keeps each arrow in a fixed slot and hides both when nothing is hidden", () => {
+    expect(graphScrollIndicator(0, 0)).toBe("");
+    expect(graphScrollIndicator(0, 3)).toBe("  ▶");
+    expect(graphScrollIndicator(2, 0)).toBe("◀  ");
+    expect(graphScrollIndicator(2, 3)).toBe("◀ ▶");
   });
 });
