@@ -613,6 +613,9 @@ export class GitRepositoryService implements GitRepository {
         "--no-optional-locks",
         "status",
         "--porcelain=v2",
+        // List each untracked file. The default collapses a directory into a
+        // single "dir/" entry that has no name or diff in the UI.
+        "--untracked-files=all",
         "--branch",
         "-z",
       ]),
@@ -806,6 +809,7 @@ export class GitRepositoryService implements GitRepository {
       "--no-optional-locks",
       "status",
       "--porcelain=v2",
+      "--untracked-files=all",
       "--branch",
       "-z",
     ]);
