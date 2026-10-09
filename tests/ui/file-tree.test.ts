@@ -85,6 +85,21 @@ describe("changed-file tree", () => {
     ]);
   });
 
+  test("shows a nested repository as one named row", () => {
+    const tree = buildFileTree([
+      changed(".claude/worktrees/feature/", "untracked"),
+    ]);
+    const rows = flattenVisible(
+      tree,
+      new Set([".claude", ".claude/worktrees"]),
+    );
+    expect(rows.map(({ node }) => [node.kind, node.name, node.path])).toEqual([
+      ["directory", ".claude", ".claude"],
+      ["directory", "worktrees", ".claude/worktrees"],
+      ["file", "feature/", ".claude/worktrees/feature/"],
+    ]);
+  });
+
   test("propagates the most important status to directories", () => {
     const tree = buildFileTree([
       changed("src/a.ts", "modified"),
