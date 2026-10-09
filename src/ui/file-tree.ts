@@ -106,8 +106,11 @@ export function buildFileTree(files: ChangedFile[]): FileTreeDirectory {
   };
   const dirs = new Map<string, FileTreeDirectory>([["", root]]);
   for (const file of files) {
-    const parts = file.path.split("/");
-    const leaf = parts.pop() ?? "";
+    // Git reports a nested repository as one untracked "dir/" entry, even with
+    // --untracked-files=all. Keep it as a single row named "dir/".
+    const nested = file.path.endsWith("/");
+    const parts = (nested ? file.path.slice(0, -1) : file.path).split("/");
+    const leaf = `${parts.pop() ?? ""}${nested ? "/" : ""}`;
     let parent = root;
     let path = "";
     for (const part of parts) {

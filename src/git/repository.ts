@@ -9,11 +9,21 @@ import type {
   ResetMode,
   WorkingStatus,
   UndoPreview,
+  ChangedFile,
+  Worktree,
 } from "./types";
 import { createHash } from "node:crypto";
 import { access, mkdtemp, readdir, readFile, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { basename, dirname, join, resolve } from "node:path";
+import {
+  basename,
+  dirname,
+  isAbsolute,
+  join,
+  relative,
+  resolve,
+  sep,
+} from "node:path";
 import {
   parseLog,
   parseNameStatus,
@@ -481,6 +491,31 @@ const HISTORY_MUTATING = new Set([
   "worktree",
 ]);
 
+/**
+ * Drop untracked entries that are linked worktrees of this repository.
+ *
+ * A worktree checked out inside the repository shows up in `git status` as an
+ * untracked "dir/" entry. The worktrees section already lists it, and staging
+ * or discarding it from the changes list would add a gitlink or delete the
+ * other checkout.
+ */
+function withoutLinkedWorktrees(
+  files: ChangedFile[],
+  worktrees: readonly Worktree[],
+  root: string,
+): ChangedFile[] {
+  const nested = new Set(
+    worktrees
+      .map((worktree) => relative(root, worktree.path))
+      .filter((path) => path && !path.startsWith("..") && !isAbsolute(path))
+      .map((path) => `${path.split(sep).join("/")}/`),
+  );
+  if (nested.size === 0) return files;
+  return files.filter(
+    (file) => file.state !== "untracked" || !nested.has(file.path),
+  );
+}
+
 /** Commits in the first page of history, before any paging. */
 export const DEFAULT_HISTORY_PAGE = 250;
 
@@ -697,6 +732,7 @@ export class GitRepositoryService implements GitRepository {
     const { st, refs, stash, wt, sm, submoduleNames, branch, headSha } =
       metadata;
     const tracking = parseTracking(st.stdout);
+    const worktrees = parseWorktrees(wt.stdout);
     return {
       root: this.root,
       headSha,
@@ -704,10 +740,14 @@ export class GitRepositoryService implements GitRepository {
       upstream: tracking.upstream,
       ahead: tracking.ahead,
       behind: tracking.behind,
-      files: parseStatus(st.stdout),
+      files: withoutLinkedWorktrees(
+        parseStatus(st.stdout),
+        worktrees,
+        this.root,
+      ),
       branches: parseRefs(refs.stdout),
       stashes: parseStashes(stash.stdout),
-      worktrees: parseWorktrees(wt.stdout),
+      worktrees,
       submodules: parseSubmodules(sm.stdout, submoduleNames),
       commits,
       commitsComplete,
@@ -805,20 +845,27 @@ export class GitRepositoryService implements GitRepository {
    * through this instead of paying for the full snapshot's history walk.
    */
   async workingStatus(): Promise<WorkingStatus> {
-    const st = await this.git([
-      "--no-optional-locks",
-      "status",
-      "--porcelain=v2",
-      "--untracked-files=all",
-      "--branch",
-      "-z",
+    const [st, wt] = await Promise.all([
+      this.git([
+        "--no-optional-locks",
+        "status",
+        "--porcelain=v2",
+        "--untracked-files=all",
+        "--branch",
+        "-z",
+      ]),
+      this.git(["worktree", "list", "--porcelain"]),
     ]);
     const tracking = parseTracking(st.stdout);
     return {
       upstream: tracking.upstream,
       ahead: tracking.ahead,
       behind: tracking.behind,
-      files: parseStatus(st.stdout),
+      files: withoutLinkedWorktrees(
+        parseStatus(st.stdout),
+        parseWorktrees(wt.stdout),
+        this.root,
+      ),
     };
   }
   /** Reads the history of one path on the current branch or from `start`. */
