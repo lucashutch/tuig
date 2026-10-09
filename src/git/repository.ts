@@ -526,6 +526,7 @@ export class GitRepositoryService implements GitRepository {
   private constructor(
     root: string,
     private readonly shallowMetadataPaths: readonly string[],
+    readonly mainWorktree?: string,
   ) {
     this.root = root;
     this.walk = new CommitWalk(root);
@@ -557,18 +558,27 @@ export class GitRepositoryService implements GitRepository {
       },
     );
     const root = r.stdout.trim();
-    const metadata = await runGit(
-      [
-        "rev-parse",
-        "--path-format=absolute",
-        "--git-path",
-        "shallow",
-        "--git-path",
-        "info/grafts",
-      ],
+    const [metadata, worktrees] = await Promise.all([
+      runGit(
+        [
+          "rev-parse",
+          "--path-format=absolute",
+          "--git-path",
+          "shallow",
+          "--git-path",
+          "info/grafts",
+        ],
+        root,
+      ),
+      runGit(["worktree", "list", "--porcelain"], root),
+    ]);
+    // Git always lists the main worktree first.
+    const main = parseWorktrees(worktrees.stdout)[0]?.path;
+    return new GitRepositoryService(
       root,
+      metadata.stdout.trim().split("\n"),
+      main && main !== root ? main : undefined,
     );
-    return new GitRepositoryService(root, metadata.stdout.trim().split("\n"));
   }
   private async git(args: string[], signal?: AbortSignal, maxBytes?: number) {
     const subcommand = args.find((arg) => !arg.startsWith("-"));

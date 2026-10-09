@@ -5,14 +5,49 @@ import {
   repositoryTabHit,
   repositoryTabText,
   reorderRepositoryTabs,
+  dragRepositoryTab,
   submoduleTabLabel,
+  worktreeTabLabel,
 } from "../../src/ui/repository-tabs.js";
 
 describe("repository tab layout", () => {
+  test("pads short names to ten label columns and centres them", () => {
+    const layout = layoutRepositoryTabs(
+      [{ id: "short", label: "tuig" }],
+      "short",
+      80,
+    );
+    expect(repositoryTabText(layout.tabs[0]!)).toBe("     tuig    ×  ");
+  });
+
+  test("drags a short tab past a long one without swapping back", () => {
+    const tabs = [
+      { id: "short", label: "tuig" },
+      { id: "long", label: "⎇ a-long-worktree-name · lib_cellx" },
+    ];
+    const layout = layoutRepositoryTabs(tabs, "short", 120);
+    const long = layout.tabs[1];
+    const drag = (column: number) =>
+      dragRepositoryTab(tabs, "short", column, "short", 120)?.map(
+        (tab) => tab.id,
+      );
+    // Entering the long tab is not enough: after a swap the pointer would
+    // still be over the long tab, and the next move would swap them back.
+    expect(drag(long!.start)).toBeUndefined();
+    // Near the long tab's end, the short tab would sit under the pointer.
+    expect(drag(long!.end - 1)).toEqual(["long", "short"]);
+  });
+
   test("labels a submodule with its parent repository", () => {
     expect(submoduleTabLabel("/work/app/vendor/library", "/work/app")).toBe(
-      "library · submodule of app",
+      "\uf414 library · app",
     );
+  });
+
+  test("labels a linked worktree with its main repository", () => {
+    expect(
+      worktreeTabLabel("/work/app/.claude/worktrees/feature", "/work/app"),
+    ).toBe("⎇ feature · app");
   });
 
   test("marks the active tab and separates select, close, and open hits", () => {
@@ -22,7 +57,7 @@ describe("repository tab layout", () => {
         { id: "two", label: "two", path: "/work/two" },
       ],
       "two",
-      30,
+      40,
     );
     const active = layout.tabs[1]!;
     expect(active).toMatchObject({ active: true, style: "active" });
@@ -40,8 +75,8 @@ describe("repository tab layout", () => {
     });
     expect(active.closeEnd - active.closeStart).toBe(1);
     expect(active.end - active.closeEnd).toBe(2);
-    expect(layout.tabs[1]!.start - layout.tabs[0]!.end).toBe(2);
-    expect(layout.open.start).toBe(layout.tabs.at(-1)!.end + 2);
+    expect(layout.tabs[1]!.start - layout.tabs[0]!.end).toBe(1);
+    expect(layout.open.start).toBe(layout.tabs.at(-1)!.end + 1);
     expect(layout.open.end).toBeLessThan(layout.width);
   });
 
@@ -74,12 +109,12 @@ describe("repository tab layout", () => {
         { id: "wide", label: "資料" },
       ],
       "one",
-      30,
+      40,
     );
     expect(
       layout.tabs.map((tab) => Bun.stringWidth(repositoryTabText(tab))),
     ).toEqual(layout.tabs.map((tab) => tab.end - tab.start));
-    expect(repositoryTabText(layout.tabs[0]!)).toBe("  one ×  ");
+    expect(repositoryTabText(layout.tabs[0]!)).toBe("     one     ×  ");
   });
 
   test("reorders a dragged tab without losing tab identity", () => {

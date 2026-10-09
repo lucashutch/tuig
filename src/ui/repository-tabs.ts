@@ -1,3 +1,4 @@
+import { SUBMODULE_ICON, WORKTREE_ICON } from "./history.js";
 import { clipColumns } from "./runtime-presentation-text.js";
 
 /** A repository that can be shown in the tab strip. */
@@ -63,8 +64,11 @@ const CLOSE_WIDTH = 1;
 // button, and two trailing cells give each repository a roomier hit target.
 const TAB_OVERHEAD = 6;
 const MIN_TAB_WIDTH = TAB_OVERHEAD + 1;
+// Short names are padded to this many label columns while space allows, so
+// tabs are easier to hit and closer in width when dragged past each other.
+const MIN_NATURAL_LABEL_WIDTH = 10;
 const OPEN_WIDTH = 3;
-const TAB_GAP = 2;
+const TAB_GAP = 1;
 
 function terminalWidth(value: number): number {
   return Number.isFinite(value) ? Math.max(0, Math.trunc(value)) : 0;
@@ -74,26 +78,26 @@ function labelFor(tab: RepositoryTab): string {
   if (tab.label !== undefined && tab.label.length > 0) return tab.label;
   if (tab.name !== undefined && tab.name.length > 0) return tab.name;
   const path = tab.path ?? tab.root;
-  if (path) {
-    const trimmed = path.replace(/[\\/]+$/, "");
-    return trimmed.split(/[\\/]/).at(-1) || path;
-  }
-  return tab.id;
+  return path ? folderName(path) : tab.id;
+}
+
+function folderName(path: string): string {
+  return (
+    path
+      .replace(/[\\/]+$/, "")
+      .split(/[\\/]/)
+      .at(-1) || path
+  );
 }
 
 /** Label a nested repository while retaining the parent repository context. */
 export function submoduleTabLabel(root: string, parentRoot: string): string {
-  const name =
-    root
-      .replace(/[\\/]+$/, "")
-      .split(/[\\/]/)
-      .at(-1) || root;
-  const parent =
-    parentRoot
-      .replace(/[\\/]+$/, "")
-      .split(/[\\/]/)
-      .at(-1) || parentRoot;
-  return `${name} · submodule of ${parent}`;
+  return `${SUBMODULE_ICON} ${folderName(root)} · ${folderName(parentRoot)}`;
+}
+
+/** Label a linked worktree with the repository whose main checkout owns it. */
+export function worktreeTabLabel(root: string, mainRoot: string): string {
+  return `${WORKTREE_ICON} ${folderName(root)} · ${folderName(mainRoot)}`;
 }
 
 function columnWidth(value: string): number {
@@ -101,7 +105,7 @@ function columnWidth(value: string): number {
 }
 
 function naturalTabWidth(label: string): number {
-  return Math.max(MIN_TAB_WIDTH, columnWidth(label) + TAB_OVERHEAD);
+  return Math.max(MIN_NATURAL_LABEL_WIDTH, columnWidth(label)) + TAB_OVERHEAD;
 }
 
 /** Select a contiguous window while keeping the active tab on screen. */
@@ -254,6 +258,36 @@ export function reorderRepositoryTabs<T extends { id: string }>(
   return reordered;
 }
 
+/**
+ * Return the tab order after dragging `movedId` to `column`, or undefined
+ * when the tabs should stay where they are.
+ *
+ * Tabs of different widths would otherwise swap back and forth: after a short
+ * tab swaps with a long one, the pointer is still over the long tab. A swap is
+ * accepted only when the pointer would rest on the dragged tab afterwards.
+ */
+export function dragRepositoryTab<T extends RepositoryTab>(
+  tabs: readonly T[],
+  movedId: string,
+  column: number,
+  activeId: string | undefined,
+  width: number,
+): T[] | undefined {
+  const hit = repositoryTabHit(
+    layoutRepositoryTabs(tabs, activeId, width),
+    column,
+  );
+  if (!hit || hit.action === "open" || hit.tabId === movedId) return undefined;
+  const reordered = reorderRepositoryTabs(tabs, movedId, hit.tabId);
+  const after = repositoryTabHit(
+    layoutRepositoryTabs(reordered, activeId, width),
+    column,
+  );
+  return after?.action !== "open" && after?.tabId === movedId
+    ? reordered
+    : undefined;
+}
+
 /** Render one tab to exactly the columns reserved by its layout. */
 export function repositoryTabText(tab: RepositoryTabLayout): string {
   const width = Math.max(0, tab.end - tab.start);
@@ -262,5 +296,8 @@ export function repositoryTabText(tab: RepositoryTabLayout): string {
   const prefix = width >= 2 ? "  " : width >= 1 ? " " : "";
   const contentWidth = Math.max(0, width - Bun.stringWidth(prefix + suffix));
   const label = clipColumns(tab.label, contentWidth);
-  return `${prefix}${label}${" ".repeat(Math.max(0, contentWidth - Bun.stringWidth(label)))}${suffix}`;
+  // Labels shorter than the tab are centred in the space before the close button.
+  const padding = Math.max(0, contentWidth - Bun.stringWidth(label));
+  const left = Math.floor(padding / 2);
+  return `${prefix}${" ".repeat(left)}${label}${" ".repeat(padding - left)}${suffix}`;
 }
