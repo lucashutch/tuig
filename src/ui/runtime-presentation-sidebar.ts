@@ -13,6 +13,7 @@ import {
   displayBranchName,
   filterBranchRefs,
   HEAD_ICON,
+  WORKTREE_ICON,
   LAPTOP_BRANCH_ICON,
   REMOTE_BRANCH_ICON,
 } from "./history.js";
@@ -287,12 +288,11 @@ export function sidebarRowSource(
       },
     };
   return {
-    total: snapshot.worktrees.length,
+    total: snapshot.worktrees.length * 2,
     rowAt: (index) => {
-      const worktree = snapshot.worktrees[index];
-      return worktree
-        ? worktreeRows([worktree], snapshot.root, width)[0]?.label
-        : undefined;
+      const worktree = snapshot.worktrees[Math.floor(index / 2)];
+      const row = worktree && worktreeRows([worktree], snapshot.root, width)[0];
+      return row && (index % 2 === 0 ? row.label : row.detail);
     },
   };
 }
@@ -365,16 +365,37 @@ export function renderSubmoduleSidebarViewport(
       ? track
       : `${fitColumns(row, safeWidth - 1)}${track}`;
   });
-  return new StyledText(
-    rendered.map((line, index) => {
+  return styleSidebarRows(
+    rendered,
+    rendered.map((_, index) => {
       const rowIndex = clamped + index;
       const submodule = submodules[Math.floor(rowIndex / 2)];
       const color =
         rowIndex % 2 === 0 && submodule
           ? submoduleStatusColor(submodule)
           : oneDarkTheme.muted;
-      return fg(color)(`${line}${index + 1 < rendered.length ? "\n" : ""}`);
+      return color;
     }),
+  );
+}
+
+/**
+ * Colour each row body, leaving the final scrollbar cell in the text colour.
+ *
+ * Two-line sections colour their rows differently. Without the split, the
+ * scrollbar thumb takes each row's colour and looks broken.
+ */
+function styleSidebarRows(
+  lines: readonly string[],
+  colors: readonly string[],
+): StyledText {
+  return new StyledText(
+    lines.flatMap((line, index) => [
+      fg(colors[index] ?? oneDarkTheme.text)(line.slice(0, -1)),
+      fg(oneDarkTheme.text)(
+        `${line.slice(-1)}${index + 1 < lines.length ? "\n" : ""}`,
+      ),
+    ]),
   );
 }
 
@@ -395,11 +416,12 @@ export function renderStashSidebarViewport(
     Math.min(Math.max(0, rows.length - safeViewport), start),
   );
   const rendered = renderSidebarViewport(rows, width, clamped, safeViewport);
-  return new StyledText(
-    rendered.map((line, index) => {
+  return styleSidebarRows(
+    rendered,
+    rendered.map((_, index) => {
       const rowIndex = clamped + index;
       const color = rowIndex % 2 === 0 ? oneDarkTheme.text : oneDarkTheme.muted;
-      return fg(color)(`${line}${index + 1 < rendered.length ? "\n" : ""}`);
+      return color;
     }),
   );
 }
@@ -436,27 +458,66 @@ export type SidebarPresentation = {
  *
  * Worktrees share an object store but not a checkout, so knowing which one is
  * on screen is the difference between a branch being busy elsewhere and being
- * free to switch to.
+ * free to switch to. The detail line names what each worktree has checked out.
  */
 export function worktreeRows(
   worktrees: readonly Worktree[],
   root: string,
   width = 28,
-): Array<{ label: string; current: boolean }> {
-  if (worktrees.length === 0) return [{ label: "  (none)", current: false }];
+): Array<{ label: string; detail: string; current: boolean }> {
+  if (worktrees.length === 0)
+    return [{ label: "  (none)", detail: "", current: false }];
   const normalise = (path: string) => path.replace(/\/+$/, "");
+  // A wrapped row would spill out of the pane, so both lines are clipped.
+  const columns = Math.max(6, width - 1);
   return worktrees.map((worktree) => {
     const current = normalise(worktree.path) === normalise(root);
     const name = normalise(worktree.path).split("/").at(-1);
-    // A wrapped row would spill out of the pane, so names are clipped.
+    const checkout = worktree.bare
+      ? "bare"
+      : worktree.branch
+        ? `on ${worktree.branch}`
+        : `detached at ${worktree.sha.slice(0, 7)}`;
     return {
       label: clipColumns(
-        ` ${current ? HEAD_ICON : "⎇"} ${name}${worktree.prunable ? " ⚠" : ""}`,
-        Math.max(6, width - 1),
+        ` ${current ? HEAD_ICON : WORKTREE_ICON} ${name}${worktree.prunable ? " ⚠" : ""}`,
+        columns,
       ),
+      detail: clipColumns(`  ${checkout}`, columns),
       current,
     };
   });
+}
+
+/** Styled two-line worktree viewport: name, then muted checkout. */
+export function renderWorktreeSidebarViewport(
+  worktrees: readonly Worktree[],
+  root: string,
+  width: number,
+  start: number,
+  viewport: number,
+): StyledText {
+  const labelled = worktreeRows(worktrees, root, width);
+  const rows = labelled.flatMap((row) => [row.label, row.detail]);
+  const safeViewport = Math.max(0, viewport);
+  const clamped = Math.max(
+    0,
+    Math.min(Math.max(0, rows.length - safeViewport), start),
+  );
+  const rendered = renderSidebarViewport(rows, width, clamped, safeViewport);
+  return styleSidebarRows(
+    rendered,
+    rendered.map((_, index) => {
+      const rowIndex = clamped + index;
+      const color =
+        rowIndex % 2 === 1
+          ? oneDarkTheme.muted
+          : labelled[rowIndex / 2]?.current
+            ? oneDarkTheme.warning
+            : oneDarkTheme.text;
+      return color;
+    }),
+  );
 }
 
 export function renderSidebar({
@@ -545,11 +606,13 @@ export function renderSidebar({
       fg(oneDarkTheme.text)(repositoryTail),
       // The worktree you are in is drawn as its own chunk so it can carry the
       // checked-out marker and colour the rest of the list does not.
-      ...worktreeRows(snapshot.worktrees, snapshot.root, width).map(
-        (row, index) =>
+      ...worktreeRows(snapshot.worktrees, snapshot.root, width).flatMap(
+        (row, index) => [
           fg(row.current ? oneDarkTheme.warning : oneDarkTheme.text)(
             `${index ? "\n" : ""}${row.label}`,
           ),
+          ...(row.detail ? [fg(oneDarkTheme.muted)(`\n${row.detail}`)] : []),
+        ],
       ),
     ]),
     localBranchStart,

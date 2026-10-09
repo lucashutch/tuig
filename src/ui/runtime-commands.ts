@@ -6,6 +6,7 @@ import type {
   RepositorySnapshot,
   ResetMode,
   Submodule,
+  Worktree,
 } from "../git/types.js";
 import { splitPatchHunks } from "../git/hunks.js";
 import { displayBranchName, shortSha } from "./history.js";
@@ -61,6 +62,7 @@ export interface RuntimeCommandsContext {
   notify(text: string, tone?: "info" | "error" | "busy"): void;
   fail(error: unknown): void;
   openSubmodule(submodule: Submodule): Promise<void>;
+  openWorktree(worktree: Worktree): Promise<void>;
 }
 
 /**
@@ -307,6 +309,10 @@ export async function runMenuAction(
   const reference = branch ? branch.name : target.sha;
   if (action === "open-submodule") {
     if (submodule) await context.openSubmodule(submodule);
+    return;
+  }
+  if (action === "open-worktree") {
+    if (worktree) await context.openWorktree(worktree);
     return;
   }
   if (action === "copy-path") {

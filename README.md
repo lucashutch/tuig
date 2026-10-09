@@ -92,6 +92,7 @@ Tuig is designed for the mouse, with keyboard controls for common actions.
 | Close repository tab           | Click `×` on a tab           | `Ctrl+W`                  |
 | Move through history           | Wheel over graph             | `j` / `k`, arrow keys     |
 | Check out a branch             | Double-click its graph label |                           |
+| Open a worktree or submodule   | Double-click it in sidebar   |                           |
 | Open graph actions             | Right-click a row or label   |                           |
 | Filter branches                |                              | `/`                       |
 | Inspect a commit               | Click commit                 | `Enter`                   |

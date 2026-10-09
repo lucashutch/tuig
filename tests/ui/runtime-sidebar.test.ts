@@ -48,7 +48,13 @@ const zeroed = <T>(value: T) =>
   >;
 
 function makeContext(branchCount = 40) {
-  const counts = { paint: 0, paintSidebar: 0, openedSubmodules: 0 };
+  const counts = {
+    paint: 0,
+    paintSidebar: 0,
+    openedSubmodules: 0,
+    openedWorktrees: [] as string[],
+    menus: 0,
+  };
   const context = {
     snapshot: snapshotWith(branchCount),
     contentHeight: 40,
@@ -83,7 +89,12 @@ function makeContext(branchCount = 40) {
     openSubmodule: async () => {
       counts.openedSubmodules++;
     },
-    openGraphMenu: () => {},
+    openWorktree: async (worktree) => {
+      counts.openedWorktrees.push(worktree.path);
+    },
+    openGraphMenu: () => {
+      counts.menus++;
+    },
   } satisfies RuntimeSidebarContext;
   return { context, counts };
 }
@@ -125,6 +136,46 @@ describe("submodule sidebar actions", () => {
     sidebarClick(context, 2, submoduleY, 0);
     await Promise.resolve();
     expect(counts.openedSubmodules).toBe(0);
+  });
+});
+
+describe("worktree sidebar actions", () => {
+  const worktrees = ["/repo", "/repo/.claude/worktrees/feature"].map(
+    (path) => ({ path, sha: "abc", bare: false, detached: false }),
+  );
+
+  test("opens the worktree under a double click on either of its rows", async () => {
+    const { context, counts } = makeContext(0);
+    context.snapshot!.worktrees = worktrees;
+    // Rows 2 and 3 are the second worktree's name and branch lines.
+    const name = rowIn(context, "worktrees") + 2;
+    sidebarClick(context, 2, name, 0);
+    sidebarClick(context, 2, name, 0);
+    sidebarClick(context, 2, name + 1, 0);
+    sidebarClick(context, 2, name + 1, 0);
+    await Promise.resolve();
+    expect(counts.openedWorktrees).toEqual([
+      "/repo/.claude/worktrees/feature",
+      "/repo/.claude/worktrees/feature",
+    ]);
+    expect(counts.menus).toBe(0);
+  });
+
+  test("clicks on different worktrees do not combine", async () => {
+    const { context, counts } = makeContext(0);
+    context.snapshot!.worktrees = worktrees;
+    const first = rowIn(context, "worktrees");
+    sidebarClick(context, 2, first, 0);
+    sidebarClick(context, 2, first + 2, 0);
+    await Promise.resolve();
+    expect(counts.openedWorktrees).toEqual([]);
+  });
+
+  test("right click opens the worktree menu", () => {
+    const { context, counts } = makeContext(0);
+    context.snapshot!.worktrees = worktrees;
+    sidebarClick(context, 2, rowIn(context, "worktrees"), 2);
+    expect(counts.menus).toBe(1);
   });
 });
 

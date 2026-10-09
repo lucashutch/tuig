@@ -41,6 +41,7 @@ import {
   fitColumns,
   layoutSidebarSections,
   renderStashSidebarViewport,
+  renderWorktreeSidebarViewport,
   renderSidebarViewportRows,
   renderSubmoduleSidebarViewport,
   sidebarHeader,
@@ -211,13 +212,21 @@ export function paintSidebar(ctx: RuntimeSidebarPaintContext) {
               start,
               rect.contentHeight,
             )
-          : renderSidebarViewportRows(
-              source!.total,
-              source!.rowAt,
-              ctx.sidebarPaneWidth,
-              start,
-              rect.contentHeight,
-            ).join("\n");
+          : section === "worktrees" && s.worktrees.length > 0
+            ? renderWorktreeSidebarViewport(
+                s.worktrees,
+                s.root,
+                ctx.sidebarPaneWidth,
+                start,
+                rect.contentHeight,
+              )
+            : renderSidebarViewportRows(
+                source!.total,
+                source!.rowAt,
+                ctx.sidebarPaneWidth,
+                start,
+                rect.contentHeight,
+              ).join("\n");
     const showDivider = rect.dividerTop !== undefined;
     widgets.divider.top = Math.max(0, (rect.dividerTop ?? 0) - 1);
     widgets.divider.left = Math.floor(ctx.sidebarPaneWidth / 4);
