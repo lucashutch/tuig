@@ -46,6 +46,7 @@ export type GraphMenuAction =
   | "remove-worktree"
   | "lock-worktree"
   | "unlock-worktree"
+  | "open-worktree"
   | "open-submodule"
   | "update-submodule"
   | "init-submodule"
@@ -264,6 +265,7 @@ function worktreeMenu(
   const items: GraphMenuItem[] = [];
   if (!main)
     items.push(
+      { label: `Open ${name}`, action: "open-worktree" },
       worktree.locked === undefined
         ? { label: `Lock ${name}`, action: "lock-worktree" }
         : {

@@ -166,7 +166,7 @@ describe("graph context menu", () => {
     ]);
   });
 
-  test("offers worktree lock, unlock, remove, and copy path", () => {
+  test("offers worktree open, lock, unlock, remove, and copy path", () => {
     const worktree = {
       path: "/repo/feature",
       sha: "e",
@@ -176,11 +176,12 @@ describe("graph context menu", () => {
     const menu = buildGraphMenu({ sha: worktree.sha, worktree }, snapshot);
     expect(menu.title).toBe("feature");
     expect(menu.items.map((item) => item.action)).toEqual([
+      "open-worktree",
       "lock-worktree",
       "remove-worktree",
       "copy-path",
     ]);
-    expect(menu.items[1]?.destructive).toBe(true);
+    expect(menu.items[2]?.destructive).toBe(true);
   });
 
   test("switches the worktree menu to unlock when locked", () => {

@@ -1,5 +1,10 @@
 import { InputRenderable, MouseButton } from "@opentui/core";
-import type { BranchRef, RepositorySnapshot, Submodule } from "../git/types.js";
+import type {
+  BranchRef,
+  RepositorySnapshot,
+  Submodule,
+  Worktree,
+} from "../git/types.js";
 import {
   branchRefsForSection,
   clampBranchSelection,
@@ -37,7 +42,8 @@ export interface RuntimeSidebarContext {
     ReturnType<typeof setTimeout> | undefined
   >;
   branchSelection: Record<"local" | "remote", number>;
-  lastSubmoduleClick?: { path: string; at: number };
+  /** The last left-clicked submodule or worktree row, for double clicks. */
+  lastSidebarClick?: { key: string; at: number };
   doubleClickMs: number;
   branchFilterInput: InputRenderable;
   layout(): void;
@@ -48,6 +54,7 @@ export interface RuntimeSidebarContext {
   notify(text: string): void;
   checkoutBranch(branch: BranchRef): Promise<void>;
   openSubmodule(submodule: Submodule): Promise<void>;
+  openWorktree(worktree: Worktree): Promise<void>;
   openGraphMenu(x: number, y: number, target: GraphMenuTarget): void;
 }
 
@@ -81,9 +88,18 @@ export function sidebarClick(
     },
   );
   if (!section) return;
-  if (section !== "submodules" || button !== MouseButton.LEFT)
-    context.lastSubmoduleClick = undefined;
   const row = context.sidebarStart[section] + y - rects[section].contentTop;
+  // Any click ends a pending double click. A left click on a submodule or
+  // worktree row arms a new one, and a second click on that row completes it.
+  const previous = context.lastSidebarClick;
+  context.lastSidebarClick = undefined;
+  const doubleClick = (key: string) => {
+    const now = Date.now();
+    if (previous?.key === key && now - previous.at < context.doubleClickMs)
+      return true;
+    context.lastSidebarClick = { key, at: now };
+    return false;
+  };
   if (section === "submodules") {
     const submodule = snapshot.submodules[Math.floor(row / 2)];
     if (button === MouseButton.RIGHT && submodule)
@@ -92,16 +108,8 @@ export function sidebarClick(
         submodule,
       });
     else if (button === MouseButton.LEFT && submodule) {
-      const now = Date.now();
-      const previous = context.lastSubmoduleClick;
-      context.lastSubmoduleClick = { path: submodule.path, at: now };
-      if (
-        previous?.path === submodule.path &&
-        now - previous.at < context.doubleClickMs
-      ) {
-        context.lastSubmoduleClick = undefined;
+      if (doubleClick(`submodule:${submodule.path}`))
         void context.openSubmodule(submodule);
-      }
     }
     return;
   }
@@ -113,12 +121,17 @@ export function sidebarClick(
     return;
   }
   if (section === "worktrees") {
-    const worktree = snapshot.worktrees[row];
-    if (worktree)
+    // Worktrees render as two rows (name, then muted checkout).
+    const worktree = snapshot.worktrees[Math.floor(row / 2)];
+    if (button === MouseButton.RIGHT && worktree)
       context.openGraphMenu(x, y + context.paneTop, {
         sha: worktree.sha,
         worktree,
       });
+    else if (button === MouseButton.LEFT && worktree) {
+      if (doubleClick(`worktree:${worktree.path}`))
+        void context.openWorktree(worktree);
+    }
     return;
   }
   const branches = filterBranchRefs(

@@ -6,6 +6,7 @@ export const HEAD_ICON = "◉";
 
 export const LAPTOP_BRANCH_ICON = "󰌢";
 export const REMOTE_BRANCH_ICON = "󰖟";
+export const WORKTREE_ICON = "⎇";
 
 /**
  * Resolve the commit HEAD points at.

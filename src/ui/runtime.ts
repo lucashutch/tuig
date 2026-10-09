@@ -30,6 +30,7 @@ import type {
   GitRepository,
   RepositorySnapshot,
   Submodule,
+  Worktree,
 } from "../git/types.js";
 import { type GraphRow } from "./graph.js";
 import {
@@ -617,7 +618,7 @@ export class Runtime {
     0,
   );
   private draggedTabId?: string;
-  private lastSubmoduleClick?: { path: string; at: number };
+  private lastSidebarClick?: { key: string; at: number };
   private repositorySuggestions: DirectorySuggestion[] = [];
   private recentRepositories: string[];
   private repositorySuggestionIndex = 0;
@@ -2269,6 +2270,36 @@ export class Runtime {
     }
   }
 
+  /**
+   * Show a worktree in its own tab, reusing the tab when it is already open.
+   * A worktree is a separate checkout, so this is how its branch is reached.
+   */
+  private async openWorktree(worktree: Worktree) {
+    try {
+      const repository = await createGitRepository(worktree.path);
+      const existing = this.tabs.find(
+        (tab) => tab.repository.root === repository.root,
+      );
+      if (existing) {
+        repository.dispose?.();
+        return this.activateRepositoryTab(existing.id, true);
+      }
+      const id = `repository-${this.nextTabId++}`;
+      this.tabs.push({ id, repository });
+      this.persistSessionPreferences();
+      await this.activateRepositoryTab(id, true);
+    } catch (error) {
+      this.notify(
+        worktree.prunable
+          ? `Worktree ${worktree.path} no longer exists`
+          : error instanceof Error
+            ? error.message
+            : String(error),
+        "error",
+      );
+    }
+  }
+
   private async activateRepositoryTab(id: string, focusCheckedOut = false) {
     const tab = this.tabs.find((candidate) => candidate.id === id);
     if (!tab) return;
@@ -3318,11 +3349,11 @@ export class Runtime {
       sidebarPendingScroll: this.sidebarPendingScroll,
       sidebarScrollTimers: this.sidebarScrollTimers,
       branchSelection: this.branchSelection,
-      get lastSubmoduleClick() {
-        return runtime.lastSubmoduleClick;
+      get lastSidebarClick() {
+        return runtime.lastSidebarClick;
       },
-      set lastSubmoduleClick(value) {
-        runtime.lastSubmoduleClick = value;
+      set lastSidebarClick(value) {
+        runtime.lastSidebarClick = value;
       },
       doubleClickMs: DOUBLE_CLICK_MS,
       branchFilterInput: this.branchFilterInput,
@@ -3334,6 +3365,7 @@ export class Runtime {
       notify: (text) => this.notify(text),
       checkoutBranch: (branch) => this.checkoutBranch(branch),
       openSubmodule: (submodule) => this.openSubmodule(submodule),
+      openWorktree: (worktree) => this.openWorktree(worktree),
       openGraphMenu: (x, y, target) => this.openGraphMenu(x, y, target),
     };
   }
@@ -4154,6 +4186,7 @@ export class Runtime {
       notify: (text, tone) => this.notify(text, tone),
       fail: (error) => this.fail(error),
       openSubmodule: (submodule) => this.openSubmodule(submodule),
+      openWorktree: (worktree) => this.openWorktree(worktree),
     };
   }
   private perform(

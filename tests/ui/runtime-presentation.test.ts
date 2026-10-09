@@ -2,6 +2,7 @@ import { expect, test } from "bun:test";
 import type { StyledText } from "@opentui/core";
 import type { Commit, RepositorySnapshot } from "../../src/git/types.js";
 import {
+  renderWorktreeSidebarViewport,
   worktreeRows,
   fitColumns,
   formatAge,
@@ -361,18 +362,28 @@ test("toolbar hover and press change colors without moving hit targets", () => {
 
 test("marks the worktree the session has open", () => {
   const worktrees = [
-    { path: "/repos/lib", sha: "a", bare: false, detached: false },
+    {
+      path: "/repos/lib",
+      sha: "a",
+      branch: "main",
+      bare: false,
+      detached: false,
+    },
     {
       path: "/tmp/lib-review/",
-      sha: "b",
+      sha: "b2c3d4e5f6",
       bare: false,
       detached: true,
       prunable: "gitdir file points to non-existent location",
     },
   ];
   expect(worktreeRows(worktrees, "/repos/lib")).toEqual([
-    { label: " ◉ lib", current: true },
-    { label: " ⎇ lib-review ⚠", current: false },
+    { label: " ◉ lib", detail: "  on main", current: true },
+    {
+      label: " ⎇ lib-review ⚠",
+      detail: "  detached at b2c3d4e",
+      current: false,
+    },
   ]);
   // A session opened in a linked worktree marks that one instead.
   expect(worktreeRows(worktrees, "/tmp/lib-review")[1]?.current).toBe(true);
@@ -383,10 +394,26 @@ test("marks the worktree the session has open", () => {
       "",
       16,
     ),
-  ).toEqual([{ label: " ⎇ a-very-long…", current: false }]);
-  expect(worktreeRows([], "/repos/lib")).toEqual([
-    { label: "  (none)", current: false },
+  ).toEqual([
+    { label: " ⎇ a-very-long…", detail: "  on main", current: false },
   ]);
+  expect(worktreeRows([], "/repos/lib")).toEqual([
+    { label: "  (none)", detail: "", current: false },
+  ]);
+});
+
+test("worktree scrollbar keeps one colour across differently coloured rows", () => {
+  const worktrees = ["/repos/lib", "/repos/a", "/repos/b"].map((path) => ({
+    path,
+    sha: "a",
+    branch: "main",
+    bare: false,
+    detached: false,
+  }));
+  const text = renderWorktreeSidebarViewport(worktrees, "/repos/lib", 20, 0, 4);
+  const track = text.chunks.filter((chunk) => /^[█│]/.test(chunk.text));
+  expect(track).toHaveLength(4);
+  expect(new Set(track.map((chunk) => String(chunk.fg))).size).toBe(1);
 });
 
 test("commit metadata includes both local author and committer timestamps", () => {
