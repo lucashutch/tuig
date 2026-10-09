@@ -138,6 +138,8 @@ export interface GitRepository {
   /** Cancel repository-specific background work when no tab owns this service. */
   dispose?(): void;
   readonly root: string;
+  /** The main checkout's root, when this repository is a linked worktree. */
+  readonly mainWorktree?: string;
   remoteUrl?(): Promise<string | undefined>;
   snapshot(limit?: number): Promise<RepositorySnapshot>;
   refreshSnapshot?(

@@ -7,6 +7,8 @@ export const HEAD_ICON = "◉";
 export const LAPTOP_BRANCH_ICON = "󰌢";
 export const REMOTE_BRANCH_ICON = "󰖟";
 export const WORKTREE_ICON = "⎇";
+/** Nerd Font octicon file-submodule. */
+export const SUBMODULE_ICON = "\uf414";
 
 /**
  * Resolve the commit HEAD points at.

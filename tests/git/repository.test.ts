@@ -35,7 +35,7 @@ test("working status lists files inside untracked directories", async () => {
   ]);
 });
 
-test("changed files omit linked worktrees but keep other nested repositories", async () => {
+test("linked worktrees are hidden from changes and know their main checkout", async () => {
   const root = await mkdtemp(join(tmpdir(), "tuig-nested-worktree-"));
   cleanup.push(root);
   await runGit(["init", "-b", "main"], root);
@@ -64,6 +64,11 @@ test("changed files omit linked worktrees but keep other nested repositories", a
 
   expect(working).toEqual(["vendor/other/"]);
   expect(snapshot).toEqual(["vendor/other/"]);
+  expect(repo.mainWorktree).toBeUndefined();
+  const linked = await GitRepositoryService.open(
+    join(root, ".claude/worktrees/feature"),
+  );
+  expect(linked.mainWorktree).toBe(repo.root);
 });
 
 test("discard removes selected untracked content and preserves staged file content", async () => {

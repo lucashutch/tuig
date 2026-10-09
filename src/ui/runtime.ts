@@ -105,8 +105,9 @@ import {
   layoutRepositoryTabs,
   repositoryTabText,
   repositoryTabHit,
-  reorderRepositoryTabs,
+  dragRepositoryTab,
   submoduleTabLabel,
+  worktreeTabLabel,
   type RepositoryTabsLayout,
 } from "./repository-tabs.js";
 import {
@@ -1374,16 +1375,22 @@ export class Runtime {
       width,
     });
   }
+  /** Tab strip entries, in the same order as `this.tabs`. */
+  private tabStripEntries() {
+    return this.tabs.map((tab) => ({
+      id: tab.id,
+      path: tab.repository.root,
+      label: tab.submoduleOf
+        ? submoduleTabLabel(tab.repository.root, tab.submoduleOf.root)
+        : tab.repository.mainWorktree
+          ? worktreeTabLabel(tab.repository.root, tab.repository.mainWorktree)
+          : undefined,
+    }));
+  }
   private paintTabs() {
     const width = Math.max(1, this.renderer.terminalWidth);
     this.tabLayout = layoutRepositoryTabs(
-      this.tabs.map((tab) => ({
-        id: tab.id,
-        path: tab.repository.root,
-        label: tab.submoduleOf
-          ? submoduleTabLabel(tab.repository.root, tab.submoduleOf.root)
-          : undefined,
-      })),
+      this.tabStripEntries(),
       this.activeTabId,
       width,
     );
@@ -1506,9 +1513,17 @@ export class Runtime {
   private handleTabDrag(x: number) {
     const movedId = this.draggedTabId;
     if (!movedId) return;
-    const hit = repositoryTabHit(this.tabLayout, x);
-    if (!hit || hit.action === "open" || hit.tabId === movedId) return;
-    this.tabs = reorderRepositoryTabs(this.tabs, movedId, hit.tabId);
+    const order = dragRepositoryTab(
+      this.tabStripEntries(),
+      movedId,
+      x,
+      this.activeTabId,
+      Math.max(1, this.renderer.terminalWidth),
+    );
+    if (!order) return;
+    this.tabs = order.map(
+      (entry) => this.tabs.find((tab) => tab.id === entry.id)!,
+    );
     this.paintTabs();
     this.persistSessionPreferences();
   }
