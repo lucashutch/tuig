@@ -1,5 +1,9 @@
 #!/usr/bin/env bun
-import { createGitRepository, NotGitRepositoryError } from "./git/index.js";
+import {
+  createGitRepository,
+  createPullRequestService,
+  NotGitRepositoryError,
+} from "./git/index.js";
 import { runTuig } from "./ui/runtime.js";
 import { HELP, VERSION, parseArgs } from "./cli.js";
 import { updateTuig } from "./update.js";
@@ -41,7 +45,7 @@ try {
         ? requested.root
         : saved.activeRepository,
       action.clean ? undefined : saved.submodules,
-      {},
+      { pullRequests: (root) => createPullRequestService(root) },
       saved.recentRepositories ?? [],
     );
   }
