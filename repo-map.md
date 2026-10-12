@@ -7,6 +7,7 @@ Canonical repository: https://github.com/lucashutch/tuig
 ## Layout
 
 - `src/git/` — Git process boundary, parsers, repository service, and domain models.
+- `src/git/process.ts` — Git process runner, own-process tracking, and Git error types.
 - `src/git/parsers.ts` — pure parsers for Git's machine-readable output.
 - `src/git/hunks.ts` — splits a file diff into hunks and builds patches for selected lines.
 - `src/git/repository-browser.ts` — directory suggestions for opening repository tabs.

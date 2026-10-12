@@ -1,6 +1,6 @@
 import { watch } from "node:fs";
 import { isAbsolute, join, relative, sep } from "node:path";
-import { ownGitActive, runGit } from "./repository";
+import { ownGitActive, runGit } from "./process";
 import type { RepositoryWatchPaths } from "./types";
 
 /** Quiet time after the last event before a burst counts as one change. */
