@@ -6,6 +6,7 @@ import type {
   Commit,
   CommandResult,
   LineBlame,
+  RepositoryWatchPaths,
   ResetMode,
   WorkingStatus,
   UndoPreview,
@@ -13,7 +14,15 @@ import type {
   Worktree,
 } from "./types";
 import { createHash } from "node:crypto";
-import { access, mkdtemp, readdir, readFile, rm, stat } from "node:fs/promises";
+import {
+  access,
+  mkdtemp,
+  readdir,
+  readFile,
+  realpath,
+  rm,
+  stat,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import {
   basename,
@@ -193,6 +202,32 @@ const NON_INTERACTIVE_ENV: Record<string, string> = {
   GIT_ASKPASS: "",
 };
 
+let ownGitProcesses = 0;
+let ownGitExitedAt = -Infinity;
+
+/**
+ * Count a Git process Tuig started, until the returned callback runs.
+ *
+ * Read-only commands such as `git diff` still rewrite `.git/index` to cache
+ * file stat data, even with `--no-optional-locks`. The repository watcher uses
+ * this count to tell those writes apart from changes made in another terminal.
+ */
+export function trackOwnGitProcess() {
+  ownGitProcesses++;
+  let ended = false;
+  return () => {
+    if (ended) return;
+    ended = true;
+    ownGitProcesses--;
+    ownGitExitedAt = performance.now();
+  };
+}
+
+/** True while a Tuig Git process runs, or ended less than graceMs ago. */
+export function ownGitActive(graceMs = 0, now = performance.now()) {
+  return ownGitProcesses > 0 || now - ownGitExitedAt < graceMs;
+}
+
 export async function runGit(
   args: string[],
   cwd?: string,
@@ -206,6 +241,21 @@ export async function runGit(
   )
     throw new RangeError("maxBytes must be a finite nonnegative integer");
   if (signal?.aborted) throw new GitCommandAbortedError(args);
+  const ended = trackOwnGitProcess();
+  try {
+    return await runTrackedGit(args, cwd, env, signal, maxBytes);
+  } finally {
+    ended();
+  }
+}
+
+async function runTrackedGit(
+  args: string[],
+  cwd: string | undefined,
+  env: Record<string, string | undefined> | undefined,
+  signal: AbortSignal | undefined,
+  maxBytes: number | undefined,
+): Promise<CommandResult> {
   // A textconv/credential helper can inherit Git's pipes. Killing only Git
   // leaves those pipes open and makes a cancelled read wait for the helper.
   const isolated =
@@ -858,6 +908,24 @@ export class GitRepositoryService implements GitRepository {
     tips.sort((a, b) => (order.get(a.sha) ?? 0) - (order.get(b.sha) ?? 0));
     return tips;
   }
+  async watchPaths(): Promise<RepositoryWatchPaths> {
+    const dirs = await this.git([
+      "rev-parse",
+      "--path-format=absolute",
+      "--git-dir",
+      "--git-common-dir",
+    ]);
+    const [gitDir = "", commonDir = ""] = dirs.stdout.trim().split("\n");
+    // Watch events name real paths, so symlinks are resolved up front.
+    const [workTree, realGitDir, realCommonDir] = await Promise.all(
+      [this.root, gitDir, commonDir].map((path) => realpath(path)),
+    );
+    return {
+      workTree: workTree!,
+      gitDir: realGitDir!,
+      commonDir: realCommonDir!,
+    };
+  }
   /** Ends the background history walk; the service stays usable after it. */
   dispose() {
     this.walk.invalidate();
@@ -1223,13 +1291,14 @@ export class GitRepositoryService implements GitRepository {
       stdout: "pipe",
       stderr: "pipe",
     });
+    const ended = trackOwnGitProcess();
     x.stdin.write(patch);
     x.stdin.end();
     const [o, e, c] = await Promise.all([
       new Response(x.stdout).text(),
       new Response(x.stderr).text(),
       x.exited,
-    ]);
+    ]).finally(ended);
     if (c) throw new GitCommandError(a, { stdout: o, stderr: e, exitCode: c });
   }
   async discardPatch(patch: string) {
@@ -1240,13 +1309,14 @@ export class GitRepositoryService implements GitRepository {
       stdout: "pipe",
       stderr: "pipe",
     });
+    const ended = trackOwnGitProcess();
     x.stdin.write(patch);
     x.stdin.end();
     const [o, e, c] = await Promise.all([
       new Response(x.stdout).text(),
       new Response(x.stderr).text(),
       x.exited,
-    ]);
+    ]).finally(ended);
     if (c) throw new GitCommandError(a, { stdout: o, stderr: e, exitCode: c });
   }
   async discardAll() {

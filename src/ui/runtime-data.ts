@@ -77,6 +77,8 @@ export interface RuntimeDataContext {
   /** Fingerprint of the painted snapshot, used to skip unchanged refreshes. */
   snapshotSignature?: string;
   snapshotRequest: number;
+  /** When the latest full snapshot read started, on the performance clock. */
+  snapshotReadStartedAt?: number;
   diffRequest: number;
   diffAbort?: AbortController;
   diffTooLarge?: boolean;
@@ -383,6 +385,7 @@ export async function refresh(
   }
   ctx.busy = true;
   const request = ++ctx.snapshotRequest;
+  ctx.snapshotReadStartedAt = performance.now();
   if (!automatic && message) ctx.notify(message, "busy");
   try {
     // A page can land while this read is in flight. Re-read at the deeper
