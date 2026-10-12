@@ -491,71 +491,74 @@ test("command palette searches themes, marks the current choice, and persists se
     },
     { name: "one-dark", mode: "dark" },
   );
-  const palette = runtime as unknown as {
-    showCommandPalette(): void;
-    paintCommandPalette(): void;
-    activatePaletteCommand(): void;
-    closeCommandPalette(): void;
-    movePaletteSelection(delta: number): void;
-    hoverPaletteRow(y: number): void;
+  const internals = runtime as unknown as {
+    palette: {
+      show(): void;
+      paint(): void;
+      activate(): void;
+      close(): void;
+      moveSelection(delta: number): void;
+      hoverRow(y: number): void;
+      start: number;
+      index: number;
+      matches: { command: { id: string } }[];
+    };
     commandPaletteBox: BoxRenderable;
-    commandPaletteStart: number;
     commandPaletteInput: InputRenderable;
-    commandPaletteIndex: number;
-    commandPaletteMatches: { command: { id: string } }[];
   };
+  const palette = internals.palette;
   try {
-    palette.showCommandPalette();
-    palette.commandPaletteInput.value = "Change theme";
-    palette.paintCommandPalette();
-    palette.commandPaletteIndex = palette.commandPaletteMatches.findIndex(
+    palette.show();
+    internals.commandPaletteInput.value = "Change theme";
+    palette.paint();
+    palette.index = palette.matches.findIndex(
       ({ command }) => command.id === "theme.change",
     );
-    palette.activatePaletteCommand();
+    palette.activate();
     await Bun.sleep(30);
     await renderOnce();
     expect(captureCharFrame()).toContain("one-dark (current)");
     expect(captureCharFrame()).toContain("Search themes");
-    expect(palette.commandPaletteBox.border).toBe(false);
+    expect(internals.commandPaletteBox.border).toBe(false);
     expect(captureCharFrame()).toContain(
       "↑↓ navigate   enter select   esc close",
     );
-    const fullHeight = Number(palette.commandPaletteBox.height);
-    palette.movePaletteSelection(1);
+    const fullHeight = Number(internals.commandPaletteBox.height);
+    palette.moveSelection(1);
     expect(activeTheme.bg).not.toBe(oneDarkTheme.bg);
     expect(await loadThemePreferences()).toEqual({
       name: "one-dark",
       mode: "system",
     });
-    palette.hoverPaletteRow(Number(palette.commandPaletteBox.top) + 3);
+    palette.hoverRow(Number(internals.commandPaletteBox.top) + 3);
     expect(activeTheme.bg).toBe(oneDarkTheme.bg);
-    palette.commandPaletteInput.value = "opencode";
-    palette.paintCommandPalette();
-    expect(palette.commandPaletteMatches).toHaveLength(1);
+    internals.commandPaletteInput.value = "opencode";
+    palette.paint();
+    expect(palette.matches).toHaveLength(1);
     await renderOnce();
-    expect(Number(palette.commandPaletteBox.height)).toBeLessThan(fullHeight);
+    expect(Number(internals.commandPaletteBox.height)).toBeLessThan(fullHeight);
     expect(captureCharFrame()).toContain("opencode");
     expect(captureCharFrame()).not.toContain("Settings ·");
     expect(activeTheme.bg).not.toBe(oneDarkTheme.bg);
-    palette.commandPaletteInput.value = "no-such-theme-xyz";
-    palette.paintCommandPalette();
+    internals.commandPaletteInput.value = "no-such-theme-xyz";
+    palette.paint();
     expect(activeTheme.bg).toBe(oneDarkTheme.bg);
-    palette.commandPaletteInput.value = "opencode";
-    palette.paintCommandPalette();
-    palette.closeCommandPalette();
+    internals.commandPaletteInput.value = "opencode";
+    palette.paint();
+    palette.close();
     expect(activeTheme.bg).toBe(oneDarkTheme.bg);
     expect((await loadThemePreferences()).name).toBe("one-dark");
-    palette.showCommandPalette();
-    palette.commandPaletteInput.value = "Change theme";
-    palette.paintCommandPalette();
-    palette.commandPaletteIndex = palette.commandPaletteMatches.findIndex(
+    palette.show();
+    internals.commandPaletteInput.value = "Change theme";
+    palette.paint();
+    palette.index = palette.matches.findIndex(
       ({ command }) => command.id === "theme.change",
     );
-    palette.activatePaletteCommand();
+    palette.activate();
     await Bun.sleep(30);
-    palette.commandPaletteInput.value = "opencode";
-    palette.paintCommandPalette();
-    palette.activatePaletteCommand();
+    internals.commandPaletteInput.value = "opencode";
+    palette.paint();
+    palette.activate();
     for (let attempt = 0; attempt < 50; attempt++) {
       if ((await loadThemePreferences()).name === "opencode") break;
       await Bun.sleep(5);
