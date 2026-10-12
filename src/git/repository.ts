@@ -35,6 +35,12 @@ import {
   parseTracking,
   parseWorktrees,
 } from "./parsers";
+import {
+  classifyRemoteAuthFailure,
+  describeRemoteAuthFailure,
+  type RemoteAuthFailure,
+  type RemoteOperation,
+} from "./remote-errors";
 
 export {
   parseForEachRef,
@@ -49,6 +55,18 @@ export {
   parseSubmodules,
   parseWorktrees,
 } from "./parsers";
+
+/** A fetch, pull, or push failed because credentials or a host key are missing. */
+export class GitAuthError extends Error {
+  constructor(
+    message: string,
+    public readonly failure: RemoteAuthFailure,
+    public readonly command: GitCommandError,
+  ) {
+    super(message);
+    this.name = "GitAuthError";
+  }
+}
 
 export class GitCommandError extends Error {
   constructor(
@@ -1491,8 +1509,10 @@ export class GitRepositoryService implements GitRepository {
   }
   async pushTag(name: string, remote?: string, signal?: AbortSignal) {
     await this.validateTagName(name);
-    await this.git(
+    await this.remoteGit(
+      "push",
       ["push", ...(remote ? [remote] : []), "--", `refs/tags/${name}`],
+      remote,
       signal,
     );
   }
@@ -1529,21 +1549,79 @@ export class GitRepositoryService implements GitRepository {
     if (!remote) throw new Error(`No configured remote for ${name}`);
     const branch = name.slice(remote.length + 1);
     await this.git(["check-ref-format", `refs/heads/${branch}`]);
-    await this.git(
+    await this.remoteGit(
+      "push",
       ["push", "--delete", "--", remote, `refs/heads/${branch}`],
+      remote,
       signal,
     );
+  }
+  /**
+   * True after a fetch, pull, or push failed for missing credentials and no
+   * remote command has succeeded since. Background fetch skips while set.
+   */
+  authBlocked = false;
+  private async remoteGit(
+    operation: RemoteOperation,
+    args: string[],
+    remote: string | undefined,
+    signal?: AbortSignal,
+  ) {
+    this.invalidateHistory();
+    try {
+      await runGit(args, this.root, await this.sshEnv(), signal);
+      this.authBlocked = false;
+    } catch (error) {
+      if (!(error instanceof GitCommandError)) throw error;
+      const failure = classifyRemoteAuthFailure(error.result.stderr);
+      if (!failure) throw error;
+      this.authBlocked = true;
+      throw new GitAuthError(
+        describeRemoteAuthFailure(operation, failure, remote),
+        failure,
+        error,
+      );
+    }
+  }
+  /**
+   * SSH reads passphrases and host key answers from /dev/tty, which Tuig
+   * owns. GIT_TERMINAL_PROMPT=0 does not stop that. BatchMode=yes makes ssh
+   * fail at once instead. Any SSH command the user configured is left alone.
+   */
+  private async sshEnv(): Promise<Record<string, string> | undefined> {
+    if (process.env.GIT_SSH_COMMAND || process.env.GIT_SSH) return undefined;
+    const configured = await runGit(
+      ["config", "--get", "core.sshCommand"],
+      this.root,
+    ).catch(() => undefined);
+    if (configured?.stdout.trim()) return undefined;
+    return { GIT_SSH_COMMAND: "ssh -o BatchMode=yes" };
   }
   async fetch(r?: string, signal?: AbortSignal) {
     // Remove remote-tracking refs that disappeared from the remote. Without
     // pruning, the sidebar and graph keep showing branches deleted upstream.
-    await this.git(["fetch", "--prune", ...(r ? [r] : [])], signal);
+    await this.remoteGit(
+      "fetch",
+      ["fetch", "--prune", ...(r ? [r] : [])],
+      r,
+      signal,
+    );
   }
   async pull(rebase = false, signal?: AbortSignal) {
-    await this.git(["pull", ...(rebase ? ["--rebase"] : [])], signal);
+    await this.remoteGit(
+      "pull",
+      ["pull", ...(rebase ? ["--rebase"] : [])],
+      undefined,
+      signal,
+    );
   }
   async push(r?: string, s = false, signal?: AbortSignal) {
-    await this.git(["push", ...(s ? ["-u"] : []), ...(r ? [r] : [])], signal);
+    await this.remoteGit(
+      "push",
+      ["push", ...(s ? ["-u"] : []), ...(r ? [r] : [])],
+      r,
+      signal,
+    );
   }
   async stash(m?: string, i = false) {
     await this.git([

@@ -141,6 +141,8 @@ export interface GitRepository {
   /** The main checkout's root, when this repository is a linked worktree. */
   readonly mainWorktree?: string;
   remoteUrl?(): Promise<string | undefined>;
+  /** Set while remote commands fail for missing credentials. Background fetch pauses. */
+  readonly authBlocked?: boolean;
   snapshot(limit?: number): Promise<RepositorySnapshot>;
   refreshSnapshot?(
     previous: RepositorySnapshot,

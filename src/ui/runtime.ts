@@ -1193,7 +1193,7 @@ export class Runtime {
     }, REFRESH_INTERVAL_MS);
     if (this.remoteFetchIntervalMinutes > 0) {
       this.remoteFetchTimer = setInterval(() => {
-        if (!this.composing && !this.busy)
+        if (!this.composing && !this.busy && !this.repository.authBlocked)
           void this.perform(
             "Fetching remote changes…",
             () => this.repository.fetch(),
