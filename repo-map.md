@@ -22,6 +22,7 @@ Canonical repository: https://github.com/lucashutch/tuig
 - `src/ui/runtime-commands.ts` — Git-backed commands, confirmations, prompts, and commit mutations.
 - `src/ui/runtime-data.ts` — snapshot, diff, and commit-detail loading with request guards.
 - `src/ui/auto-refresh.ts` — active-tab watch with a polling fallback and safety-net poll.
+- `src/ui/runtime-diff-selection.ts` — diff line selection, drag selection, and selected-line staging.
 - `src/ui/runtime-files.ts` — changed-file selection, expansion, scrolling, and diff targets.
 - `src/ui/runtime-history.ts` — history navigation, scrolling, graph hit testing, and double-click handling.
 - `src/ui/runtime-layout.ts` — pane sizing and layout calculations.

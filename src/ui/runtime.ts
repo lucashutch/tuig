@@ -149,7 +149,6 @@ import {
   removeRecentRepository,
   saveSessionPreferences,
 } from "./session-preferences.js";
-import { changedDiffRowsInRange } from "./diff-lines.js";
 import {
   PANE_TOP,
   createRuntimeWidgets,
@@ -208,7 +207,10 @@ import {
   runFileAction as runRuntimeFileAction,
   type RuntimeCommandsContext,
 } from "./runtime-commands.js";
-import { selectPatchLines } from "../git/hunks.js";
+import {
+  RuntimeDiffSelectionController,
+  type RuntimeDiffSelectionContext,
+} from "./runtime-diff-selection.js";
 
 export async function runTuig(
   repositories: GitRepository[],
@@ -699,10 +701,9 @@ export class Runtime {
     run: (value: string) => Promise<void>;
   };
   private diffOrigin?: "working" | "commit";
-  private selectedDiffRows = new Set<number>();
-  private selectedDiffSnapshot = "";
-  private diffDragAnchor?: number;
-  private diffDragSelecting = true;
+  private readonly diffSelection = new RuntimeDiffSelectionController(() =>
+    this.diffSelectionContext(),
+  );
   private suppressEnterUntil = 0;
   private commitFilesTop = 19;
   // Widths read back off renderables can lag by a frame, so panes keep the
@@ -1386,9 +1387,9 @@ export class Runtime {
       focus: this.focus,
       view: this.view,
       composing: this.composing,
-      lineSelection: this.selectedDiffRows.size
+      lineSelection: this.diffSelection.size
         ? {
-            count: this.selectedDiffRows.size,
+            count: this.diffSelection.size,
             action: this.mode === "staged" ? "unstage" : "stage",
           }
         : undefined,
@@ -2681,7 +2682,7 @@ export class Runtime {
     button?: number,
     x?: number,
   ) {
-    if (this.selectedDiffRows.size) this.clearLineSelection(false);
+    if (this.diffSelection.size) this.clearLineSelection(false);
     if (this.historyFilter) {
       const row =
         Math.floor((y - this.unstagedText.y) / FILE_HISTORY_CARD_ROWS) +
@@ -3835,7 +3836,7 @@ export class Runtime {
       // owns Escape so its saved working draft is never stranded.
       if (this.editingCommitSha) return this.cancelEditMessage();
       if (this.historyFilter && this.clearHistoryFilter()) return;
-      if (this.selectedDiffRows.size) {
+      if (this.diffSelection.size) {
         this.clearLineSelection();
         return;
       }
@@ -3910,13 +3911,13 @@ export class Runtime {
     // OpenTUI reports the Enter key as "return"; both names are accepted so
     // the binding cannot break with a rename upstream.
     if (key.name === "enter" || key.name === "return") {
-      if (this.selectedDiffRows.size) return void this.applySelectedLines();
+      if (this.diffSelection.size) return void this.applySelectedLines();
       if (this.focus === "changes") return void this.openSelectedFile();
       if (this.view === "history") return void this.openCommit();
       return;
     }
     if (key.name === "t") {
-      if (this.selectedDiffRows.size) this.clearLineSelection(false);
+      if (this.diffSelection.size) this.clearLineSelection(false);
       this.mode = this.mode === "staged" ? "unstaged" : "staged";
       this.fileIndex = 0;
       this.fileStart = this.sectionStart[this.mode];
@@ -3995,7 +3996,7 @@ export class Runtime {
     }
   }
   private moveFile(delta: number) {
-    if (this.selectedDiffRows.size) this.clearLineSelection(false);
+    if (this.diffSelection.size) this.clearLineSelection(false);
     if (this.historyFilter) return this.filesScroll("unstaged", delta);
     moveRuntimeFile(this.filesContext(), delta);
   }
@@ -4015,167 +4016,52 @@ export class Runtime {
     ctrl: boolean,
     alt: boolean,
   ) {
-    if (!this.commitDiff.visible) return;
-    const hit = this.commitDiff.lineTargetAt(x, y);
-    const file = this.selectedFile();
-    if (!file) return;
-    if (
-      button === MouseButton.LEFT &&
-      this.diffOrigin === "working" &&
-      hit &&
-      hit.kind !== "context"
-    ) {
-      if (this.selectedDiffSnapshot !== this.commitDiff.diff) {
-        this.selectedDiffRows.clear();
-        this.selectedDiffSnapshot = this.commitDiff.diff;
-      }
-      if (!ctrl && !alt) {
-        this.selectedDiffRows.clear();
-        this.selectedDiffRows.add(hit.rawRow);
-      } else if (this.selectedDiffRows.has(hit.rawRow)) {
-        this.selectedDiffRows.delete(hit.rawRow);
-      } else this.selectedDiffRows.add(hit.rawRow);
-      if (alt) {
-        this.diffDragAnchor = hit.rawRow;
-        this.diffDragSelecting = this.selectedDiffRows.has(hit.rawRow);
-      }
-      this.commitDiff.setSelectedRows(this.selectedDiffRows);
-      this.paintHints();
-      const count = this.selectedDiffRows.size;
-      this.notify(
-        count
-          ? `${count} line${count === 1 ? "" : "s"} selected · Enter to ${this.mode === "staged" ? "unstage" : "stage"}`
-          : "Line selection cleared",
-      );
-      return;
-    }
-    if (button !== MouseButton.RIGHT) return;
-    if (
-      this.diffOrigin === "working" &&
-      hit &&
-      hit.kind !== "context" &&
-      (!this.selectedDiffRows.size || !this.selectedDiffRows.has(hit.rawRow))
-    ) {
-      this.selectedDiffRows.clear();
-      this.selectedDiffRows.add(hit.rawRow);
-      this.selectedDiffSnapshot = this.commitDiff.diff;
-      this.commitDiff.setSelectedRows(this.selectedDiffRows);
-      this.paintHints();
-    }
-    if (
-      this.diffOrigin === "working" &&
-      this.selectedDiffRows.size &&
-      this.selectedDiffSnapshot === this.commitDiff.diff
-    ) {
-      const action =
-        this.mode === "staged" ? "Unstage selected" : "Stage selected";
-      const items = [
-        { label: action },
-        ...(this.mode === "unstaged"
-          ? [{ label: "Discard selected", destructive: true }]
-          : []),
-        { label: "Clear selection" },
-      ];
-      this.openPopup("Selected lines", items, x, y, (item) => {
-        if (item.label === "Clear selection") this.clearLineSelection();
-        else if (item.label === "Discard selected")
-          void this.applySelectedLines(true);
-        else void this.applySelectedLines();
-      });
-      return;
-    }
-    if (!hit) return;
-    const selected =
-      this.historyFilter?.commits[this.historyFilter.index] ??
-      this.snapshot?.commits[this.commitIndex];
-    let sha: string;
-    let path = file.path;
-    if (this.diffOrigin === "commit" && selected) {
-      sha =
-        hit.side === "old"
-          ? (this.comparisonBaseSha ?? selected.parents[0] ?? "")
-          : selected.sha;
-      if (hit.side === "old") path = file.originalPath ?? file.path;
-    } else if (hit.kind !== "added") {
-      sha = this.snapshot?.headSha ?? "";
-      path = file.originalPath ?? file.path;
-    } else {
-      this.notify("Uncommitted added lines cannot be blamed");
-      return;
-    }
-    this.openGraphMenu(x, y, {
-      sha,
-      file: { ...file, path },
-      fileStaged: this.mode === "staged",
-      line:
-        this.diffOrigin !== "commit" && hit.kind === "context"
-          ? (hit.oldLine ?? hit.line)
-          : hit.line,
-    });
+    this.diffSelection.click(x, y, button, ctrl, alt);
   }
   private diffDrag(x: number, y: number) {
-    if (
-      this.diffDragAnchor === undefined ||
-      this.selectedDiffSnapshot !== this.commitDiff.diff
-    )
-      return false;
-    const hit = this.commitDiff.lineTargetAt(x, y);
-    if (!hit) return true;
-    for (const row of changedDiffRowsInRange(
-      this.commitDiff.diff,
-      this.diffDragAnchor,
-      hit.rawRow,
-    )) {
-      if (this.diffDragSelecting) this.selectedDiffRows.add(row);
-      else this.selectedDiffRows.delete(row);
-    }
-    this.commitDiff.setSelectedRows(this.selectedDiffRows);
-    this.paintHints();
-    return true;
+    return this.diffSelection.drag(x, y);
   }
   private diffDragEnd() {
-    const active = this.diffDragAnchor !== undefined;
-    this.diffDragAnchor = undefined;
-    return active;
+    return this.diffSelection.dragEnd();
   }
   private clearLineSelection(notify = true) {
-    this.diffDragEnd();
-    this.selectedDiffRows.clear();
-    this.selectedDiffSnapshot = "";
-    this.commitDiff.setSelectedRows(this.selectedDiffRows);
-    this.paintHints();
-    if (notify) this.notify("Line selection cleared");
+    this.diffSelection.clear(notify);
   }
   private applySelectedLines(discard = false) {
-    if (
-      this.diffOrigin !== "working" ||
-      !this.selectedDiffRows.size ||
-      this.selectedDiffSnapshot !== this.commitDiff.diff
-    ) {
-      this.clearLineSelection();
-      return;
-    }
-    const patch = selectPatchLines(
-      this.selectedDiffSnapshot,
-      this.selectedDiffRows,
-      discard || this.mode === "staged" ? "new" : "old",
-    );
-    if (!patch) return this.notify("No changed lines selected", "error");
-    const staged = this.mode === "staged";
-    const label = discard
-      ? "Discarding selected lines…"
-      : `${staged ? "Unstaging" : "Staging"} selected lines…`;
-    this.selectedDiffRows.clear();
-    this.selectedDiffSnapshot = "";
-    return this.perform(
-      label,
-      () =>
-        discard
-          ? this.repository.discardPatch(patch)
-          : this.repository.applyPatch(patch, staged),
-      false,
-      "working",
-    );
+    return this.diffSelection.apply(discard);
+  }
+  private diffSelectionContext(): RuntimeDiffSelectionContext {
+    // eslint-disable-next-line @typescript-eslint/no-this-alias
+    const runtime = this;
+    return {
+      get repository() {
+        return runtime.repository;
+      },
+      commitDiff: this.commitDiff,
+      get diffOrigin() {
+        return runtime.diffOrigin;
+      },
+      get mode() {
+        return runtime.mode;
+      },
+      get comparisonBaseSha() {
+        return runtime.comparisonBaseSha;
+      },
+      get headSha() {
+        return runtime.snapshot?.headSha;
+      },
+      selectedCommit: () =>
+        this.historyFilter?.commits[this.historyFilter.index] ??
+        this.snapshot?.commits[this.commitIndex],
+      selectedFile: () => this.selectedFile(),
+      paintHints: () => this.paintHints(),
+      notify: (text, tone) => this.notify(text, tone),
+      openPopup: (title, items, x, y, select) =>
+        this.openPopup(title, items, x, y, select),
+      openGraphMenu: (x, y, target) => this.openGraphMenu(x, y, target),
+      perform: (label, action, remote, scope) =>
+        this.perform(label, action, remote, scope),
+    };
   }
   private commandsContext(): RuntimeCommandsContext {
     // eslint-disable-next-line @typescript-eslint/no-this-alias
