@@ -16,21 +16,11 @@ import {
   type KeyEvent,
   type Selection,
 } from "@opentui/core";
-import { resolve } from "node:path";
-import {
-  createGitRepository,
-  NotGitRepositoryError,
-  resolveRepositoryPath,
-  suggestDirectories,
-  type DirectorySuggestion,
-} from "../git/index.js";
 import type {
   BranchRef,
   ChangedFile,
   GitRepository,
   RepositorySnapshot,
-  Submodule,
-  Worktree,
 } from "../git/types.js";
 import { type GraphRow } from "./graph.js";
 import { createAutoRefresh } from "./auto-refresh.js";
@@ -64,6 +54,11 @@ import {
 } from "./graph-menu.js";
 import { RuntimePopupController } from "./runtime-popup.js";
 import {
+  RuntimeTabsController,
+  type RuntimeTab,
+  type RuntimeTabsContext,
+} from "./runtime-tabs.js";
+import {
   RuntimePaletteController,
   type RuntimePaletteContext,
 } from "./runtime-palette.js";
@@ -84,30 +79,13 @@ import {
   type RuntimeSidebarPaintContext,
 } from "./runtime-paint.js";
 import { activeTheme as oneDarkTheme } from "./theme.js";
-import {
-  interactionBackground,
-  semanticColor,
-  setActiveTheme,
-} from "./theme.js";
+import { setActiveTheme } from "./theme.js";
 import {
   loadThemeCatalog,
   loadThemePreferences,
   saveThemePreferences,
 } from "./theme-store.js";
-import {
-  dialogColor,
-  loadInitialTheme,
-  updateWidgetTheme,
-} from "./runtime-theme.js";
-import {
-  layoutRepositoryTabs,
-  repositoryTabText,
-  repositoryTabHit,
-  dragRepositoryTab,
-  submoduleTabLabel,
-  worktreeTabLabel,
-  type RepositoryTabsLayout,
-} from "./repository-tabs.js";
+import { loadInitialTheme, updateWidgetTheme } from "./runtime-theme.js";
 import {
   fileViewportSize,
   clipColumns,
@@ -143,7 +121,6 @@ import {
 } from "./runtime-keys.js";
 import {
   promoteRecentRepository,
-  removeRecentRepository,
   saveSessionPreferences,
 } from "./session-preferences.js";
 import {
@@ -170,7 +147,6 @@ import {
 } from "./runtime-data.js";
 import { cancelAvatarWork, terminalGraphicsSupported } from "./avatars.js";
 import {
-  historyStartForCommit,
   historyClick as handleHistoryClick,
   moveCommit as moveHistoryCommit,
   queueHistoryScroll as queueRuntimeHistoryScroll,
@@ -472,7 +448,6 @@ export class Runtime {
   };
   private historyDividerHover?: HistoryDividerKey;
   private hoveredHistoryLine?: number;
-  private hoveredTab?: string;
   private lastDividerPress?: { key: HistoryDividerKey; at: number };
   private historyColumnDrag?: {
     key: HistoryDividerKey;
@@ -525,6 +500,7 @@ export class Runtime {
   >();
   private readonly popupController: RuntimePopupController;
   private readonly palette: RuntimePaletteController;
+  private readonly repositoryTabs: RuntimeTabsController;
   private lastGraphClick?: { row: number; at: number; label: boolean };
   private expandedFiles = new Set<string>();
   private seenFileDirectories = new Set<string>();
@@ -609,33 +585,11 @@ export class Runtime {
   private readonly commandPaletteText: TextRenderable;
   private readonly commandPaletteFooter: TextRenderable;
   private repository: GitRepository;
-  private tabs: Array<{
-    id: string;
-    repository: GitRepository;
-    submoduleOf?: { root: string; path: string };
-    history?: {
-      start: number;
-      commitIndex: number;
-      selectedSha?: string;
-      selection: "working" | "commit";
-      viewportDetached: boolean;
-      limit: number;
-    };
-  }>;
+  private tabs: RuntimeTab[];
   private activeTabId: string;
   private nextTabId = 1;
-  private tabLayout: RepositoryTabsLayout = layoutRepositoryTabs(
-    [],
-    undefined,
-    0,
-  );
-  private draggedTabId?: string;
   private lastSidebarClick?: { key: string; at: number };
-  private repositorySuggestions: DirectorySuggestion[] = [];
   private recentRepositories: string[];
-  private repositorySuggestionIndex = 0;
-  private repositorySuggestionRows = 5;
-  private repositoryPickerRequest = 0;
   private leftWidth = 28;
   private detailsWidth = 44;
   private leftCollapsed = false;
@@ -755,21 +709,13 @@ export class Runtime {
       (tab) => tab.repository.root === repository.root,
     )!.id;
     const widgets = createRuntimeWidgets(renderer, {
-      tabMouseDown: (x, button) => this.handleTabMouseDown(x, button),
+      tabMouseDown: (x, button) =>
+        this.repositoryTabs.handleTabMouseDown(x, button),
       toggleAvatars: () => this.toggleAvatars(),
       toggleDiffView: () => this.toggleDiffView(),
-      tabDrag: (x) => this.handleTabDrag(x),
-      tabHover: (x) => {
-        const hit =
-          x === undefined ? undefined : repositoryTabHit(this.tabLayout, x);
-        const next = hit?.action === "open" ? "open" : hit?.tabId;
-        if (next === this.hoveredTab) return;
-        this.hoveredTab = next;
-        this.paintTabs();
-      },
-      tabDragEnd: () => {
-        this.draggedTabId = undefined;
-      },
+      tabDrag: (x) => this.repositoryTabs.handleTabDrag(x),
+      tabHover: (x) => this.repositoryTabs.hover(x),
+      tabDragEnd: () => this.repositoryTabs.dragEnd(),
       sidebarClick: (x, y, button) =>
         this.sidebarClick(x, y - PANE_TOP, button),
       sidebarToggle: (section) => this.toggleSidebarSection(section),
@@ -1015,7 +961,7 @@ export class Runtime {
       wrapMode: "none",
       content: "",
       onMouseDown: (event) =>
-        this.chooseRepositorySuggestion(
+        this.repositoryTabs.chooseRepositorySuggestion(
           event.y - Number(this.repositoryPickerBox.top) - 3,
         ),
     });
@@ -1093,6 +1039,7 @@ export class Runtime {
       },
     });
     this.palette = new RuntimePaletteController(this.paletteContext());
+    this.repositoryTabs = new RuntimeTabsController(this.tabsContext());
     this.branchFilterInput.on(InputRenderableEvents.INPUT, () => {
       cancelRuntimeSidebarScroll(this.sidebarContext());
       this.branchFilter = this.branchFilterInput.value;
@@ -1109,10 +1056,9 @@ export class Runtime {
       InputRenderableEvents.ENTER,
       () => void this.submitNamePrompt(),
     );
-    this.repositoryPathInput.on(InputRenderableEvents.INPUT, () => {
-      this.repositorySuggestionIndex = 0;
-      void this.updateRepositorySuggestions();
-    });
+    this.repositoryPathInput.on(InputRenderableEvents.INPUT, () =>
+      this.repositoryTabs.inputChanged(),
+    );
     this.commandPaletteInput.on(InputRenderableEvents.INPUT, () => {
       this.palette.index = 0;
       this.palette.start = 0;
@@ -1121,14 +1067,8 @@ export class Runtime {
     this.commandPaletteInput.on(InputRenderableEvents.ENTER, () =>
       this.palette.activate(),
     );
-    this.repositoryPathInput.on(
-      InputRenderableEvents.ENTER,
-      () =>
-        void this.openRepositoryPath(
-          this.repositoryPathInput.value.trim()
-            ? undefined
-            : this.closedRecentRepositories[this.repositorySuggestionIndex],
-        ),
+    this.repositoryPathInput.on(InputRenderableEvents.ENTER, () =>
+      this.repositoryTabs.submitRepositoryInput(),
     );
     this.renderer.root.add(this.branchFilterInput);
     this.renderer.root.add(this.promptInput);
@@ -1187,7 +1127,7 @@ export class Runtime {
     );
     this.layout();
     await this.refresh();
-    await this.focusCheckedOutCommit();
+    await this.repositoryTabs.focusCheckedOutCommit();
     // Refresh creates width-dependent history content; recompute once with
     // the live snapshot so startup follows the same path as a manual resize.
     this.layout();
@@ -1406,94 +1346,7 @@ export class Runtime {
       width,
     });
   }
-  /** Tab strip entries, in the same order as `this.tabs`. */
-  private tabStripEntries() {
-    return this.tabs.map((tab) => ({
-      id: tab.id,
-      path: tab.repository.root,
-      label: tab.submoduleOf
-        ? submoduleTabLabel(tab.repository.root, tab.submoduleOf.root)
-        : tab.repository.mainWorktree
-          ? worktreeTabLabel(tab.repository.root, tab.repository.mainWorktree)
-          : undefined,
-    }));
-  }
-  private paintTabs() {
-    const width = Math.max(1, this.renderer.terminalWidth);
-    this.tabLayout = layoutRepositoryTabs(
-      this.tabStripEntries(),
-      this.activeTabId,
-      width,
-    );
-    const cells = [];
-    for (const [index, tab] of this.tabLayout.tabs.entries()) {
-      const previous = this.tabLayout.tabs[index - 1];
-      if (previous) {
-        cells.push(
-          bg(oneDarkTheme.panelRaised)(
-            " ".repeat(Math.max(0, tab.start - previous.end)),
-          ),
-        );
-      }
-      const hovered = this.hoveredTab === tab.id;
-      const background = interactionBackground(
-        oneDarkTheme,
-        oneDarkTheme.panel,
-        { selected: tab.active, hovered },
-      );
-      const label = repositoryTabText(tab);
-      cells.push(
-        bg(
-          semanticColor(
-            oneDarkTheme,
-            "background.action.secondary",
-            background,
-            { states: { selected: tab.active, hovered } },
-          ),
-        )(
-          fg(
-            semanticColor(
-              oneDarkTheme,
-              "text.action.secondary",
-              tab.active ? oneDarkTheme.accent : oneDarkTheme.muted,
-              { states: { selected: tab.active } },
-            ),
-          )(label),
-        ),
-      );
-    }
-    const used = this.tabLayout.tabs.at(-1)?.end ?? 0;
-    const gap = Math.max(0, this.tabLayout.open.start - used);
-    cells.push(bg(oneDarkTheme.panelRaised)(" ".repeat(gap)));
-    const openLabel = " + ".slice(
-      0,
-      this.tabLayout.open.end - this.tabLayout.open.start,
-    );
-    cells.push(
-      bg(
-        semanticColor(
-          oneDarkTheme,
-          "background.action.secondary",
-          interactionBackground(oneDarkTheme, oneDarkTheme.panelRaised, {
-            hovered: this.hoveredTab === "open",
-          }),
-          { states: { hovered: this.hoveredTab === "open" } },
-        ),
-      )(
-        fg(
-          semanticColor(
-            oneDarkTheme,
-            "text.action.secondary",
-            oneDarkTheme.accent,
-          ),
-        )(openLabel),
-      ),
-    );
-    cells.push(
-      bg(oneDarkTheme.panelRaised)(
-        " ".repeat(Math.max(0, width - this.tabLayout.open.end)),
-      ),
-    );
+  private paintViewToggles() {
     this.avatarToggle.content = `${this.avatarsEnabled ? "■" : "□"} Avatars`;
     const splitPreferred = this.diffViewPreference === "side-by-side";
     this.diffViewToggle.content = `${splitPreferred ? "■" : "□"} ${
@@ -1503,23 +1356,10 @@ export class Runtime {
           : "Split (narrow)"
         : "Inline"
     }`;
-    this.tabBar.width = width;
-    this.tabBar.content = new StyledText(cells);
   }
 
-  private handleTabMouseDown(x: number, button: number) {
-    const hit = repositoryTabHit(this.tabLayout, x);
-    if (!hit) return;
-    if (button === MouseButton.MIDDLE) {
-      if (hit.action === "select" || hit.action === "close")
-        void this.closeRepositoryTab(hit.tabId);
-      return;
-    }
-    if (button !== MouseButton.LEFT) return;
-    if (hit.action === "open") return this.showRepositoryPicker();
-    if (hit.action === "close") return void this.closeRepositoryTab(hit.tabId);
-    this.draggedTabId = hit.tabId;
-    void this.activateRepositoryTab(hit.tabId);
+  private tabsContext(): RuntimeTabsContext {
+    return this as unknown as RuntimeTabsContext;
   }
 
   private toggleAvatars() {
@@ -1530,7 +1370,7 @@ export class Runtime {
     if (commit && this.view === "commit")
       showRuntimeCommitMeta(this.dataContext(), commit);
     this.persistLayoutPreferences();
-    this.paintTabs();
+    this.repositoryTabs.paintTabs();
     this.paint();
   }
 
@@ -1541,33 +1381,9 @@ export class Runtime {
     this.layout();
   }
 
-  private handleTabDrag(x: number) {
-    const movedId = this.draggedTabId;
-    if (!movedId) return;
-    const order = dragRepositoryTab(
-      this.tabStripEntries(),
-      movedId,
-      x,
-      this.activeTabId,
-      Math.max(1, this.renderer.terminalWidth),
-    );
-    if (!order) return;
-    this.tabs = order.map(
-      (entry) => this.tabs.find((tab) => tab.id === entry.id)!,
-    );
-    this.paintTabs();
-    this.persistSessionPreferences();
-  }
-
   private dismissOverlay() {
     if (this.commandPaletteOpen) return this.closeCommandPalette();
     this.popupController.close();
-  }
-
-  private activateRelativeRepositoryTab(delta: number) {
-    const index = this.tabs.findIndex((tab) => tab.id === this.activeTabId);
-    const next = (index + delta + this.tabs.length) % this.tabs.length;
-    return this.activateRepositoryTab(this.tabs[next]!.id);
   }
 
   private get commandPaletteOpen() {
@@ -1667,427 +1483,17 @@ export class Runtime {
       },
       startBranchFilter: () => this.startBranchFilter(),
       setFocus: (focus) => this.setFocus(focus),
-      showRepositoryPicker: () => this.showRepositoryPicker(),
-      closeActiveRepositoryTab: () => this.closeRepositoryTab(this.activeTabId),
+      showRepositoryPicker: () => this.repositoryTabs.showRepositoryPicker(),
+      closeActiveRepositoryTab: () =>
+        this.repositoryTabs.closeRepositoryTab(this.activeTabId),
       activateRelativeRepositoryTab: (delta) =>
-        this.activateRelativeRepositoryTab(delta),
+        this.repositoryTabs.activateRelativeRepositoryTab(delta),
       persistLayoutPreferences: () => this.persistLayoutPreferences(),
       layout: () => this.layout(),
       toggleAvatars: () => this.toggleAvatars(),
     };
   }
 
-  private showRepositoryPicker() {
-    this.popupController.close();
-    const width = Math.max(30, Math.min(70, this.renderer.terminalWidth - 4));
-    this.repositoryPickerBox.width = width;
-    this.repositoryPickerBox.left = Math.max(
-      0,
-      Math.floor((this.renderer.terminalWidth - width) / 2),
-    );
-    this.repositoryPickerBox.top = Math.max(
-      1,
-      Math.min(4, this.renderer.terminalHeight - 10),
-    );
-    const pickerHeight = Math.max(
-      6,
-      Math.min(
-        12,
-        this.renderer.terminalHeight - Number(this.repositoryPickerBox.top) - 1,
-      ),
-    );
-    this.repositoryPickerBox.height = pickerHeight;
-    this.repositoryPathInput.width = Math.max(8, width - 4);
-    this.repositoryPickerText.width = Math.max(8, width - 4);
-    this.repositorySuggestionRows = Math.max(1, pickerHeight - 5);
-    this.repositoryPickerText.height = this.repositorySuggestionRows;
-    this.repositoryPathInput.value = "";
-    this.repositorySuggestionIndex = 0;
-    this.repositoryPickerBox.visible = true;
-    void this.updateRepositorySuggestions();
-    setTimeout(() => this.repositoryPathInput.focus(), 0);
-  }
-
-  private closeRepositoryPicker() {
-    this.repositoryPickerRequest++;
-    this.repositoryPathInput.blur();
-    this.repositoryPickerBox.visible = false;
-  }
-
-  private async updateRepositorySuggestions() {
-    const request = ++this.repositoryPickerRequest;
-    if (!this.repositoryPathInput.value.trim()) {
-      this.repositorySuggestions = [];
-      this.paintRepositorySuggestions();
-      return;
-    }
-    const suggestions = await suggestDirectories(
-      this.repositoryPathInput.value,
-    );
-    if (
-      request !== this.repositoryPickerRequest ||
-      !this.repositoryPickerBox.visible
-    )
-      return;
-    this.repositorySuggestions = suggestions;
-    this.repositorySuggestionIndex = Math.min(
-      this.repositorySuggestionIndex,
-      Math.max(0, suggestions.length - 1),
-    );
-    this.paintRepositorySuggestions();
-  }
-
-  private paintRepositorySuggestions() {
-    const recent = !this.repositoryPathInput.value.trim();
-    const entries = recent
-      ? this.closedRecentRepositories
-      : this.repositorySuggestions;
-    const count = Math.max(1, this.repositorySuggestionRows - (recent ? 1 : 0));
-    const start = Math.max(
-      0,
-      Math.min(
-        this.repositorySuggestionIndex - count + 1,
-        entries.length - count,
-      ),
-    );
-    const visible = entries.slice(start, start + count);
-    const rows = visible.length
-      ? visible.map((entry, index) => {
-          const selected = start + index === this.repositorySuggestionIndex;
-          const states = { selected, focused: selected };
-          return bg(
-            dialogColor(
-              "background.action.primary",
-              selected ? oneDarkTheme.selected : oneDarkTheme.panelRaised,
-              states,
-            ),
-          )(
-            fg(dialogColor("text.action.primary", oneDarkTheme.text, states))(
-              `${selected ? ">" : " "} ${typeof entry === "string" ? entry : `${entry.name}/`}${index === visible.length - 1 ? "" : "\n"}`,
-            ),
-          );
-        })
-      : [
-          fg(dialogColor("text.muted", oneDarkTheme.muted))(
-            recent
-              ? "  No recently closed repositories"
-              : "  No matching folders",
-          ),
-        ];
-    this.repositoryPickerText.content = new StyledText([
-      ...(recent
-        ? [
-            fg(dialogColor("text.muted", oneDarkTheme.muted))(
-              "Recently opened (closed tabs)\n",
-            ),
-          ]
-        : []),
-      ...rows,
-    ]);
-  }
-
-  private get closedRecentRepositories(): string[] {
-    const open = new Set(this.tabs.map((tab) => tab.repository.root));
-    return this.recentRepositories.filter((path) => !open.has(path));
-  }
-
-  private chooseRepositorySuggestion(row: number) {
-    if (row < 0) return;
-    const recent = !this.repositoryPathInput.value.trim();
-    if (recent && row-- === 0) return;
-    const entries = recent
-      ? this.closedRecentRepositories
-      : this.repositorySuggestions;
-    const count = Math.max(1, this.repositorySuggestionRows - (recent ? 1 : 0));
-    const start = Math.max(
-      0,
-      Math.min(
-        this.repositorySuggestionIndex - count + 1,
-        entries.length - count,
-      ),
-    );
-    const suggestion = entries[start + row];
-    if (!suggestion) return;
-    if (typeof suggestion === "string") {
-      void this.openRepositoryPath(suggestion);
-      return;
-    }
-    this.repositoryPathInput.value = `${suggestion.path}/`;
-    this.repositorySuggestionIndex = 0;
-    void this.updateRepositorySuggestions();
-    this.repositoryPathInput.focus();
-  }
-
-  private completeRepositorySuggestion() {
-    if (!this.repositoryPathInput.value.trim()) {
-      const recent =
-        this.closedRecentRepositories[this.repositorySuggestionIndex];
-      if (recent) {
-        this.repositoryPathInput.value = recent;
-        void this.updateRepositorySuggestions();
-      }
-      return;
-    }
-    const suggestion =
-      this.repositorySuggestions[this.repositorySuggestionIndex];
-    if (!suggestion) return;
-    this.repositoryPathInput.value = `${suggestion.path}/`;
-    this.repositorySuggestionIndex = 0;
-    void this.updateRepositorySuggestions();
-  }
-
-  private async openRepositoryPath(selectedRecent?: string) {
-    if (this.mutationBusy) {
-      this.notify("Wait for the current Git operation to finish");
-      return;
-    }
-    const typedPath =
-      selectedRecent ??
-      (this.repositoryPathInput.value.trim() || process.cwd());
-    const path = resolveRepositoryPath(typedPath);
-    try {
-      const repository = await createGitRepository(path);
-      const existing = this.tabs.find(
-        (tab) => tab.repository.root === repository.root,
-      );
-      if (existing) {
-        repository.dispose?.();
-        this.closeRepositoryPicker();
-        await this.activateRepositoryTab(existing.id, true);
-        this.recentRepositories = promoteRecentRepository(
-          this.recentRepositories,
-          repository.root,
-        );
-        this.persistSessionPreferences();
-        return;
-      }
-      const id = `repository-${this.nextTabId++}`;
-      this.tabs.push({ id, repository });
-      this.persistSessionPreferences();
-      this.closeRepositoryPicker();
-      await this.activateRepositoryTab(id, true);
-      this.recentRepositories = promoteRecentRepository(
-        this.recentRepositories,
-        repository.root,
-      );
-      this.persistSessionPreferences();
-    } catch (error) {
-      this.notify(
-        error instanceof NotGitRepositoryError
-          ? `Not a Git repository: ${path}`
-          : error instanceof Error
-            ? error.message
-            : String(error),
-        "error",
-      );
-    }
-  }
-
-  private async openSubmodule(submodule: Submodule) {
-    const parentRoot = this.repository.root;
-    const path = resolve(parentRoot, submodule.path);
-    try {
-      const repository = await createGitRepository(path);
-      const existing = this.tabs.find(
-        (tab) => tab.repository.root === repository.root,
-      );
-      if (existing) {
-        repository.dispose?.();
-        if (!existing.submoduleOf)
-          existing.submoduleOf = { root: parentRoot, path: submodule.path };
-        this.paintTabs();
-        return this.activateRepositoryTab(existing.id, true);
-      }
-      const id = `repository-${this.nextTabId++}`;
-      this.tabs.push({
-        id,
-        repository,
-        submoduleOf: { root: parentRoot, path: submodule.path },
-      });
-      this.persistSessionPreferences();
-      await this.activateRepositoryTab(id, true);
-    } catch (error) {
-      this.notify(
-        submodule.state === "uninitialized"
-          ? `Initialize ${submodule.path} before opening it`
-          : error instanceof Error
-            ? error.message
-            : String(error),
-        "error",
-      );
-    }
-  }
-
-  /**
-   * Show a worktree in its own tab, reusing the tab when it is already open.
-   * A worktree is a separate checkout, so this is how its branch is reached.
-   */
-  private async openWorktree(worktree: Worktree) {
-    try {
-      const repository = await createGitRepository(worktree.path);
-      const existing = this.tabs.find(
-        (tab) => tab.repository.root === repository.root,
-      );
-      if (existing) {
-        repository.dispose?.();
-        return this.activateRepositoryTab(existing.id, true);
-      }
-      const id = `repository-${this.nextTabId++}`;
-      this.tabs.push({ id, repository });
-      this.persistSessionPreferences();
-      await this.activateRepositoryTab(id, true);
-    } catch (error) {
-      this.notify(
-        worktree.prunable
-          ? `Worktree ${worktree.path} no longer exists`
-          : error instanceof Error
-            ? error.message
-            : String(error),
-        "error",
-      );
-    }
-  }
-
-  private async activateRepositoryTab(id: string, focusCheckedOut = false) {
-    const tab = this.tabs.find((candidate) => candidate.id === id);
-    if (!tab) return;
-    if (id === this.activeTabId)
-      return focusCheckedOut ? this.focusCheckedOutCommit() : undefined;
-    if (this.mutationBusy)
-      return this.notify("Wait for the current Git operation to finish");
-    this.saveActiveTabHistory();
-    this.closePopup();
-    this.closeRepositoryPicker();
-    this.branchFilterInput.blur();
-    this.composerSummary.blur();
-    this.composerBody.blur();
-    this.namePrompt = undefined;
-    this.branchFilterActive = false;
-    this.branchFilter = "";
-    this.composerSummary.value = "";
-    this.composerBody.setText("");
-    this.amend = false;
-    this.amendDraft = undefined;
-    this.editingCommitSha = undefined;
-    this.editReturnState = undefined;
-    cancelRuntimeDiff(this.dataContext());
-    cancelRuntimeGraphAvatars(this.dataContext());
-    this.avatarAbort?.abort();
-    this.snapshotRequest++;
-    this.commitFilesRequest++;
-    this.repository = tab.repository;
-    this.activeTabId = id;
-    if (this.autoRefreshStarted) void this.autoRefresh.follow(tab.repository);
-    this.persistSessionPreferences();
-    this.snapshot = undefined;
-    this.snapshotSignature = undefined;
-    this.historyLimit = tab.history?.limit ?? HISTORY_PAGE;
-    this.commitIndex = 0;
-    this.historySelection = "working";
-    this.fileIndex = 0;
-    this.fileStart = 0;
-    this.historyStart = 0;
-    this.view = "history";
-    this.commitFiles = [];
-    this.commitDiff.visible = false;
-    this.commitDiffEmpty.visible = false;
-    this.commitInfoBox.visible = false;
-    this.commitBodyBox.visible = false;
-    this.renderer.setTerminalTitle(`tuig · ${this.repository.root}`);
-    this.paintTabs();
-    this.paint();
-    await this.refresh();
-    if (focusCheckedOut) await this.focusCheckedOutCommit();
-    else this.restoreTabHistory(tab);
-    this.layout();
-  }
-
-  private saveActiveTabHistory() {
-    const tab = this.tabs.find(
-      (candidate) => candidate.id === this.activeTabId,
-    );
-    if (!tab) return;
-    tab.history = {
-      start: this.historyStart,
-      commitIndex: this.commitIndex,
-      selectedSha: this.snapshot?.commits[this.commitIndex]?.sha,
-      selection: this.historySelection,
-      viewportDetached: this.historyViewportDetached,
-      limit: this.historyLimit,
-    };
-  }
-
-  private restoreTabHistory(tab: (typeof this.tabs)[number]) {
-    const saved = tab.history;
-    const snapshot = this.snapshot;
-    if (!saved || !snapshot) return;
-    const selectedIndex = saved.selectedSha
-      ? snapshot.commits.findIndex((commit) => commit.sha === saved.selectedSha)
-      : -1;
-    this.commitIndex =
-      selectedIndex >= 0
-        ? selectedIndex
-        : Math.min(saved.commitIndex, Math.max(0, snapshot.commits.length - 1));
-    this.historySelection = saved.selection;
-    this.historyViewportDetached = saved.viewportDetached;
-    const totalRows =
-      snapshot.commits.length + (snapshot.files.length > 0 ? 1 : 0);
-    this.historyStart = Math.max(
-      0,
-      Math.min(saved.start, Math.max(0, totalRows - 1)),
-    );
-    this.paintHistory();
-  }
-
-  /**
-   * A newly opened repository starts at its checked-out commit. History is
-   * paged until that commit is found, but ordinary tab switches do not call
-   * this method and therefore do not snap the reader back to HEAD.
-   */
-  private async focusCheckedOutCommit() {
-    let snapshot = this.snapshot;
-    if (!snapshot) return;
-    const headSha =
-      snapshot.headSha ?? resolveHeadSha(snapshot.branches, snapshot.commits);
-    if (!headSha) return;
-    let index = snapshot.commits.findIndex((commit) => commit.sha === headSha);
-    while (index < 0 && !snapshot.commitsComplete) {
-      const count = snapshot.commits.length;
-      await loadMoreRuntimeCommits(this.dataContext());
-      snapshot = this.snapshot ?? snapshot;
-      if (snapshot.commits.length === count) break;
-      index = snapshot.commits.findIndex((commit) => commit.sha === headSha);
-    }
-    if (index < 0) return;
-    this.commitIndex = index;
-    this.historySelection = "commit";
-    this.historyViewportDetached = false;
-    this.historyStart = historyStartForCommit(
-      index,
-      snapshot.files.length > 0,
-      this.contentHeight,
-      snapshot.commits.length,
-    );
-    this.paintHistory();
-  }
-
-  private async closeRepositoryTab(id: string) {
-    const index = this.tabs.findIndex((tab) => tab.id === id);
-    if (index < 0) return;
-    if (id === this.activeTabId && this.mutationBusy)
-      return this.notify("Wait for the current Git operation to finish");
-    if (this.tabs.length === 1) return this.shutdown();
-    const wasActive = id === this.activeTabId;
-    const [removed] = this.tabs.splice(index, 1);
-    removed?.repository.dispose?.();
-    if (wasActive) {
-      const next = this.tabs[Math.min(index, this.tabs.length - 1)]!;
-      await this.activateRepositoryTab(next.id);
-    } else {
-      this.paintTabs();
-      this.persistSessionPreferences();
-    }
-  }
   private paintToolbar() {
     const width = Math.max(1, this.renderer.terminalWidth);
     const toolbar = renderToolbar(toolbarButtons(this.snapshot), width, {
@@ -2121,7 +1527,7 @@ export class Runtime {
   }
   private layout() {
     layoutRuntime(this.layoutContext());
-    this.paintTabs();
+    this.repositoryTabs.paintTabs();
     this.paintCommandPalette();
   }
   private layoutChanges(height: number) {
@@ -3034,8 +2440,9 @@ export class Runtime {
       persistLayoutPreferences: () => this.persistLayoutPreferences(),
       notify: (text) => this.notify(text),
       checkoutBranch: (branch) => this.checkoutBranch(branch),
-      openSubmodule: (submodule) => this.openSubmodule(submodule),
-      openWorktree: (worktree) => this.openWorktree(worktree),
+      openSubmodule: (submodule) =>
+        this.repositoryTabs.openSubmodule(submodule),
+      openWorktree: (worktree) => this.repositoryTabs.openWorktree(worktree),
       openGraphMenu: (x, y, target) => this.openGraphMenu(x, y, target),
     };
   }
@@ -3333,42 +2740,6 @@ export class Runtime {
   private key(key: KeyEvent) {
     return handleRuntimeKey(this.keysContext(), key);
   }
-  private repositoryPickerKey(key: KeyEvent) {
-    if (key.name === "escape") return this.closeRepositoryPicker();
-    if (key.name === "up" || key.name === "down") {
-      const delta = key.name === "up" ? -1 : 1;
-      const length = this.repositoryPathInput.value.trim()
-        ? this.repositorySuggestions.length
-        : this.closedRecentRepositories.length;
-      this.repositorySuggestionIndex = Math.max(
-        0,
-        Math.min(length - 1, this.repositorySuggestionIndex + delta),
-      );
-      return this.paintRepositorySuggestions();
-    }
-    if (
-      !this.repositoryPathInput.value.trim() &&
-      (key.name === "delete" || key.name === "backspace")
-    ) {
-      const selected =
-        this.closedRecentRepositories[this.repositorySuggestionIndex];
-      if (selected) {
-        this.recentRepositories = removeRecentRepository(
-          this.recentRepositories,
-          selected,
-        );
-        this.repositorySuggestionIndex = Math.min(
-          this.repositorySuggestionIndex,
-          Math.max(0, this.closedRecentRepositories.length - 1),
-        );
-        this.paintRepositorySuggestions();
-        this.persistSessionPreferences();
-      }
-      return;
-    }
-    if (key.name === "tab") return this.completeRepositorySuggestion();
-    return;
-  }
   private keysContext(): RuntimeKeysContext {
     // Accessors keep key handling attached to the live runtime state.
     // eslint-disable-next-line @typescript-eslint/no-this-alias
@@ -3494,10 +2865,12 @@ export class Runtime {
       closeCommandPalette: () => this.closeCommandPalette(),
       movePaletteSelection: (delta) => this.movePaletteSelection(delta),
       showCommandPalette: () => this.showCommandPalette(),
-      repositoryPickerKey: (key) => this.repositoryPickerKey(key),
-      showRepositoryPicker: () => this.showRepositoryPicker(),
-      closeRepositoryTab: (id) => this.closeRepositoryTab(id),
-      activateRepositoryTab: (id) => this.activateRepositoryTab(id),
+      repositoryPickerKey: (key) =>
+        this.repositoryTabs.repositoryPickerKey(key),
+      showRepositoryPicker: () => this.repositoryTabs.showRepositoryPicker(),
+      closeRepositoryTab: (id) => this.repositoryTabs.closeRepositoryTab(id),
+      activateRepositoryTab: (id) =>
+        this.repositoryTabs.activateRepositoryTab(id),
       paintComposer: () => this.paintComposer(),
       paintHints: () => this.paintHints(),
       paint: () => this.paint(),
@@ -3675,8 +3048,9 @@ export class Runtime {
       paintComposer: () => this.paintComposer(),
       notify: (text, tone) => this.notify(text, tone),
       fail: (error) => this.fail(error),
-      openSubmodule: (submodule) => this.openSubmodule(submodule),
-      openWorktree: (worktree) => this.openWorktree(worktree),
+      openSubmodule: (submodule) =>
+        this.repositoryTabs.openSubmodule(submodule),
+      openWorktree: (worktree) => this.repositoryTabs.openWorktree(worktree),
     };
   }
   private perform(
