@@ -31,6 +31,7 @@ Canonical repository: https://github.com/lucashutch/tuig
 - `src/ui/runtime-sidebar.ts` — sidebar interaction, resizing, and branch filtering.
 - `src/ui/runtime-popup.ts` — popup placement, rendering, submenu interaction, and prompt visibility.
 - `src/ui/runtime-palette.ts` — command palette command list, painting, theme preview, and activation.
+- `src/ui/runtime-tabs.ts` — repository tab strip painting, drag, switching, and the repository picker.
 - `src/ui/runtime-widgets.ts` — typed OpenTUI widget factory, pane wiring, and renderable event bindings for the runtime.
 - `src/ui/repository-tabs.ts` — repository tab layout and hit testing.
 - `src/ui/session-preferences.ts` — persisted open repository tabs and active tab.
