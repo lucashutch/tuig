@@ -108,6 +108,55 @@ export function clampDetailsWidth(width: number, terminalWidth: number) {
   return Math.max(30, Math.min(width, terminalWidth - 35));
 }
 
+/** Members the pane divider handlers read and write. */
+export interface RuntimePaneResizeContext {
+  renderer: { terminalWidth: number };
+  leftWidth: number;
+  detailsWidth: number;
+  leftCollapsed: boolean;
+  detailsCollapsed: boolean;
+  persistLayoutPreferences(): void;
+  layout(): void;
+}
+
+/** Drag the sidebar divider to column `x`; this also expands a collapsed sidebar. */
+export function resizeSidebarPane(
+  context: RuntimePaneResizeContext,
+  x: number,
+) {
+  context.leftWidth = clampSidebarWidth(x, context.renderer.terminalWidth);
+  context.leftCollapsed = false;
+  context.persistLayoutPreferences();
+  context.layout();
+}
+
+/** Drag the details divider to column `x`; this also expands a collapsed pane. */
+export function resizeDetailsPane(
+  context: RuntimePaneResizeContext,
+  x: number,
+) {
+  const terminalWidth = context.renderer.terminalWidth;
+  context.detailsWidth = clampDetailsWidth(
+    terminalWidth - x - 1,
+    terminalWidth,
+  );
+  context.detailsCollapsed = false;
+  context.persistLayoutPreferences();
+  context.layout();
+}
+
+export function toggleSidebarPane(context: RuntimePaneResizeContext) {
+  context.leftCollapsed = !context.leftCollapsed;
+  context.persistLayoutPreferences();
+  context.layout();
+}
+
+export function toggleDetailsPane(context: RuntimePaneResizeContext) {
+  context.detailsCollapsed = !context.detailsCollapsed;
+  context.persistLayoutPreferences();
+  context.layout();
+}
+
 export function layoutRuntime(context: RuntimeLayoutContext) {
   const total = Math.max(1, context.renderer.terminalWidth);
   // The header and toolbar own the top rows, so the panes start below them.

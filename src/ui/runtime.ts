@@ -1,11 +1,9 @@
 import {
   BoxRenderable,
-  MouseButton,
   CliRenderEvents,
   TextareaRenderable,
   ScrollBoxRenderable,
   InputRenderable,
-  InputRenderableEvents,
   ImageRenderable,
   TextRenderable,
   StyledText,
@@ -27,13 +25,7 @@ import type {
 import { type GraphRow } from "./graph.js";
 import { createAutoRefresh } from "./auto-refresh.js";
 import { debugLog } from "./debug-log.js";
-import {
-  historyColumnLayout,
-  historyDividerAt,
-  isDividerDoubleClick,
-  type HistoryColumns,
-  type HistoryDividerKey,
-} from "./history-columns.js";
+import { type HistoryColumns } from "./history-columns.js";
 import {
   emptyGraphIndex,
   extendGraphIndex,
@@ -82,12 +74,7 @@ import {
   fileViewportSize,
   clipColumns,
   formatHints,
-  renderToolbar,
-  toolbarButtons,
-  toolbarHit,
   type ToolbarAction,
-  type ToolbarHit,
-  renderHeader,
   presentCommitMeta,
   presentCommitCoAuthors,
   parseCoAuthors,
@@ -113,6 +100,7 @@ import {
 } from "./session-preferences.js";
 import {
   PANE_TOP,
+  createOverlayWidgets,
   createRuntimeWidgets,
   type ChangeSection,
 } from "./runtime-widgets.js";
@@ -148,6 +136,7 @@ import {
   cancelSidebarScroll as cancelRuntimeSidebarScroll,
   sidebarScroll as scrollRuntimeSidebar,
   startBranchFilter as startRuntimeBranchFilter,
+  updateBranchFilter as updateRuntimeBranchFilter,
   toggleSidebarSection as toggleRuntimeSidebarSection,
 } from "./runtime-sidebar.js";
 import {
@@ -165,6 +154,13 @@ import {
   runFileAction as runRuntimeFileAction,
 } from "./runtime-commands.js";
 import { RuntimeDiffSelectionController } from "./runtime-diff-selection.js";
+import { RuntimeHistoryColumnsController } from "./runtime-history-columns.js";
+import { RuntimeToolbarController } from "./runtime-toolbar.js";
+import {
+  bindOverlayInputs,
+  createOverlayActions,
+  createRuntimeActions,
+} from "./runtime-events.js";
 
 export async function runTuig(
   repositories: GitRepository[],
@@ -427,14 +423,7 @@ export class Runtime {
     showCommitter: true,
     showSha: true,
   };
-  private historyDividerHover?: HistoryDividerKey;
-  hoveredHistoryLine?: number;
-  private lastDividerPress?: { key: HistoryDividerKey; at: number };
-  private historyColumnDrag?: {
-    key: HistoryDividerKey;
-    x: number;
-    width: number;
-  };
+  readonly historyHeader = new RuntimeHistoryColumnsController(this);
   // Mouse events carry absolute terminal columns, so the column the history
   // text starts at is kept to translate them into row offsets.
   historyContentLeft = 1;
@@ -480,7 +469,7 @@ export class Runtime {
     { start: number; end: number; ref?: BranchRef }
   >();
   readonly popupController: RuntimePopupController;
-  private readonly palette: RuntimePaletteController;
+  readonly palette: RuntimePaletteController;
   readonly repositoryTabs: RuntimeTabsController;
   lastGraphClick?: { row: number; at: number; label: boolean };
   expandedFiles = new Set<string>();
@@ -500,11 +489,11 @@ export class Runtime {
   private disposed = false;
   refreshPending = false;
   pendingRefreshMessage?: string;
-  private readonly header: TextRenderable;
+  readonly header: TextRenderable;
   readonly tabBar: TextRenderable;
   private readonly avatarToggle: TextRenderable;
   readonly diffViewToggle: TextRenderable;
-  private readonly toolbar: TextRenderable;
+  readonly toolbar: TextRenderable;
   readonly sidebar: BoxRenderable;
   readonly history: BoxRenderable;
   readonly details: BoxRenderable;
@@ -632,9 +621,7 @@ export class Runtime {
   // numeric widths from the latest layout pass for width-dependent painting.
   sidebarPaneWidth = 28;
   detailsPaneWidth = 44;
-  private toolbarHits: ToolbarHit[] = [];
-  private toolbarHovered?: ToolbarAction;
-  private toolbarPressed?: ToolbarAction;
+  readonly toolbarController = new RuntimeToolbarController(this);
   private busyFrame = "";
   commitHeaderValue = "";
   commitBodyValue = "";
@@ -687,136 +674,7 @@ export class Runtime {
     this.activeTabId = this.tabs.find(
       (tab) => tab.repository.root === repository.root,
     )!.id;
-    const widgets = createRuntimeWidgets(renderer, {
-      tabMouseDown: (x, button) =>
-        this.repositoryTabs.handleTabMouseDown(x, button),
-      toggleAvatars: () => this.toggleAvatars(),
-      toggleDiffView: () => this.toggleDiffView(),
-      tabDrag: (x) => this.repositoryTabs.handleTabDrag(x),
-      tabHover: (x) => this.repositoryTabs.hover(x),
-      tabDragEnd: () => this.repositoryTabs.dragEnd(),
-      sidebarClick: (x, y, button) =>
-        this.sidebarClick(x, y - PANE_TOP, button),
-      sidebarToggle: (section) => this.toggleSidebarSection(section),
-      sidebarScroll: (y, delta) => this.sidebarScroll(y - PANE_TOP, delta),
-      sidebarResize: (section, y) => this.resizeSidebar(section, y),
-      historyScroll: (delta, axis) => {
-        if (axis === "horizontal") {
-          this.scrollGraphColumns(delta);
-          return;
-        }
-        this.queueHistoryScroll(delta);
-      },
-      historyClick: (x, y, button) =>
-        this.historyClick(x, y - PANE_TOP, button),
-      historyDrag: (x) => {
-        const drag = this.historyColumnDrag;
-        if (!drag) return;
-        // The committer's left edge is its separator, so dragging right
-        // narrows it.
-        const delta = drag.key === "committerWidth" ? drag.x - x : x - drag.x;
-        this.historyColumns[drag.key] = Math.max(4, drag.width + delta);
-        const layout = historyColumnLayout(
-          this.historyContentWidth,
-          this.graphIndex.columns,
-          this.historyColumns,
-        );
-        this.historyColumns[drag.key] = layout[drag.key];
-        this.paintHistory();
-      },
-      historyDragEnd: () => {
-        if (this.historyColumnDrag) this.persistLayoutPreferences();
-        this.historyColumnDrag = undefined;
-        this.setHistoryDividerHover(undefined);
-      },
-      historyHover: (x, y) => {
-        const key =
-          y - PANE_TOP === 0 && !this.commitDiff.visible
-            ? historyDividerAt(
-                x - this.historyContentLeft,
-                historyColumnLayout(
-                  this.historyContentWidth,
-                  this.graphIndex.columns,
-                  this.historyColumns,
-                ),
-              )
-            : undefined;
-        this.setHistoryDividerHover(key);
-        this.setHoveredHistoryLine(
-          !this.commitDiff.visible && y - PANE_TOP >= 1
-            ? y - PANE_TOP - 1
-            : undefined,
-        );
-      },
-      historyHoverEnd: () => {
-        this.setHistoryDividerHover(undefined);
-        this.setHoveredHistoryLine(undefined);
-      },
-      filesScroll: (section, delta) => this.filesScroll(section, delta),
-      filesClick: (section, y, button, x) =>
-        this.filesClick(section, y, button, x),
-      filesHover: (section, y) => handleRuntimeFilesHover(this, section, y),
-      toggleSection: (section) => this.toggleSection(section),
-      resizeChangeSplit: (y) => this.resizeChangeSplit(y),
-      resizeComposer: (y) => this.resizeComposer(y),
-      discardAll: () => void this.discardAll(),
-      stageAll: () => void this.stageAll(),
-      unstageAll: () => void this.unstageAll(),
-      resizeLeft: (x) => {
-        this.leftWidth = clampSidebarWidth(x, renderer.terminalWidth);
-        this.leftCollapsed = false;
-        this.persistLayoutPreferences();
-        this.layout();
-      },
-      resizeRight: (x) => {
-        this.detailsWidth = clampDetailsWidth(
-          renderer.terminalWidth - x - 1,
-          renderer.terminalWidth,
-        );
-        this.detailsCollapsed = false;
-        this.persistLayoutPreferences();
-        this.layout();
-      },
-      toggleLeft: () => {
-        this.leftCollapsed = !this.leftCollapsed;
-        this.persistLayoutPreferences();
-        this.layout();
-      },
-      toggleRight: () => {
-        this.detailsCollapsed = !this.detailsCollapsed;
-        this.persistLayoutPreferences();
-        this.layout();
-      },
-      resize: () => this.layout(),
-      keypress: (key) => void this.key(key),
-      toolbarClick: (x) => void this.toolbarPress(x),
-      toolbarHover: (x) => {
-        const hovered =
-          x === undefined ? undefined : toolbarHit(this.toolbarHits, x);
-        if (hovered === this.toolbarHovered) return;
-        this.toolbarHovered = hovered;
-        this.toolbarPressed = undefined;
-        this.paintToolbar();
-      },
-      toolbarDown: (x) => {
-        this.toolbarPressed = toolbarHit(this.toolbarHits, x);
-        this.paintToolbar();
-      },
-      commit: () => void this.commit(),
-      toggleAmend: () => this.toggleAmend(),
-      viewWorkingChanges: () => this.closeDiff(),
-      editMessage: () => this.editMessage(),
-      copyCommitSha: () => this.copyCommitSha(),
-      diffClick: (x, y, button, ctrl, alt) =>
-        this.diffClick(x, y, button, ctrl, alt),
-      diffDrag: (x, y) => this.diffDrag(x, y),
-      diffDragEnd: () => this.diffDragEnd(),
-      overlayDismiss: () => this.dismissOverlay(),
-      menuHover: (x, y) => this.popupController.hover(x, y, false),
-      menuClick: (x, y) => this.popupController.click(x, y, false),
-      submenuHover: (x, y) => this.popupController.hover(x, y, true),
-      submenuClick: (x, y) => this.popupController.click(x, y, true),
-    });
+    const widgets = createRuntimeWidgets(renderer, createRuntimeActions(this));
     this.sidebar = widgets.sidebar;
     this.tabBar = widgets.tabBar;
     this.avatarToggle = widgets.avatarToggle;
@@ -871,136 +729,16 @@ export class Runtime {
     this.menuText = widgets.menuText;
     this.submenuBox = widgets.submenuBox;
     this.submenuText = widgets.submenuText;
-    this.branchFilterInput = new InputRenderable(renderer, {
-      position: "absolute",
-      id: "branch-filter",
-      top: PANE_TOP,
-      left: 1,
-      width: 24,
-      visible: false,
-      zIndex: 80,
-      placeholder: "Filter branches…",
-      backgroundColor: oneDarkTheme.selected,
-      focusedBackgroundColor: oneDarkTheme.selected,
-      textColor: oneDarkTheme.text,
-    });
-    this.promptInput = new InputRenderable(renderer, {
-      position: "absolute",
-      id: "name-prompt",
-      top: 1,
-      left: 1,
-      width: 24,
-      visible: false,
-      zIndex: 80,
-      placeholder: "Name",
-      backgroundColor: oneDarkTheme.selected,
-      focusedBackgroundColor: oneDarkTheme.selected,
-      textColor: oneDarkTheme.text,
-    });
-    this.repositoryPickerBox = new BoxRenderable(renderer, {
-      position: "absolute",
-      id: "repository-picker",
-      left: 2,
-      top: 2,
-      width: 60,
-      height: 10,
-      zIndex: 90,
-      visible: false,
-      border: true,
-      borderColor: oneDarkTheme.border,
-      backgroundColor: oneDarkTheme.panelRaised,
-      shouldFill: true,
-      title: " Open repository ",
-      titleAlignment: "left",
-    });
-    this.repositoryPathInput = new InputRenderable(renderer, {
-      position: "absolute",
-      id: "repository-path",
-      left: 1,
-      top: 1,
-      width: 56,
-      visible: true,
-      zIndex: 92,
-      placeholder: "Path from current directory",
-      backgroundColor: oneDarkTheme.selected,
-      focusedBackgroundColor: oneDarkTheme.selected,
-      textColor: oneDarkTheme.text,
-    });
-    this.repositoryPickerText = new TextRenderable(renderer, {
-      position: "absolute",
-      id: "repository-suggestions",
-      left: 1,
-      top: 3,
-      width: 56,
-      height: 5,
-      visible: true,
-      zIndex: 92,
-      fg: oneDarkTheme.text,
-      wrapMode: "none",
-      content: "",
-      onMouseDown: (event) =>
-        this.repositoryTabs.chooseRepositorySuggestion(
-          event.y - Number(this.repositoryPickerBox.top) - 3,
-        ),
-    });
-    this.repositoryPickerBox.add(this.repositoryPathInput);
-    this.repositoryPickerBox.add(this.repositoryPickerText);
-    this.commandPaletteBox = new BoxRenderable(renderer, {
-      position: "absolute",
-      id: "command-palette",
-      left: 2,
-      top: 2,
-      width: 70,
-      height: 14,
-      zIndex: 100,
-      visible: false,
-      border: false,
-      backgroundColor: oneDarkTheme.panelRaised,
-      shouldFill: true,
-    });
-    this.commandPaletteInput = new InputRenderable(renderer, {
-      position: "absolute",
-      id: "command-palette-search",
-      left: 2,
-      top: 1,
-      width: 66,
-      zIndex: 102,
-      placeholder: "Search commands",
-      backgroundColor: oneDarkTheme.panelRaised,
-      focusedBackgroundColor: oneDarkTheme.selected,
-      textColor: oneDarkTheme.text,
-    });
-    this.commandPaletteText = new TextRenderable(renderer, {
-      position: "absolute",
-      id: "command-palette-results",
-      left: 1,
-      top: 3,
-      width: 66,
-      height: 10,
-      zIndex: 102,
-      wrapMode: "none",
-      selectable: false,
-      content: "",
-      onMouseMove: (event) => this.palette.hoverRow(event.y),
-      onMouseDown: (event) => this.palette.activateRow(event.y, event.button),
-      onMouseScroll: (event) =>
-        this.movePaletteSelection(event.scroll?.direction === "up" ? -3 : 3),
-    });
-    this.commandPaletteBox.add(this.commandPaletteInput);
-    this.commandPaletteBox.add(this.commandPaletteText);
-    this.commandPaletteFooter = new TextRenderable(renderer, {
-      id: "command-palette-footer",
-      position: "absolute",
-      left: 2,
-      top: 12,
-      height: 1,
-      zIndex: 102,
-      fg: oneDarkTheme.muted,
-      wrapMode: "none",
-      selectable: false,
-      content: "↑↓ navigate   enter select   esc close",
-    });
-    this.commandPaletteBox.add(this.commandPaletteFooter);
+    const overlays = createOverlayWidgets(renderer, createOverlayActions(this));
+    this.branchFilterInput = overlays.branchFilterInput;
+    this.promptInput = overlays.promptInput;
+    this.repositoryPickerBox = overlays.repositoryPickerBox;
+    this.repositoryPathInput = overlays.repositoryPathInput;
+    this.repositoryPickerText = overlays.repositoryPickerText;
+    this.commandPaletteBox = overlays.commandPaletteBox;
+    this.commandPaletteInput = overlays.commandPaletteInput;
+    this.commandPaletteText = overlays.commandPaletteText;
+    this.commandPaletteFooter = overlays.commandPaletteFooter;
     this.popupController = new RuntimePopupController({
       terminalSize: () => ({
         width: this.renderer.terminalWidth,
@@ -1018,36 +756,7 @@ export class Runtime {
     });
     this.palette = new RuntimePaletteController(this);
     this.repositoryTabs = new RuntimeTabsController(this);
-    this.branchFilterInput.on(InputRenderableEvents.INPUT, () => {
-      cancelRuntimeSidebarScroll(this);
-      this.branchFilter = this.branchFilterInput.value;
-      this.sidebarStart.local = 0;
-      this.sidebarStart.remote = 0;
-      this.branchSelection.local = 0;
-      this.branchSelection.remote = 0;
-      this.paint();
-    });
-    this.branchFilterInput.on(InputRenderableEvents.ENTER, () =>
-      this.activateFilteredBranch(),
-    );
-    this.promptInput.on(
-      InputRenderableEvents.ENTER,
-      () => void this.submitNamePrompt(),
-    );
-    this.repositoryPathInput.on(InputRenderableEvents.INPUT, () =>
-      this.repositoryTabs.inputChanged(),
-    );
-    this.commandPaletteInput.on(InputRenderableEvents.INPUT, () => {
-      this.palette.index = 0;
-      this.palette.start = 0;
-      this.palette.paint();
-    });
-    this.commandPaletteInput.on(InputRenderableEvents.ENTER, () =>
-      this.palette.activate(),
-    );
-    this.repositoryPathInput.on(InputRenderableEvents.ENTER, () =>
-      this.repositoryTabs.submitRepositoryInput(),
-    );
+    bindOverlayInputs(this);
     this.renderer.root.add(this.branchFilterInput);
     this.renderer.root.add(this.promptInput);
     this.renderer.root.add(this.repositoryPickerBox);
@@ -1312,17 +1021,7 @@ export class Runtime {
     this.hints.content = content;
   }
   paintHeader() {
-    // The repository summary shares the toolbar's label row and stops before
-    // its first action. The toolbar's second row remains available for glyphs.
-    const firstAction =
-      this.toolbarHits[0]?.start ?? this.renderer.terminalWidth;
-    const width = Math.max(1, firstAction - 1);
-    this.header.width = width;
-    this.header.content = renderHeader({
-      snapshot: this.snapshot,
-      repositoryRoot: this.repository.root,
-      width,
-    });
+    this.toolbarController.paintHeader();
   }
   paintViewToggles() {
     this.avatarToggle.content = `${this.avatarsEnabled ? "■" : "□"} Avatars`;
@@ -1361,14 +1060,14 @@ export class Runtime {
     this.paint();
   }
 
-  private toggleDiffView() {
+  toggleDiffView() {
     this.diffViewPreference =
       this.diffViewPreference === "side-by-side" ? "inline" : "side-by-side";
     this.persistLayoutPreferences();
     this.layout();
   }
 
-  private dismissOverlay() {
+  dismissOverlay() {
     if (this.commandPaletteOpen) return this.closeCommandPalette();
     this.popupController.close();
   }
@@ -1398,28 +1097,15 @@ export class Runtime {
   }
 
   paintToolbar() {
-    const width = Math.max(1, this.renderer.terminalWidth);
-    const toolbar = renderToolbar(toolbarButtons(this.snapshot), width, {
-      hovered: this.toolbarHovered,
-      pressed: this.toolbarPressed,
-      busy: this.busySpinnerText
-        ? `${this.busyFrame} ${this.busySpinnerText}`
-        : undefined,
-    });
-    this.toolbar.width = width;
-    this.toolbar.content = toolbar.content;
-    this.toolbarHits = toolbar.hits;
-    this.paintHeader();
+    this.toolbarController.paint();
   }
-  private async toolbarPress(x: number) {
-    const action = toolbarHit(this.toolbarHits, x);
-    const pressed = this.toolbarPressed;
-    this.toolbarPressed = undefined;
-    this.paintToolbar();
-    if (!action || action !== pressed) return;
-    await this.runToolbarAction(action);
+  /** Busy progress for the toolbar, with the current spinner frame. */
+  get busyLabel() {
+    return this.busySpinnerText
+      ? `${this.busyFrame} ${this.busySpinnerText}`
+      : undefined;
   }
-  private runToolbarAction(action: ToolbarAction) {
+  runToolbarAction(action: ToolbarAction) {
     return runRuntimeToolbarAction(this, action);
   }
   setFocus(focus: "history" | "changes") {
@@ -1442,14 +1128,17 @@ export class Runtime {
   sectionRows(section: ChangeSection) {
     return runtimeSectionRows(this, section);
   }
-  private toggleSection(section: ChangeSection) {
+  toggleSection(section: ChangeSection) {
     toggleRuntimeSection(this, section);
   }
-  private resizeChangeSplit(y: number) {
+  resizeChangeSplit(y: number) {
     resizeRuntimeChangeSplit(this, y);
   }
-  private resizeComposer(y: number) {
+  resizeComposer(y: number) {
     resizeRuntimeComposer(this, y);
+  }
+  filesHover(section: ChangeSection, y?: number) {
+    handleRuntimeFilesHover(this, section, y);
   }
   filesScroll(section: ChangeSection, delta: number) {
     if (this.historyFilter) {
@@ -1470,12 +1159,7 @@ export class Runtime {
     }
     scrollRuntimeFiles(this, section, delta);
   }
-  private filesClick(
-    section: ChangeSection,
-    y: number,
-    button?: number,
-    x?: number,
-  ) {
+  filesClick(section: ChangeSection, y: number, button?: number, x?: number) {
     if (this.diffSelection.size) this.clearLineSelection(false);
     if (this.historyFilter) {
       const row =
@@ -1517,11 +1201,11 @@ export class Runtime {
 
   /** The header separator under the pointer or being dragged. */
   get historyDivider() {
-    return this.historyColumnDrag
-      ? { key: this.historyColumnDrag.key, dragging: true }
-      : this.historyDividerHover
-        ? { key: this.historyDividerHover, dragging: false }
-        : undefined;
+    return this.historyHeader.divider;
+  }
+
+  get hoveredHistoryLine() {
+    return this.historyHeader.hoveredLine;
   }
 
   requestMoreCommits() {
@@ -1743,7 +1427,7 @@ export class Runtime {
       count,
     );
   }
-  private queueHistoryScroll(delta: number) {
+  queueHistoryScroll(delta: number) {
     queueRuntimeHistoryScroll(this, delta);
   }
   /** Pan the graph sideways; returns false when nothing is hidden. */
@@ -1759,70 +1443,8 @@ export class Runtime {
     this.paintHistory();
     return true;
   }
-  private setHoveredHistoryLine(line: number | undefined) {
-    if (this.hoveredHistoryLine === line) return;
-    this.hoveredHistoryLine = line;
-    if (this.snapshot) this.paintHistory();
-  }
-  private setHistoryDividerHover(key: HistoryDividerKey | undefined) {
-    if (this.historyDividerHover === key) return;
-    this.historyDividerHover = key;
-    if (this.snapshot) this.paintHistory();
-  }
-  private historyClick(x: number, y: number, button: number) {
-    this.historyColumnDrag = undefined;
-    if (y === 0 && !this.commitDiff.visible) {
-      if (button === MouseButton.RIGHT) {
-        const committer = {
-          label: `${this.historyColumns.showCommitter ? "[x]" : "[ ]"} Committer`,
-        };
-        const sha = {
-          label: `${this.historyColumns.showSha ? "[x]" : "[ ]"} SHA`,
-        };
-        this.openPopup(
-          "History columns",
-          [committer, sha],
-          x,
-          y + PANE_TOP,
-          (item) => {
-            if (item === committer)
-              this.historyColumns.showCommitter =
-                !this.historyColumns.showCommitter;
-            if (item === sha)
-              this.historyColumns.showSha = !this.historyColumns.showSha;
-            this.persistLayoutPreferences();
-            this.paintHistory();
-          },
-        );
-      } else if (button === MouseButton.LEFT) {
-        const layout = historyColumnLayout(
-          this.historyContentWidth,
-          this.graphIndex.columns,
-          this.historyColumns,
-        );
-        const key = historyDividerAt(x - this.historyContentLeft, layout);
-        const now = Date.now();
-        if (
-          key &&
-          isDividerDoubleClick(this.lastDividerPress, key, now, DOUBLE_CLICK_MS)
-        ) {
-          // Double-click restores the column's default width.
-          this.lastDividerPress = undefined;
-          delete this.historyColumns[key];
-          this.persistLayoutPreferences();
-          this.paintHistory();
-        } else if (key) {
-          this.lastDividerPress = { key, at: now };
-          this.historyColumnDrag = {
-            key,
-            x,
-            width: layout[key],
-          };
-          this.paintHistory();
-        }
-      }
-      return;
-    }
+  historyClick(x: number, y: number, button: number) {
+    if (this.historyHeader.click(x, y, button)) return;
     handleHistoryClick(this, x, y, button);
   }
 
@@ -1987,7 +1609,7 @@ export class Runtime {
   checkoutBranch(branch: BranchRef) {
     return checkoutRuntimeBranch(this, branch);
   }
-  private submitNamePrompt() {
+  submitNamePrompt() {
     return submitRuntimeNamePrompt(this);
   }
 
@@ -2016,7 +1638,7 @@ export class Runtime {
     closeRuntimeDiff(this);
   }
 
-  private copyCommitSha() {
+  copyCommitSha() {
     const sha = this.snapshot?.commits[this.commitIndex]?.sha;
     if (!sha) return;
     if (this.renderer.copyToClipboardOSC52(sha))
@@ -2026,7 +1648,7 @@ export class Runtime {
     this.commitInfoBox.visible = visible;
     this.commitBodyBox.visible = visible;
   }
-  private toggleAmend() {
+  toggleAmend() {
     if (this.amend) {
       this.amend = false;
       if (this.amendDraft) {
@@ -2052,7 +1674,7 @@ export class Runtime {
     }
     this.paintComposer();
   }
-  private editMessage() {
+  editMessage() {
     const commit = this.snapshot?.commits[this.commitIndex];
     if (!commit) return;
     this.editReturnState = {
@@ -2088,7 +1710,7 @@ export class Runtime {
     this.paintComposer();
     this.paintHints();
   }
-  private sidebarClick(x: number, y: number, button: number) {
+  sidebarClick(x: number, y: number, button: number) {
     handleSidebarClick(this, x, y, button);
   }
   startBranchFilter() {
@@ -2100,38 +1722,35 @@ export class Runtime {
   private acceptBranchFilter() {
     acceptRuntimeBranchFilter(this);
   }
-  private activateFilteredBranch() {
+  branchFilterChanged() {
+    updateRuntimeBranchFilter(this);
+  }
+  activateFilteredBranch() {
     activateRuntimeFilteredBranch(this);
   }
   cancelBranchFilter() {
     cancelRuntimeBranchFilter(this);
   }
-  private toggleSidebarSection(section: SidebarSection) {
+  toggleSidebarSection(section: SidebarSection) {
     toggleRuntimeSidebarSection(this, section);
   }
-  private sidebarScroll(y: number, delta: number) {
+  sidebarScroll(y: number, delta: number) {
     scrollRuntimeSidebar(this, y, delta);
   }
-  private resizeSidebar(section: SidebarSection, y: number) {
+  resizeSidebar(section: SidebarSection, y: number) {
     resizeRuntimeSidebar(this, section, y);
   }
 
-  private key(key: KeyEvent) {
+  key(key: KeyEvent) {
     return handleRuntimeKey(this, key);
   }
-  private diffClick(
-    x: number,
-    y: number,
-    button: number,
-    ctrl: boolean,
-    alt: boolean,
-  ) {
+  diffClick(x: number, y: number, button: number, ctrl: boolean, alt: boolean) {
     this.diffSelection.click(x, y, button, ctrl, alt);
   }
-  private diffDrag(x: number, y: number) {
+  diffDrag(x: number, y: number) {
     return this.diffSelection.drag(x, y);
   }
-  private diffDragEnd() {
+  diffDragEnd() {
     return this.diffSelection.dragEnd();
   }
   clearLineSelection(notify = true) {
@@ -2148,7 +1767,7 @@ export class Runtime {
   ) {
     return performRuntime(this, label, action, remote, scope);
   }
-  private commit() {
+  commit() {
     return commitRuntime(this);
   }
   stageAll() {

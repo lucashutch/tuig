@@ -394,6 +394,13 @@ export class RuntimePaletteController {
     setTimeout(() => this.context.commandPaletteInput.focus(), 0);
   }
 
+  /** Restart the selection from the top after the search text changes. */
+  queryChanged() {
+    this.index = 0;
+    this.start = 0;
+    this.paint();
+  }
+
   close(restoreFocus = true) {
     if (!this.isOpen) return;
     this.isOpen = false;
