@@ -51,10 +51,7 @@ import {
 import type { DiffView, DiffViewMode } from "./diff-view.js";
 import { clampGraphScroll } from "./graph-viewport.js";
 import {
-  branchRefsForSection,
-  clampBranchSelection,
   emptyBranchHintIndex,
-  moveBranchSelection,
   resolveHeadSha,
   authorAvatar,
   formatRelativeTime,
@@ -132,7 +129,6 @@ import {
   filesClick as handleRuntimeFilesClick,
   filesHover as handleRuntimeFilesHover,
   filesScroll as scrollRuntimeFiles,
-  moveFile as moveRuntimeFile,
   resizeChangeSplit as resizeRuntimeChangeSplit,
   resizeComposer as resizeRuntimeComposer,
   sectionRows as runtimeSectionRows,
@@ -141,6 +137,10 @@ import {
   type RuntimeFilesContext,
 } from "./runtime-files.js";
 import { loadLayoutPreferences, saveLayoutPreferences } from "./preferences.js";
+import {
+  handleKey as handleRuntimeKey,
+  type RuntimeKeysContext,
+} from "./runtime-keys.js";
 import {
   promoteRecentRepository,
   removeRecentRepository,
@@ -3330,274 +3330,207 @@ export class Runtime {
     resizeRuntimeSidebar(this.sidebarContext(), section, y);
   }
 
-  private async key(key: KeyEvent) {
-    if (key.name === "enter" && Date.now() < this.suppressEnterUntil) {
-      this.suppressEnterUntil = 0;
-      return;
-    }
-    const focusedEditor = this.renderer.currentFocusedEditor;
-    if (focusedEditor === this.commandPaletteInput) {
-      if (key.ctrl && key.name === "p") return this.closeCommandPalette();
-      if (key.name === "escape") return this.closeCommandPalette();
-      if (key.name === "up" || (key.ctrl && key.name === "k"))
-        return this.movePaletteSelection(-1);
-      if (key.name === "down" || (key.ctrl && key.name === "n"))
-        return this.movePaletteSelection(1);
-      if (key.name === "pageup")
-        return this.movePaletteSelection(-this.commandPaletteRows);
-      if (key.name === "pagedown")
-        return this.movePaletteSelection(this.commandPaletteRows);
-      return;
-    }
-    if (focusedEditor === this.repositoryPathInput) {
-      if (key.name === "escape") return this.closeRepositoryPicker();
-      if (key.name === "up" || key.name === "down") {
-        const delta = key.name === "up" ? -1 : 1;
-        const length = this.repositoryPathInput.value.trim()
-          ? this.repositorySuggestions.length
-          : this.closedRecentRepositories.length;
-        this.repositorySuggestionIndex = Math.max(
-          0,
-          Math.min(length - 1, this.repositorySuggestionIndex + delta),
-        );
-        return this.paintRepositorySuggestions();
-      }
-      if (
-        !this.repositoryPathInput.value.trim() &&
-        (key.name === "delete" || key.name === "backspace")
-      ) {
-        const selected =
-          this.closedRecentRepositories[this.repositorySuggestionIndex];
-        if (selected) {
-          this.recentRepositories = removeRecentRepository(
-            this.recentRepositories,
-            selected,
-          );
-          this.repositorySuggestionIndex = Math.min(
-            this.repositorySuggestionIndex,
-            Math.max(0, this.closedRecentRepositories.length - 1),
-          );
-          this.paintRepositorySuggestions();
-          this.persistSessionPreferences();
-        }
-        return;
-      }
-      if (key.name === "tab") return this.completeRepositorySuggestion();
-      return;
-    }
-    // Confirmation and naming popups own the keyboard until resolved. Opening
-    // another modal here would silently discard their pending action or input.
-    if (key.ctrl && key.name === "p" && this.popupController.isOpen) return;
-    if (key.ctrl && key.name === "p") return this.showCommandPalette();
-    if (key.ctrl && key.name === "t") return this.showRepositoryPicker();
-    if (key.ctrl && key.name === "w")
-      return void this.closeRepositoryTab(this.activeTabId);
-    if (key.ctrl && key.name === "tab") {
-      const index = this.tabs.findIndex((tab) => tab.id === this.activeTabId);
-      const delta = key.shift ? -1 : 1;
-      const next = (index + delta + this.tabs.length) % this.tabs.length;
-      return void this.activateRepositoryTab(this.tabs[next]!.id);
-    }
-    const composingCommit =
-      focusedEditor === this.composerSummary ||
-      focusedEditor === this.composerBody;
-    if (composingCommit && key.name !== "escape" && key.name !== "tab") {
-      // The editors own every other key while composing, but the button label
-      // tracks the summary, so repaint after the keystroke lands.
-      setTimeout(() => this.paintComposer(), 0);
-      return;
-    }
-    if (composingCommit && key.name === "tab") {
-      const next =
-        focusedEditor === this.composerSummary
-          ? this.composerBody
-          : this.composerSummary;
-      next.focus();
-      return;
-    }
-    if (this.composing && key.name === "tab") return;
-    if (this.composing && key.name !== "escape") return;
-    if (key.name === "escape") {
-      if (this.popupController.isOpen) return this.closePopup();
-      if (this.mutationAbort)
-        return void cancelActiveMutation(this.commandsContext());
-      if (this.branchFilterActive) return this.cancelBranchFilter();
-      // A failed reword can leave the editor blurred; edit mode itself still
-      // owns Escape so its saved working draft is never stranded.
-      if (this.editingCommitSha) return this.cancelEditMessage();
-      if (this.historyFilter && this.clearHistoryFilter()) return;
-      if (this.diffSelection.size) {
-        this.clearLineSelection();
-        return;
-      }
-      if (this.composing) {
-        this.composerSummary.blur();
-        this.composerBody.blur();
-        this.paintHints();
-      } else if (this.view !== "history") this.closeDiff();
-      return;
+  private key(key: KeyEvent) {
+    return handleRuntimeKey(this.keysContext(), key);
+  }
+  private repositoryPickerKey(key: KeyEvent) {
+    if (key.name === "escape") return this.closeRepositoryPicker();
+    if (key.name === "up" || key.name === "down") {
+      const delta = key.name === "up" ? -1 : 1;
+      const length = this.repositoryPathInput.value.trim()
+        ? this.repositorySuggestions.length
+        : this.closedRecentRepositories.length;
+      this.repositorySuggestionIndex = Math.max(
+        0,
+        Math.min(length - 1, this.repositorySuggestionIndex + delta),
+      );
+      return this.paintRepositorySuggestions();
     }
     if (
-      this.popupController.isOpen &&
-      (key.name === "enter" || key.name === "return")
-    )
-      return this.popupController.activate();
-    if (key.name === "q" || (key.ctrl && key.name === "c")) {
-      return this.shutdown();
-    }
-    if (key.name === "tab") {
-      this.setFocus(this.focus === "history" ? "changes" : "history");
-      return;
-    }
-    if (key.name === "/" && this.focus === "history")
-      return this.startBranchFilter();
-    if (this.branchFilterActive && this.snapshot) {
-      // While filtering, j/k (or arrows) navigate the matching local rows.
-      // Shift selects the remote section, keeping both branch lists keyboard
-      // accessible without introducing a second focus widget.
-      const section = key.shift ? "remote" : "local";
-      const refs = branchRefsForSection(this.snapshot.branches, section);
-      const filtered = branchRefsForSection(
-        this.snapshot.branches,
-        section,
-        this.branchFilter,
-      );
-      if (
-        key.name === "up" ||
-        key.name === "k" ||
-        key.name === "down" ||
-        key.name === "j"
-      ) {
-        const delta = key.name === "up" || key.name === "k" ? -1 : 1;
-        this.branchSelection[section] = moveBranchSelection(
-          refs,
-          this.branchSelection[section],
-          delta,
-          this.branchFilter,
+      !this.repositoryPathInput.value.trim() &&
+      (key.name === "delete" || key.name === "backspace")
+    ) {
+      const selected =
+        this.closedRecentRepositories[this.repositorySuggestionIndex];
+      if (selected) {
+        this.recentRepositories = removeRecentRepository(
+          this.recentRepositories,
+          selected,
         );
-        this.paint();
-        return;
-      }
-      if (key.name === "enter" || key.name === "return") {
-        const index = clampBranchSelection(
-          this.branchSelection[section],
-          filtered.length,
+        this.repositorySuggestionIndex = Math.min(
+          this.repositorySuggestionIndex,
+          Math.max(0, this.closedRecentRepositories.length - 1),
         );
-        const branch = index >= 0 ? filtered[index] : undefined;
-        if (branch) {
-          this.finishBranchFilter();
-          return void this.checkoutBranch(branch);
-        }
+        this.paintRepositorySuggestions();
+        this.persistSessionPreferences();
       }
-    }
-    if (key.name === "c" && this.focus === "history" && this.branchFilter) {
-      this.cancelBranchFilter();
       return;
     }
-    if (key.name === "up" || key.name === "k")
-      return this.focus === "changes" ? this.moveFile(-1) : this.moveCommit(-1);
-    if (key.name === "down" || key.name === "j")
-      return this.focus === "changes" ? this.moveFile(1) : this.moveCommit(1);
-    // OpenTUI reports the Enter key as "return"; both names are accepted so
-    // the binding cannot break with a rename upstream.
-    if (key.name === "enter" || key.name === "return") {
-      if (this.diffSelection.size) return void this.applySelectedLines();
-      if (this.focus === "changes") return void this.openSelectedFile();
-      if (this.view === "history") return void this.openCommit();
-      return;
-    }
-    if (key.name === "t") {
-      if (this.diffSelection.size) this.clearLineSelection(false);
-      this.mode = this.mode === "staged" ? "unstaged" : "staged";
-      this.fileIndex = 0;
-      this.fileStart = this.sectionStart[this.mode];
-      this.setFocus("changes");
-      this.paint();
-      return void this.loadDiff().catch((e) => this.fail(e));
-    }
-    if (key.name === "[") {
-      this.leftCollapsed = !this.leftCollapsed;
-      this.persistLayoutPreferences();
-      return this.layout();
-    }
-    if (key.name === "]") {
-      this.detailsCollapsed = !this.detailsCollapsed;
-      this.persistLayoutPreferences();
-      return this.layout();
-    }
-    if (key.name === "left" || key.name === "right") {
-      const delta = key.name === "left" ? -1 : 1;
-      // In the history pane the arrows pan a graph that is too wide to fit;
-      // with nothing hidden they keep their file-navigation meaning.
-      if (this.focus === "history" && this.scrollGraphColumns(delta)) return;
-      return this.moveFile(delta);
-    }
-    if (
-      key.shift &&
-      key.name.toLowerCase() === "l" &&
-      this.diffTooLarge &&
-      this.commitDiff.visible
-    )
-      return void this.loadDiff(true).catch((error) => this.fail(error));
-    if (key.name === "r") return void this.refresh();
-    if (key.name === "f")
-      return void this.perform(
-        "Fetching…",
-        (signal) => this.repository.fetch(undefined, signal),
-        true,
-      );
-    if (key.name === "l")
-      return void this.perform(
-        "Pulling…",
-        (signal) => this.repository.pull(false, signal),
-        true,
-      );
-    if (key.name === "p")
-      return void this.perform(
-        "Pushing…",
-        (signal) => this.repository.push(undefined, false, signal),
-        true,
-      );
-    if (key.name === "s" && this.selectedFile())
-      return void this.perform(
-        "Staging…",
-        () => this.repository.stage([this.selectedFile()!.path]),
-        false,
-        "working",
-      );
-    if (key.name === "u" && this.selectedFile())
-      return void this.perform(
-        "Unstaging…",
-        () => this.repository.unstage([this.selectedFile()!.path]),
-        false,
-        "working",
-      );
-    if (key.name === "h" && this.selectedFile())
-      return void this.stageFirstHunk();
-    if (key.name === "a") return void this.stageAll();
-    if (key.name === "d") return void this.discardAll();
-    if (key.name === "c") {
-      // Focus after this keypress has been dispatched, otherwise the same "c"
-      // also reaches the input and starts the commit message with it.
-      setTimeout(() => {
-        this.composerSummary.focus();
-        this.paintHints();
-      }, 0);
-    }
+    if (key.name === "tab") return this.completeRepositorySuggestion();
+    return;
   }
-  private moveFile(delta: number) {
-    if (this.diffSelection.size) this.clearLineSelection(false);
-    if (this.historyFilter) return this.filesScroll("unstaged", delta);
-    moveRuntimeFile(this.filesContext(), delta);
-  }
-  private async openSelectedFile() {
-    if (!this.selectedFile()) return this.notify("No file selected");
-    if (this.view === "history") return void this.openWorkingDiff();
-    this.diffOrigin = this.view === "commit" ? "commit" : "working";
-    this.commitDiff.visible = true;
-    this.commitDiffEmpty.visible = false;
-    this.layout();
-    await this.loadDiff().catch((e) => this.fail(e));
+  private keysContext(): RuntimeKeysContext {
+    // Accessors keep key handling attached to the live runtime state.
+    // eslint-disable-next-line @typescript-eslint/no-this-alias
+    const runtime = this;
+    return {
+      get suppressEnterUntil() {
+        return runtime.suppressEnterUntil;
+      },
+      set suppressEnterUntil(value) {
+        runtime.suppressEnterUntil = value;
+      },
+      get focusedEditor() {
+        return runtime.renderer.currentFocusedEditor;
+      },
+      commandPaletteInput: this.commandPaletteInput,
+      repositoryPathInput: this.repositoryPathInput,
+      composerSummary: this.composerSummary,
+      composerBody: this.composerBody,
+      popupController: this.popupController,
+      get commandPaletteRows() {
+        return runtime.commandPaletteRows;
+      },
+      get composing() {
+        return runtime.composing;
+      },
+      get mutationActive() {
+        return runtime.mutationAbort !== undefined;
+      },
+      get historyFilterActive() {
+        return runtime.historyFilter !== undefined;
+      },
+      get tabs() {
+        return runtime.tabs;
+      },
+      get activeTabId() {
+        return runtime.activeTabId;
+      },
+      get snapshot() {
+        return runtime.snapshot;
+      },
+      get repository() {
+        return runtime.repository;
+      },
+      get selectedLineCount() {
+        return runtime.diffSelection.size;
+      },
+      get files() {
+        return runtime.filesContext();
+      },
+      commitDiff: this.commitDiff,
+      commitDiffEmpty: this.commitDiffEmpty,
+      get diffTooLarge() {
+        return runtime.diffTooLarge;
+      },
+      get view() {
+        return runtime.view;
+      },
+      set view(value) {
+        runtime.view = value;
+      },
+      get focus() {
+        return runtime.focus;
+      },
+      set focus(value) {
+        runtime.focus = value;
+      },
+      get mode() {
+        return runtime.mode;
+      },
+      set mode(value) {
+        runtime.mode = value;
+      },
+      get fileIndex() {
+        return runtime.fileIndex;
+      },
+      set fileIndex(value) {
+        runtime.fileIndex = value;
+      },
+      get fileStart() {
+        return runtime.fileStart;
+      },
+      set fileStart(value) {
+        runtime.fileStart = value;
+      },
+      sectionStart: this.sectionStart,
+      get leftCollapsed() {
+        return runtime.leftCollapsed;
+      },
+      set leftCollapsed(value) {
+        runtime.leftCollapsed = value;
+      },
+      get detailsCollapsed() {
+        return runtime.detailsCollapsed;
+      },
+      set detailsCollapsed(value) {
+        runtime.detailsCollapsed = value;
+      },
+      get diffOrigin() {
+        return runtime.diffOrigin;
+      },
+      set diffOrigin(value) {
+        runtime.diffOrigin = value;
+      },
+      get branchFilter() {
+        return runtime.branchFilter;
+      },
+      set branchFilter(value) {
+        runtime.branchFilter = value;
+      },
+      get branchFilterActive() {
+        return runtime.branchFilterActive;
+      },
+      set branchFilterActive(value) {
+        runtime.branchFilterActive = value;
+      },
+      branchSelection: this.branchSelection,
+      get editingCommitSha() {
+        return runtime.editingCommitSha;
+      },
+      set editingCommitSha(value) {
+        runtime.editingCommitSha = value;
+      },
+      closeCommandPalette: () => this.closeCommandPalette(),
+      movePaletteSelection: (delta) => this.movePaletteSelection(delta),
+      showCommandPalette: () => this.showCommandPalette(),
+      repositoryPickerKey: (key) => this.repositoryPickerKey(key),
+      showRepositoryPicker: () => this.showRepositoryPicker(),
+      closeRepositoryTab: (id) => this.closeRepositoryTab(id),
+      activateRepositoryTab: (id) => this.activateRepositoryTab(id),
+      paintComposer: () => this.paintComposer(),
+      paintHints: () => this.paintHints(),
+      paint: () => this.paint(),
+      layout: () => this.layout(),
+      closePopup: () => this.closePopup(),
+      cancelMutation: () => void cancelActiveMutation(this.commandsContext()),
+      cancelBranchFilter: () => this.cancelBranchFilter(),
+      finishBranchFilter: () => this.finishBranchFilter(),
+      startBranchFilter: () => this.startBranchFilter(),
+      cancelEditMessage: () => this.cancelEditMessage(),
+      clearHistoryFilter: () => this.clearHistoryFilter(),
+      clearLineSelection: (notify) => this.clearLineSelection(notify),
+      applySelectedLines: () => this.applySelectedLines(),
+      closeDiff: () => this.closeDiff(),
+      shutdown: () => this.shutdown(),
+      setFocus: (focus) => this.setFocus(focus),
+      checkoutBranch: (branch) => this.checkoutBranch(branch),
+      moveCommit: (delta) => this.moveCommit(delta),
+      filesScroll: (section, delta) => this.filesScroll(section, delta),
+      scrollGraphColumns: (delta) => this.scrollGraphColumns(delta),
+      selectedFile: () => this.selectedFile(),
+      openCommit: () => this.openCommit(),
+      openWorkingDiff: () => this.openWorkingDiff(),
+      loadDiff: (allowLarge) => this.loadDiff(allowLarge),
+      refresh: () => this.refresh(),
+      perform: (label, action, remote, scope) =>
+        this.perform(label, action, remote, scope),
+      stageFirstHunk: () => this.stageFirstHunk(),
+      stageAll: () => this.stageAll(),
+      discardAll: () => this.discardAll(),
+      notify: (text) => this.notify(text),
+      fail: (error) => this.fail(error),
+    };
   }
   private diffClick(
     x: number,
