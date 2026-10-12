@@ -25,14 +25,17 @@ Canonical repository: https://github.com/lucashutch/tuig
 - `src/ui/runtime-diff-selection.ts` — diff line selection, drag selection, and selected-line staging.
 - `src/ui/runtime-files.ts` — changed-file selection, expansion, scrolling, and diff targets.
 - `src/ui/runtime-history.ts` — history navigation, scrolling, graph hit testing, and double-click handling.
+- `src/ui/runtime-events.ts` — widget mouse and key actions, and overlay input handlers.
+- `src/ui/runtime-history-columns.ts` — history header dividers, columns menu, and row hover.
 - `src/ui/runtime-keys.ts` — keyboard dispatch by mode: overlays, composer, branch filter, and pane shortcuts.
 - `src/ui/runtime-layout.ts` — pane sizing and layout calculations.
 - `src/ui/runtime-paint.ts` — sidebar, history, file, and composer painting.
 - `src/ui/runtime-sidebar.ts` — sidebar interaction, resizing, and branch filtering.
+- `src/ui/runtime-toolbar.ts` — toolbar and header painting, hover, press, and dispatch.
 - `src/ui/runtime-popup.ts` — popup placement, rendering, submenu interaction, and prompt visibility.
 - `src/ui/runtime-palette.ts` — command palette command list, painting, theme preview, and activation.
 - `src/ui/runtime-tabs.ts` — repository tab strip painting, drag, switching, and the repository picker.
-- `src/ui/runtime-widgets.ts` — typed OpenTUI widget factory, pane wiring, and renderable event bindings for the runtime.
+- `src/ui/runtime-widgets.ts` — typed OpenTUI widget factories, pane wiring, and renderable event bindings for the runtime.
 - `src/ui/repository-tabs.ts` — repository tab layout and hit testing.
 - `src/ui/session-preferences.ts` — persisted open repository tabs and active tab.
 - `src/ui/theme.ts` — Tuig semantic colors and the active theme.

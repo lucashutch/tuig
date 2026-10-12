@@ -1208,3 +1208,176 @@ export function createRuntimeWidgets(
     submenuText,
   };
 }
+
+export type RuntimeOverlayWidgets = {
+  branchFilterInput: InputRenderable;
+  promptInput: InputRenderable;
+  repositoryPickerBox: BoxRenderable;
+  repositoryPathInput: InputRenderable;
+  repositoryPickerText: TextRenderable;
+  commandPaletteBox: BoxRenderable;
+  commandPaletteInput: InputRenderable;
+  commandPaletteText: TextRenderable;
+  commandPaletteFooter: TextRenderable;
+};
+
+export type RuntimeOverlayActions = {
+  /** Choose a repository picker suggestion by its row inside the list. */
+  chooseRepositorySuggestion(row: number): void;
+  /** Mouse events over the palette results carry terminal rows. */
+  paletteHover(y: number): void;
+  paletteActivate(y: number, button: number): void;
+  paletteScroll(delta: number): void;
+};
+
+/**
+ * Create the inputs, repository picker, and command palette. They stay
+ * unattached: the caller adds them to the renderer root once its controllers
+ * exist.
+ */
+export function createOverlayWidgets(
+  renderer: CliRenderer,
+  actions: RuntimeOverlayActions,
+): RuntimeOverlayWidgets {
+  const branchFilterInput = new InputRenderable(renderer, {
+    position: "absolute",
+    id: "branch-filter",
+    top: PANE_TOP,
+    left: 1,
+    width: 24,
+    visible: false,
+    zIndex: 80,
+    placeholder: "Filter branches…",
+    backgroundColor: oneDarkTheme.selected,
+    focusedBackgroundColor: oneDarkTheme.selected,
+    textColor: oneDarkTheme.text,
+  });
+  const promptInput = new InputRenderable(renderer, {
+    position: "absolute",
+    id: "name-prompt",
+    top: 1,
+    left: 1,
+    width: 24,
+    visible: false,
+    zIndex: 80,
+    placeholder: "Name",
+    backgroundColor: oneDarkTheme.selected,
+    focusedBackgroundColor: oneDarkTheme.selected,
+    textColor: oneDarkTheme.text,
+  });
+  const repositoryPickerBox = new BoxRenderable(renderer, {
+    position: "absolute",
+    id: "repository-picker",
+    left: 2,
+    top: 2,
+    width: 60,
+    height: 10,
+    zIndex: 90,
+    visible: false,
+    border: true,
+    borderColor: oneDarkTheme.border,
+    backgroundColor: oneDarkTheme.panelRaised,
+    shouldFill: true,
+    title: " Open repository ",
+    titleAlignment: "left",
+  });
+  const repositoryPathInput = new InputRenderable(renderer, {
+    position: "absolute",
+    id: "repository-path",
+    left: 1,
+    top: 1,
+    width: 56,
+    visible: true,
+    zIndex: 92,
+    placeholder: "Path from current directory",
+    backgroundColor: oneDarkTheme.selected,
+    focusedBackgroundColor: oneDarkTheme.selected,
+    textColor: oneDarkTheme.text,
+  });
+  const repositoryPickerText = new TextRenderable(renderer, {
+    position: "absolute",
+    id: "repository-suggestions",
+    left: 1,
+    top: 3,
+    width: 56,
+    height: 5,
+    visible: true,
+    zIndex: 92,
+    fg: oneDarkTheme.text,
+    wrapMode: "none",
+    content: "",
+    onMouseDown: (event) =>
+      actions.chooseRepositorySuggestion(
+        event.y - Number(repositoryPickerBox.top) - 3,
+      ),
+  });
+  repositoryPickerBox.add(repositoryPathInput);
+  repositoryPickerBox.add(repositoryPickerText);
+  const commandPaletteBox = new BoxRenderable(renderer, {
+    position: "absolute",
+    id: "command-palette",
+    left: 2,
+    top: 2,
+    width: 70,
+    height: 14,
+    zIndex: 100,
+    visible: false,
+    border: false,
+    backgroundColor: oneDarkTheme.panelRaised,
+    shouldFill: true,
+  });
+  const commandPaletteInput = new InputRenderable(renderer, {
+    position: "absolute",
+    id: "command-palette-search",
+    left: 2,
+    top: 1,
+    width: 66,
+    zIndex: 102,
+    placeholder: "Search commands",
+    backgroundColor: oneDarkTheme.panelRaised,
+    focusedBackgroundColor: oneDarkTheme.selected,
+    textColor: oneDarkTheme.text,
+  });
+  const commandPaletteText = new TextRenderable(renderer, {
+    position: "absolute",
+    id: "command-palette-results",
+    left: 1,
+    top: 3,
+    width: 66,
+    height: 10,
+    zIndex: 102,
+    wrapMode: "none",
+    selectable: false,
+    content: "",
+    onMouseMove: (event) => actions.paletteHover(event.y),
+    onMouseDown: (event) => actions.paletteActivate(event.y, event.button),
+    onMouseScroll: (event) =>
+      actions.paletteScroll(event.scroll?.direction === "up" ? -3 : 3),
+  });
+  commandPaletteBox.add(commandPaletteInput);
+  commandPaletteBox.add(commandPaletteText);
+  const commandPaletteFooter = new TextRenderable(renderer, {
+    id: "command-palette-footer",
+    position: "absolute",
+    left: 2,
+    top: 12,
+    height: 1,
+    zIndex: 102,
+    fg: oneDarkTheme.muted,
+    wrapMode: "none",
+    selectable: false,
+    content: "↑↓ navigate   enter select   esc close",
+  });
+  commandPaletteBox.add(commandPaletteFooter);
+  return {
+    branchFilterInput,
+    promptInput,
+    repositoryPickerBox,
+    repositoryPathInput,
+    repositoryPickerText,
+    commandPaletteBox,
+    commandPaletteInput,
+    commandPaletteText,
+    commandPaletteFooter,
+  };
+}

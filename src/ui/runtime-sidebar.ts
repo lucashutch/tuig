@@ -170,6 +170,17 @@ export function finishBranchFilter(context: RuntimeSidebarContext) {
   context.paint();
 }
 
+/** Apply the filter box text and reset sidebar scroll and selection. */
+export function updateBranchFilter(context: RuntimeSidebarContext) {
+  cancelSidebarScroll(context);
+  context.branchFilter = context.branchFilterInput.value;
+  context.sidebarStart.local = 0;
+  context.sidebarStart.remote = 0;
+  context.branchSelection.local = 0;
+  context.branchSelection.remote = 0;
+  context.paint();
+}
+
 export function acceptBranchFilter(context: RuntimeSidebarContext) {
   finishBranchFilter(context);
   context.suppressEnterUntil = Date.now() + 100;
