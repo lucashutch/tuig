@@ -25,6 +25,7 @@ Canonical repository: https://github.com/lucashutch/tuig
 - `src/ui/runtime-diff-selection.ts` — diff line selection, drag selection, and selected-line staging.
 - `src/ui/runtime-files.ts` — changed-file selection, expansion, scrolling, and diff targets.
 - `src/ui/runtime-history.ts` — history navigation, scrolling, graph hit testing, and double-click handling.
+- `src/ui/runtime-keys.ts` — keyboard dispatch by mode: overlays, composer, branch filter, and pane shortcuts.
 - `src/ui/runtime-layout.ts` — pane sizing and layout calculations.
 - `src/ui/runtime-paint.ts` — sidebar, history, file, and composer painting.
 - `src/ui/runtime-sidebar.ts` — sidebar interaction, resizing, and branch filtering.
