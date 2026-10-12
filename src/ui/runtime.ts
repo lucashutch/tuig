@@ -67,12 +67,9 @@ import {
 } from "./graph-menu.js";
 import { RuntimePopupController } from "./runtime-popup.js";
 import {
-  clampPaletteViewport,
-  commandMatches,
-  nextEnabledCommand,
-  type PaletteCommand,
-  type PaletteMatch,
-} from "./command-palette.js";
+  RuntimePaletteController,
+  type RuntimePaletteContext,
+} from "./runtime-palette.js";
 import {
   layoutRuntime,
   layoutChanges,
@@ -345,9 +342,6 @@ export class Runtime {
     name: "one-dark",
     mode: "dark",
   };
-  private palettePage: "commands" | "themes" | "theme-mode" = "commands";
-  private paletteThemeOriginal?: typeof oneDarkTheme;
-  private paletteThemePreview?: string;
 
   configureThemes(
     catalog: Awaited<ReturnType<typeof loadThemeCatalog>>,
@@ -446,7 +440,7 @@ export class Runtime {
       if (catalog.errors.length)
         this.notify(catalog.errors.join("; "), "error");
     }
-    this.palettePage = page;
+    this.palette.page = page;
     this.showCommandPalette();
   }
   private historyFilter?: {
@@ -530,6 +524,7 @@ export class Runtime {
     { start: number; end: number; ref?: BranchRef }
   >();
   private readonly popupController: RuntimePopupController;
+  private readonly palette: RuntimePaletteController;
   private lastGraphClick?: { row: number; at: number; label: boolean };
   private expandedFiles = new Set<string>();
   private seenFileDirectories = new Set<string>();
@@ -641,12 +636,6 @@ export class Runtime {
   private repositorySuggestionIndex = 0;
   private repositorySuggestionRows = 5;
   private repositoryPickerRequest = 0;
-  private commandPaletteOpen = false;
-  private commandPaletteMatches: PaletteMatch[] = [];
-  private commandPaletteIndex = 0;
-  private commandPaletteStart = 0;
-  private commandPaletteRows = 10;
-  private palettePreviousEditor?: InputRenderable | TextareaRenderable;
   private leftWidth = 28;
   private detailsWidth = 44;
   private leftCollapsed = false;
@@ -1068,8 +1057,8 @@ export class Runtime {
       wrapMode: "none",
       selectable: false,
       content: "",
-      onMouseMove: (event) => this.hoverPaletteRow(event.y),
-      onMouseDown: (event) => this.activatePaletteRow(event.y, event.button),
+      onMouseMove: (event) => this.palette.hoverRow(event.y),
+      onMouseDown: (event) => this.palette.activateRow(event.y, event.button),
       onMouseScroll: (event) =>
         this.movePaletteSelection(event.scroll?.direction === "up" ? -3 : 3),
     });
@@ -1103,6 +1092,7 @@ export class Runtime {
         this.namePrompt = undefined;
       },
     });
+    this.palette = new RuntimePaletteController(this.paletteContext());
     this.branchFilterInput.on(InputRenderableEvents.INPUT, () => {
       cancelRuntimeSidebarScroll(this.sidebarContext());
       this.branchFilter = this.branchFilterInput.value;
@@ -1124,12 +1114,12 @@ export class Runtime {
       void this.updateRepositorySuggestions();
     });
     this.commandPaletteInput.on(InputRenderableEvents.INPUT, () => {
-      this.commandPaletteIndex = 0;
-      this.commandPaletteStart = 0;
-      this.paintCommandPalette();
+      this.palette.index = 0;
+      this.palette.start = 0;
+      this.palette.paint();
     });
     this.commandPaletteInput.on(InputRenderableEvents.ENTER, () =>
-      this.activatePaletteCommand(),
+      this.palette.activate(),
     );
     this.repositoryPathInput.on(
       InputRenderableEvents.ENTER,
@@ -1574,517 +1564,117 @@ export class Runtime {
     this.popupController.close();
   }
 
-  private paletteCommands(): PaletteCommand[] {
-    if (this.palettePage === "themes")
-      return (this.themeCatalog?.entries ?? []).map((entry) => ({
-        id: `theme.${entry.name}`,
-        title: `${entry.name}${entry.name === this.themeSelection.name ? " (current)" : ""}`,
-        category: "Settings",
-        run: () =>
-          this.activateTheme({ ...this.themeSelection, name: entry.name }),
-      }));
-    if (this.palettePage === "theme-mode")
-      return (["dark", "light", "system"] as const).map((mode) => ({
-        id: `theme-mode.${mode}`,
-        title: `${mode}${mode === this.themeSelection.mode ? " (current)" : ""}`,
-        category: "Settings",
-        run: () => this.activateTheme({ ...this.themeSelection, mode }),
-      }));
-    const snapshot = this.snapshot;
-    const selected = this.selectedFile();
-    const busyReason = this.mutationBusy
-      ? `${this.mutationBusy} is still running`
-      : undefined;
-    const repositoryAvailability = (enabled: boolean, reason: string) => ({
-      enabled: enabled && !busyReason,
-      disabledReason: busyReason ?? (enabled ? undefined : reason),
-    });
-    const toolbar = (action: ToolbarAction) => () =>
-      void runRuntimeToolbarAction(this.commandsContext(), action);
-    return [
-      {
-        id: "theme.change",
-        title: "Change theme",
-        category: "Settings",
-        run: () => this.showThemePicker("themes"),
-      },
-      {
-        id: "theme.mode",
-        title: "Change theme mode",
-        category: "Settings",
-        run: () => this.showThemePicker("theme-mode"),
-      },
-      {
-        id: "repository.refresh",
-        title: "Refresh repository",
-        category: "Repository",
-        keywords: ["reload", "status"],
-        shortcut: "r",
-        ...repositoryAvailability(Boolean(snapshot), "Repository is loading"),
-        run: toolbar("refresh"),
-      },
-      {
-        id: "repository.fetch",
-        title: "Fetch remotes",
-        category: "Repository",
-        shortcut: "f",
-        ...repositoryAvailability(Boolean(snapshot), "Repository is loading"),
-        run: toolbar("fetch"),
-      },
-      {
-        id: "repository.pull",
-        title: "Pull current branch",
-        category: "Repository",
-        shortcut: "l",
-        ...repositoryAvailability(
-          Boolean(snapshot?.upstream),
-          "No upstream branch",
-        ),
-        run: toolbar("pull"),
-      },
-      {
-        id: "repository.push",
-        title: "Push current branch",
-        category: "Repository",
-        shortcut: "p",
-        ...repositoryAvailability(
-          Boolean(snapshot?.upstream),
-          "No upstream branch",
-        ),
-        run: toolbar("push"),
-      },
-      {
-        id: "repository.stash",
-        title: "Stash working changes",
-        category: "Repository",
-        ...repositoryAvailability(
-          (snapshot?.files.length ?? 0) > 0,
-          "No changes to stash",
-        ),
-        run: toolbar("stash"),
-      },
-      {
-        id: "repository.pop-stash",
-        title: "Pop latest stash",
-        category: "Repository",
-        ...repositoryAvailability(
-          (snapshot?.stashes.length ?? 0) > 0,
-          "No stash to pop",
-        ),
-        run: toolbar("pop"),
-      },
-      {
-        id: "repository.open",
-        title: "Open new repository tab",
-        category: "Repository",
-        keywords: ["add tab", "open repository"],
-        shortcut: "Ctrl+T",
-        run: () => this.showRepositoryPicker(),
-      },
-      {
-        id: "repository.close",
-        title: "Close current repository tab",
-        category: "Repository",
-        shortcut: "Ctrl+W",
-        enabled: this.tabs.length > 1 && !busyReason,
-        disabledReason: busyReason ?? "Cannot close the only repository tab",
-        run: () => void this.closeRepositoryTab(this.activeTabId),
-      },
-      {
-        id: "changes.commit",
-        title: "Compose commit",
-        category: "Changes",
-        shortcut: "c",
-        enabled: !this.composing,
-        disabledReason: "Commit composer is already active",
-        run: () => {
-          setTimeout(() => this.composerSummary.focus(), 0);
-        },
-      },
-      {
-        id: "changes.stage-selected",
-        title: "Stage selected file",
-        category: "Changes",
-        shortcut: "s",
-        ...repositoryAvailability(
-          Boolean(selected?.unstaged),
-          "No unstaged file selected",
-        ),
-        run: () =>
-          selected &&
-          void this.perform(
-            `Staging ${selected.path}…`,
-            () => this.repository.stage([selected.path]),
-            false,
-            "working",
-          ),
-      },
-      {
-        id: "changes.unstage-selected",
-        title: "Unstage selected file",
-        category: "Changes",
-        shortcut: "u",
-        ...repositoryAvailability(
-          Boolean(selected?.staged),
-          "No staged file selected",
-        ),
-        run: () =>
-          selected &&
-          void this.perform(
-            `Unstaging ${selected.path}…`,
-            () => this.repository.unstage([selected.path]),
-            false,
-            "working",
-          ),
-      },
-      {
-        id: "changes.stage-all",
-        title: "Stage all changes",
-        category: "Changes",
-        shortcut: "a",
-        ...repositoryAvailability(
-          this.files("unstaged").length > 0,
-          "No unstaged changes",
-        ),
-        run: () => void this.stageAll(),
-      },
-      {
-        id: "changes.unstage-all",
-        title: "Unstage all changes",
-        category: "Changes",
-        ...repositoryAvailability(
-          this.files("staged").length > 0,
-          "No staged changes",
-        ),
-        run: () => void this.unstageAll(),
-      },
-      {
-        id: "changes.discard-all",
-        title: "Discard all unstaged changes",
-        category: "Changes",
-        ...repositoryAvailability(
-          this.files("unstaged").length > 0,
-          "No unstaged changes",
-        ),
-        run: () => void this.discardAll(),
-      },
-      {
-        id: "navigation.filter-branches",
-        title: "Filter and checkout branches",
-        category: "Navigation",
-        keywords: ["switch", "find branch"],
-        shortcut: "/",
-        enabled: Boolean(snapshot),
-        disabledReason: "Repository is loading",
-        run: () => this.startBranchFilter(),
-      },
-      {
-        id: "navigation.history",
-        title: "Focus commit history",
-        category: "Navigation",
-        run: () => this.setFocus("history"),
-      },
-      {
-        id: "navigation.changes",
-        title: "Focus changed files",
-        category: "Navigation",
-        run: () => this.setFocus("changes"),
-      },
-      {
-        id: "navigation.next-tab",
-        title: "Next repository tab",
-        category: "Navigation",
-        shortcut: "Ctrl+Tab",
-        enabled: this.tabs.length > 1 && !busyReason,
-        disabledReason: busyReason ?? "Only one repository tab is open",
-        run: () => void this.activateRelativeRepositoryTab(1),
-      },
-      {
-        id: "navigation.previous-tab",
-        title: "Previous repository tab",
-        category: "Navigation",
-        shortcut: "Ctrl+Shift+Tab",
-        enabled: this.tabs.length > 1 && !busyReason,
-        disabledReason: busyReason ?? "Only one repository tab is open",
-        run: () => void this.activateRelativeRepositoryTab(-1),
-      },
-      {
-        id: "view.sidebar",
-        title: `${this.leftCollapsed ? "Expand" : "Collapse"} left panel`,
-        category: "View",
-        shortcut: "[",
-        keywords: ["lhs", "sidebar", "branches", "show", "hide"],
-        run: () => {
-          this.leftCollapsed = !this.leftCollapsed;
-          this.persistLayoutPreferences();
-          this.layout();
-        },
-      },
-      {
-        id: "view.details",
-        title: `${this.detailsCollapsed ? "Expand" : "Collapse"} right panel`,
-        category: "View",
-        shortcut: "]",
-        keywords: ["rhs", "details", "show", "hide"],
-        run: () => {
-          this.detailsCollapsed = !this.detailsCollapsed;
-          this.persistLayoutPreferences();
-          this.layout();
-        },
-      },
-      {
-        id: "settings.avatars",
-        title: `${this.avatarsEnabled ? "Disable" : "Enable"} author avatars`,
-        category: "Settings",
-        keywords: ["images", "privacy", "remote"],
-        run: () => this.toggleAvatars(),
-      },
-    ];
-  }
-
   private activateRelativeRepositoryTab(delta: number) {
     const index = this.tabs.findIndex((tab) => tab.id === this.activeTabId);
     const next = (index + delta + this.tabs.length) % this.tabs.length;
     return this.activateRepositoryTab(this.tabs[next]!.id);
   }
 
+  private get commandPaletteOpen() {
+    return this.palette.isOpen;
+  }
+
+  private get commandPaletteRows() {
+    return this.palette.rows;
+  }
+
   private showCommandPalette() {
-    if (this.commandPaletteOpen) return this.closeCommandPalette();
-    this.popupController.close();
-    this.palettePreviousEditor = this.renderer.currentFocusedEditor as
-      | InputRenderable
-      | TextareaRenderable
-      | undefined;
-    this.commandPaletteOpen = true;
-    if (this.palettePage === "themes" || this.palettePage === "theme-mode")
-      this.paletteThemeOriginal = {
-        ...oneDarkTheme,
-        graph: [...oneDarkTheme.graph],
-      };
-    this.commandPaletteInput.value = "";
-    this.commandPaletteIndex = 0;
-    this.commandPaletteStart = 0;
-    this.overlayCatcher.visible = true;
-    this.commandPaletteBox.visible = true;
-    this.paintCommandPalette();
-    setTimeout(() => this.commandPaletteInput.focus(), 0);
+    this.palette.show();
   }
 
   private closeCommandPalette(restoreFocus = true) {
-    if (!this.commandPaletteOpen) return;
-    this.commandPaletteOpen = false;
-    const original = this.paletteThemeOriginal;
-    this.paletteThemeOriginal = undefined;
-    this.paletteThemePreview = undefined;
-    this.palettePage = "commands";
-    this.commandPaletteInput.blur();
-    this.commandPaletteBox.visible = false;
-    this.overlayCatcher.visible = this.popupController.isOpen;
-    const previous = this.palettePreviousEditor;
-    this.palettePreviousEditor = undefined;
-    if (original) {
-      setActiveTheme(original);
-      this.repaintTheme();
-    }
-    if (restoreFocus && previous) setTimeout(() => previous.focus(), 0);
-    this.renderer.requestRender();
+    this.palette.close(restoreFocus);
   }
 
   private paintCommandPalette() {
-    if (!this.commandPaletteOpen) return;
-    const terminalWidth = Math.max(1, this.renderer.terminalWidth);
-    const terminalHeight = Math.max(1, this.renderer.terminalHeight);
-    const width = Math.max(1, Math.min(76, terminalWidth - 2));
-    this.commandPaletteMatches = commandMatches(
-      this.paletteCommands(),
-      this.commandPaletteInput.value,
-    );
-    // Reserve space for the search field, spacing, footer, and outer padding.
-    this.commandPaletteRows = Math.max(
-      1,
-      Math.min(12, this.commandPaletteMatches.length, terminalHeight - 7),
-    );
-    this.commandPaletteBox.left = Math.max(
-      0,
-      Math.floor((terminalWidth - width) / 2),
-    );
-    this.commandPaletteBox.top = Math.max(
-      0,
-      Math.floor((terminalHeight - this.commandPaletteRows - 7) / 3),
-    );
-    this.commandPaletteBox.width = width;
-    this.commandPaletteBox.height = Math.min(
-      terminalHeight,
-      this.commandPaletteRows + 7,
-    );
-    this.commandPaletteInput.placeholder =
-      this.palettePage === "commands"
-        ? "Search commands"
-        : this.palettePage === "themes"
-          ? "Search themes"
-          : "Search modes";
-    this.commandPaletteInput.width = Math.max(1, width - 4);
-    this.commandPaletteText.width = Math.max(1, width - 4);
-    this.commandPaletteText.height = this.commandPaletteRows;
-    this.commandPaletteFooter.top = this.commandPaletteRows + 4;
-    this.commandPaletteFooter.width = Math.max(1, width - 4);
-    this.commandPaletteFooter.content = new StyledText([
-      fg(dialogColor("text.muted", oneDarkTheme.muted))(
-        clipColumns(
-          "↑↓ navigate   enter select   esc close",
-          Math.max(1, width - 4),
-        ),
-      ),
-    ]);
-    if (this.commandPaletteMatches.length === 0) this.commandPaletteIndex = -1;
-    else if (
-      this.commandPaletteIndex < 0 ||
-      this.commandPaletteIndex >= this.commandPaletteMatches.length ||
-      this.commandPaletteMatches[this.commandPaletteIndex]?.command.enabled ===
-        false
-    )
-      this.commandPaletteIndex = nextEnabledCommand(
-        this.commandPaletteMatches,
-        -1,
-        1,
-      );
-    this.commandPaletteStart = clampPaletteViewport(
-      this.commandPaletteIndex,
-      this.commandPaletteStart,
-      this.commandPaletteRows,
-      this.commandPaletteMatches.length,
-    );
-    this.previewPaletteTheme();
-    const visible = this.commandPaletteMatches.slice(
-      this.commandPaletteStart,
-      this.commandPaletteStart + this.commandPaletteRows,
-    );
-    if (visible.length === 0) {
-      this.commandPaletteText.content = new StyledText([
-        fg(dialogColor("text.muted", oneDarkTheme.muted))(
-          " No matching commands",
-        ),
-      ]);
-      return;
-    }
-    const content = visible.map((match, row) => {
-      const index = this.commandPaletteStart + row;
-      const command = match.command;
-      const selected = index === this.commandPaletteIndex;
-      const rawSuffix =
-        command.enabled === false
-          ? (command.disabledReason ?? "Unavailable")
-          : (command.shortcut ?? "");
-      const innerWidth = Math.max(1, width - 4);
-      const contentWidth = Math.max(1, innerWidth - 2);
-      const detailWidth = Math.min(
-        rawSuffix.length,
-        24,
-        Math.max(0, contentWidth - 24),
-      );
-      const titleWidth = Math.max(1, contentWidth - detailWidth);
-      const title = clipColumns(command.title, titleWidth).padEnd(titleWidth);
-      const suffix = clipColumns(rawSuffix, detailWidth).padStart(detailWidth);
-      const background = selected
-        ? oneDarkTheme.selected
-        : oneDarkTheme.panelRaised;
-      const color =
-        command.enabled === false ? oneDarkTheme.muted : oneDarkTheme.text;
-      const states = {
-        selected,
-        focused: selected,
-        disabled: command.enabled === false,
-      };
-      const rowBackground = dialogColor(
-        "background.action.primary",
-        background,
-        states,
-      );
-      return [
-        bg(rowBackground)(
-          fg(dialogColor("text.action.primary", color, states))(` ${title}`),
-        ),
-        bg(rowBackground)(
-          fg(dialogColor("text.muted", oneDarkTheme.muted, states))(
-            `${suffix} ${row === visible.length - 1 ? "" : "\n"}`,
-          ),
-        ),
-      ];
-    });
-    this.commandPaletteText.content = new StyledText(content.flat());
-  }
-
-  private previewPaletteTheme() {
-    if (!this.paletteThemeOriginal) return;
-    const command =
-      this.commandPaletteMatches[this.commandPaletteIndex]?.command;
-    const id = command?.enabled === false ? "" : (command?.id ?? "");
-    if (id === this.paletteThemePreview) return;
-    this.paletteThemePreview = id;
-    if (!id) {
-      setActiveTheme(this.paletteThemeOriginal);
-      this.repaintTheme();
-      return;
-    }
-    const selection =
-      this.palettePage === "themes"
-        ? { ...this.themeSelection, name: id.slice("theme.".length) }
-        : {
-            ...this.themeSelection,
-            mode: id.slice("theme-mode.".length) as "dark" | "light" | "system",
-          };
-    void this.activateTheme(selection, false, undefined, true);
+    this.palette.paint();
   }
 
   private movePaletteSelection(delta: number) {
-    if (!this.commandPaletteOpen) return;
-    const direction = delta < 0 ? -1 : 1;
-    for (let count = 0; count < Math.abs(delta); count += 1)
-      this.commandPaletteIndex = nextEnabledCommand(
-        this.commandPaletteMatches,
-        this.commandPaletteIndex,
-        direction,
-      );
-    this.paintCommandPalette();
+    this.palette.moveSelection(delta);
   }
 
-  private hoverPaletteRow(y: number) {
-    const index =
-      this.commandPaletteStart + y - Number(this.commandPaletteBox.top) - 3;
-    const command = this.commandPaletteMatches[index]?.command;
-    if (
-      !command ||
-      command.enabled === false ||
-      index === this.commandPaletteIndex
-    )
-      return;
-    this.commandPaletteIndex = index;
-    this.paintCommandPalette();
-  }
-
-  private activatePaletteRow(y: number, button: number) {
-    if (button !== MouseButton.LEFT) return;
-    const index =
-      this.commandPaletteStart + y - Number(this.commandPaletteBox.top) - 3;
-    const command = this.commandPaletteMatches[index]?.command;
-    if (!command || command.enabled === false) return;
-    this.commandPaletteIndex = index;
-    this.activatePaletteCommand();
-  }
-
-  private activatePaletteCommand() {
-    const selected =
-      this.commandPaletteMatches[this.commandPaletteIndex]?.command;
-    if (!selected || selected.enabled === false) return;
-    const current = this.paletteCommands().find(
-      (command) => command.id === selected.id,
-    );
-    if (!current || current.enabled === false) {
-      this.paintCommandPalette();
-      return;
-    }
-    this.closeCommandPalette();
-    void current.run();
+  private paletteContext(): RuntimePaletteContext {
+    // eslint-disable-next-line @typescript-eslint/no-this-alias
+    const runtime = this;
+    return {
+      overlayCatcher: this.overlayCatcher,
+      box: this.commandPaletteBox,
+      input: this.commandPaletteInput,
+      text: this.commandPaletteText,
+      footer: this.commandPaletteFooter,
+      popupController: this.popupController,
+      terminalSize: () => ({
+        width: this.renderer.terminalWidth,
+        height: this.renderer.terminalHeight,
+      }),
+      currentEditor: () =>
+        this.renderer.currentFocusedEditor as
+          | InputRenderable
+          | TextareaRenderable
+          | undefined,
+      requestRender: () => this.renderer.requestRender(),
+      get themeEntries() {
+        return runtime.themeCatalog?.entries ?? [];
+      },
+      get themeSelection() {
+        return runtime.themeSelection;
+      },
+      activateTheme: (selection, persist, appearance, preview) =>
+        this.activateTheme(selection, persist, appearance, preview),
+      showThemePicker: (page) => this.showThemePicker(page),
+      repaintTheme: () => this.repaintTheme(),
+      commandsContext: () => this.commandsContext(),
+      get repository() {
+        return runtime.repository;
+      },
+      get snapshot() {
+        return runtime.snapshot;
+      },
+      get busy() {
+        return runtime.mutationBusy;
+      },
+      get composing() {
+        return runtime.composing;
+      },
+      get tabCount() {
+        return runtime.tabs.length;
+      },
+      get leftCollapsed() {
+        return runtime.leftCollapsed;
+      },
+      set leftCollapsed(value) {
+        runtime.leftCollapsed = value;
+      },
+      get detailsCollapsed() {
+        return runtime.detailsCollapsed;
+      },
+      set detailsCollapsed(value) {
+        runtime.detailsCollapsed = value;
+      },
+      get avatarsEnabled() {
+        return runtime.avatarsEnabled;
+      },
+      selectedFile: () => this.selectedFile(),
+      files: (section) => this.files(section),
+      perform: (label, action, remote, scope) =>
+        this.perform(label, action, remote, scope),
+      stageAll: () => this.stageAll(),
+      unstageAll: () => this.unstageAll(),
+      discardAll: () => this.discardAll(),
+      focusComposer: () => {
+        setTimeout(() => this.composerSummary.focus(), 0);
+      },
+      startBranchFilter: () => this.startBranchFilter(),
+      setFocus: (focus) => this.setFocus(focus),
+      showRepositoryPicker: () => this.showRepositoryPicker(),
+      closeActiveRepositoryTab: () => this.closeRepositoryTab(this.activeTabId),
+      activateRelativeRepositoryTab: (delta) =>
+        this.activateRelativeRepositoryTab(delta),
+      persistLayoutPreferences: () => this.persistLayoutPreferences(),
+      layout: () => this.layout(),
+      toggleAvatars: () => this.toggleAvatars(),
+    };
   }
 
   private showRepositoryPicker() {
