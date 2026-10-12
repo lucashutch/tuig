@@ -10,6 +10,7 @@ Canonical repository: https://github.com/lucashutch/tuig
 - `src/git/parsers.ts` — pure parsers for Git's machine-readable output.
 - `src/git/hunks.ts` — splits a file diff into hunks and builds patches for selected lines.
 - `src/git/repository-browser.ts` — directory suggestions for opening repository tabs.
+- `src/git/repository-watcher.ts` — debounced filesystem watch of a repository's HEAD, index, refs, and work tree.
 - `src/ui/` — OpenTUI rendering, interaction state, panes, menus, and dialogs.
 - `src/ui/command-palette.ts` — command model, filtering, and ranking for the command palette.
 - `src/ui/diff-view.ts` — diff widget, inline or side-by-side view choice, and line hit testing.
@@ -20,6 +21,7 @@ Canonical repository: https://github.com/lucashutch/tuig
 - `src/ui/runtime.ts` — runtime orchestration, state transitions, and repository actions.
 - `src/ui/runtime-commands.ts` — Git-backed commands, confirmations, prompts, and commit mutations.
 - `src/ui/runtime-data.ts` — snapshot, diff, and commit-detail loading with request guards.
+- `src/ui/auto-refresh.ts` — active-tab watch with a polling fallback and safety-net poll.
 - `src/ui/runtime-files.ts` — changed-file selection, expansion, scrolling, and diff targets.
 - `src/ui/runtime-history.ts` — history navigation, scrolling, graph hit testing, and double-click handling.
 - `src/ui/runtime-layout.ts` — pane sizing and layout calculations.

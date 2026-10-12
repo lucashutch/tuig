@@ -33,6 +33,8 @@ import type {
   Worktree,
 } from "../git/types.js";
 import { type GraphRow } from "./graph.js";
+import { createAutoRefresh } from "./auto-refresh.js";
+import { debugLog } from "./debug-log.js";
 import {
   historyColumnLayout,
   historyDividerAt,
@@ -246,7 +248,6 @@ export async function runTuig(
 }
 
 const DEFAULT_REMOTE_FETCH_INTERVAL_MINUTES = 1;
-const REFRESH_INTERVAL_MS = 10_000;
 
 export const BRAILLE_SPINNER_FRAMES = [
   "⠋",
@@ -503,7 +504,18 @@ export class Runtime {
   private commitFilesRequest = 0;
   private historyFilterRequest = 0;
   private snapshotRequest = 0;
-  private refreshTimer?: ReturnType<typeof setInterval>;
+  private snapshotReadStartedAt?: number;
+  // Only the active tab is watched. A tab switch reads a fresh snapshot, so
+  // background tabs need no watch or poll of their own.
+  private readonly autoRefresh = createAutoRefresh({
+    poll: () => {
+      if (!this.composing) void this.refresh("Auto-refreshing…", true);
+    },
+    changed: (changedAt) => this.refreshForWatchedChange(changedAt),
+    fallback: (error) =>
+      debugLog("refresh", "watching failed, polling instead", error),
+  });
+  private autoRefreshStarted = false;
   private remoteFetchTimer?: ReturnType<typeof setInterval>;
   private remoteFetchIntervalMinutes = DEFAULT_REMOTE_FETCH_INTERVAL_MINUTES;
   private scrollTimer?: ReturnType<typeof setTimeout>;
@@ -1188,9 +1200,8 @@ export class Runtime {
     // Refresh creates width-dependent history content; recompute once with
     // the live snapshot so startup follows the same path as a manual resize.
     this.layout();
-    this.refreshTimer = setInterval(() => {
-      if (!this.composing) void this.refresh("Auto-refreshing…", true);
-    }, REFRESH_INTERVAL_MS);
+    this.autoRefreshStarted = true;
+    void this.autoRefresh.follow(this.repository);
     if (this.remoteFetchIntervalMinutes > 0) {
       this.remoteFetchTimer = setInterval(() => {
         if (!this.composing && !this.busy && !this.repository.authBlocked)
@@ -1335,6 +1346,7 @@ export class Runtime {
   }
   private readonly dispose = () => {
     this.disposed = true;
+    this.autoRefresh.dispose();
     cancelRuntimeDiff(this.dataContext());
     this.removeSelectionListener();
     this.stopBusySpinner();
@@ -1346,7 +1358,7 @@ export class Runtime {
     cancelRuntimeGraphAvatars(this.dataContext());
     cancelAvatarWork();
     this.mutationAbort?.abort();
-    if (this.refreshTimer) clearInterval(this.refreshTimer);
+    this.autoRefresh.dispose();
     if (this.remoteFetchTimer) clearInterval(this.remoteFetchTimer);
     if (this.scrollTimer) clearTimeout(this.scrollTimer);
     if (this.scrollSettleTimer) clearTimeout(this.scrollSettleTimer);
@@ -2374,6 +2386,7 @@ export class Runtime {
     this.commitFilesRequest++;
     this.repository = tab.repository;
     this.activeTabId = id;
+    if (this.autoRefreshStarted) void this.autoRefresh.follow(tab.repository);
     this.persistSessionPreferences();
     this.snapshot = undefined;
     this.snapshotSignature = undefined;
@@ -2694,6 +2707,19 @@ export class Runtime {
     return refreshRuntimeData(this.dataContext(), message, automatic);
   }
 
+  /**
+   * Refresh for a change seen on disk. Returning false asks the watcher to
+   * try again later, while the user types or another Git read or mutation
+   * runs. A snapshot read that started after the change already includes it,
+   * which also absorbs the events Tuig's own mutations cause.
+   */
+  private refreshForWatchedChange(changedAt: number) {
+    if (this.composing || this.busy || this.mutationBusy) return false;
+    if ((this.snapshotReadStartedAt ?? -Infinity) > changedAt) return true;
+    void this.refresh(undefined, true);
+    return true;
+  }
+
   /** Refresh after a change that cannot have touched history. */
   private refreshWorkingStatus(message?: string) {
     return refreshRuntimeWorkingStatus(this.dataContext(), message);
@@ -2789,6 +2815,12 @@ export class Runtime {
       },
       set busy(value) {
         runtime.busy = value;
+      },
+      get snapshotReadStartedAt() {
+        return runtime.snapshotReadStartedAt;
+      },
+      set snapshotReadStartedAt(value) {
+        runtime.snapshotReadStartedAt = value;
       },
       get refreshPending() {
         return runtime.refreshPending;

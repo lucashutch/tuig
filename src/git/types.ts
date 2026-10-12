@@ -113,6 +113,19 @@ export interface WorkingStatus {
   files: ChangedFile[];
 }
 
+/**
+ * Real directories a repository's state lives in. A linked worktree or a
+ * submodule has a `.git` file, so its Git dir is outside the work tree, and
+ * a linked worktree keeps branch refs in the shared common dir.
+ */
+export interface RepositoryWatchPaths {
+  workTree: string;
+  /** Holds HEAD and the index. */
+  gitDir: string;
+  /** Holds refs and packed-refs. */
+  commonDir: string;
+}
+
 export interface DiffRequest {
   path?: string;
   /** Previous path when the selected entry is a rename or copy. */
@@ -143,6 +156,8 @@ export interface GitRepository {
   remoteUrl?(): Promise<string | undefined>;
   /** Set while remote commands fail for missing credentials. Background fetch pauses. */
   readonly authBlocked?: boolean;
+  /** Directories to watch for changes. Callers without it fall back to polling. */
+  watchPaths?(): Promise<RepositoryWatchPaths>;
   snapshot(limit?: number): Promise<RepositorySnapshot>;
   refreshSnapshot?(
     previous: RepositorySnapshot,
