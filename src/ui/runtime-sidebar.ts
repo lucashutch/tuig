@@ -10,10 +10,16 @@ import {
   clampBranchSelection,
   filterBranchRefs,
 } from "./history.js";
+import type { PullRequest } from "../git/pull-request-types.js";
 import type { GraphMenuTarget } from "./graph-menu.js";
+import {
+  pullRequestPanelRows,
+  type PullRequestPanel,
+} from "./pull-requests.js";
 import {
   layoutSidebarSections,
   resizeSidebarBoundary,
+  sidebarHiddenSections,
   sidebarRows,
   SIDEBAR_SECTIONS,
   type SidebarSection,
@@ -56,6 +62,21 @@ export interface RuntimeSidebarContext {
   openSubmodule(submodule: Submodule): Promise<void>;
   openWorktree(worktree: Worktree): Promise<void>;
   openGraphMenu(x: number, y: number, target: GraphMenuTarget): void;
+  /** Pull request section. Absent when the feature is off. */
+  pullRequests?: {
+    readonly panel: PullRequestPanel;
+    select(pullRequest: PullRequest): Promise<void>;
+    open(pullRequest: PullRequest): Promise<void>;
+  };
+}
+
+function sidebarLayout(context: RuntimeSidebarContext) {
+  return layoutSidebarSections(
+    context.contentHeight,
+    context.sidebarPreferred,
+    context.sidebarCollapsed,
+    sidebarHiddenSections(context.pullRequests?.panel),
+  );
 }
 
 export function sidebarClick(
@@ -67,20 +88,12 @@ export function sidebarClick(
   if (button !== MouseButton.RIGHT && button !== MouseButton.LEFT) return;
   const snapshot = context.snapshot;
   if (!snapshot) return;
-  const rects = layoutSidebarSections(
-    context.contentHeight,
-    context.sidebarPreferred,
-    context.sidebarCollapsed,
-  );
+  const rects = sidebarLayout(context);
   const section = (SIDEBAR_SECTIONS as readonly SidebarSection[]).find(
     (candidate) => {
       const rect = rects[candidate];
       return (
-        (candidate === "local" ||
-          candidate === "remote" ||
-          candidate === "submodules" ||
-          candidate === "stashes" ||
-          candidate === "worktrees") &&
+        !rect.hidden &&
         !context.sidebarCollapsed[candidate] &&
         y >= rect.contentTop &&
         y < rect.contentTop + rect.contentHeight
@@ -100,6 +113,17 @@ export function sidebarClick(
     context.lastSidebarClick = { key, at: now };
     return false;
   };
+  if (section === "pullRequests") {
+    const panel = context.pullRequests?.panel;
+    const pullRequest =
+      panel?.kind === "list" ? panel.pullRequests[row] : undefined;
+    if (button !== MouseButton.LEFT || !pullRequest) return;
+    // The first click selects the head commit; a second one opens the page.
+    if (doubleClick(`pull-request:${pullRequest.number}`))
+      void context.pullRequests!.open(pullRequest);
+    else void context.pullRequests!.select(pullRequest);
+    return;
+  }
   if (section === "submodules") {
     const submodule = snapshot.submodules[Math.floor(row / 2)];
     if (button === MouseButton.RIGHT && submodule)
@@ -233,6 +257,12 @@ function sidebarScrollLimit(
 ): number {
   const snapshot = context.snapshot;
   if (!snapshot) return 0;
+  if (section === "pullRequests")
+    return Math.max(
+      0,
+      pullRequestPanelRows(context.pullRequests?.panel ?? { kind: "hidden" }) -
+        contentHeight,
+    );
   const rows = sidebarRows(
     snapshot,
     section,
@@ -255,11 +285,7 @@ export function sidebarScroll(
   delta: number,
 ) {
   if (!context.snapshot) return;
-  const rects = layoutSidebarSections(
-    context.contentHeight,
-    context.sidebarPreferred,
-    context.sidebarCollapsed,
-  );
+  const rects = sidebarLayout(context);
   const section = SIDEBAR_SECTIONS.find(
     (candidate) =>
       y >= rects[candidate].contentTop &&
@@ -284,11 +310,7 @@ export function applySidebarScroll(
 ) {
   if (!context.snapshot || delta === 0) return;
   // Sizes can change while the batch waits, so measure at apply time.
-  const contentHeight = layoutSidebarSections(
-    context.contentHeight,
-    context.sidebarPreferred,
-    context.sidebarCollapsed,
-  )[section].contentHeight;
+  const contentHeight = sidebarLayout(context)[section].contentHeight;
   context.sidebarStart[section] = Math.max(
     0,
     Math.min(
@@ -314,11 +336,7 @@ export function resizeSidebar(
   section: SidebarSection,
   y: number,
 ) {
-  const layout = layoutSidebarSections(
-    context.contentHeight,
-    context.sidebarPreferred,
-    context.sidebarCollapsed,
-  );
+  const layout = sidebarLayout(context);
   context.sidebarPreferred = resizeSidebarBoundary(
     layout,
     context.sidebarPreferred,

@@ -63,6 +63,8 @@ export interface RuntimeCommandsContext {
   fail(error: unknown): void;
   openSubmodule(submodule: Submodule): Promise<void>;
   openWorktree(worktree: Worktree): Promise<void>;
+  /** Called after a fetch, pull, or push succeeds. */
+  remoteSynced?(): void;
 }
 
 /**
@@ -86,7 +88,10 @@ export async function perform(
   context.notify(label, "busy");
   try {
     await action(abort?.signal);
-    if (remote) context.syncedAt = Date.now();
+    if (remote) {
+      context.syncedAt = Date.now();
+      context.remoteSynced?.();
+    }
     await (scope === "working"
       ? context.refreshWorkingStatus()
       : context.refresh());

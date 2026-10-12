@@ -41,7 +41,7 @@ try {
         ? requested.root
         : saved.activeRepository,
       action.clean ? undefined : saved.submodules,
-      undefined,
+      {},
       saved.recentRepositories ?? [],
     );
   }

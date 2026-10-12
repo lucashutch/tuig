@@ -658,15 +658,25 @@ test("sidebar viewports hide unnecessary scrollbars and paint needed ones", () =
 test("sidebar sections allocate all rows, retain headers, and expose count-only labels", () => {
   const collapsed = {
     local: false,
+    pullRequests: false,
     remote: false,
     submodules: true,
     stashes: false,
     worktrees: false,
   };
+  const hidden = { pullRequests: true };
   const layout = layoutSidebarSections(
     20,
-    { local: 10, remote: 1, submodules: 9, stashes: 1, worktrees: 1 },
+    {
+      local: 10,
+      pullRequests: 1,
+      remote: 1,
+      submodules: 9,
+      stashes: 1,
+      worktrees: 1,
+    },
     collapsed,
+    hidden,
   );
   expect(layout.local.headerTop).toBe(0);
   expect(layout.worktrees.headerTop).toBeLessThan(20);
@@ -680,15 +690,31 @@ test("sidebar sections allocate all rows, retain headers, and expose count-only 
   expect(sidebarScrollbar(100, 50, 10)).toEqual({ thumbSize: 1, thumbTop: 5 });
   const tiny = layoutSidebarSections(
     3,
-    { local: 1, remote: 1, submodules: 1, stashes: 1, worktrees: 1 },
+    {
+      local: 1,
+      pullRequests: 1,
+      remote: 1,
+      submodules: 1,
+      stashes: 1,
+      worktrees: 1,
+    },
     collapsed,
+    hidden,
   );
   expect(tiny.submodules.headerTop).toBe(2);
   const roomy = layoutSidebarSections(
-    30,
-    { local: 1, remote: 1, submodules: 1, stashes: 1, worktrees: 1 },
+    34,
+    {
+      local: 1,
+      pullRequests: 1,
+      remote: 1,
+      submodules: 1,
+      stashes: 1,
+      worktrees: 1,
+    },
     {
       local: false,
+      pullRequests: false,
       remote: false,
       submodules: false,
       stashes: false,
@@ -703,6 +729,7 @@ test("sidebar sections allocate all rows, retain headers, and expose count-only 
 test("sidebar divider resizes only its adjacent expanded sections", () => {
   const collapsed = {
     local: false,
+    pullRequests: false,
     remote: false,
     submodules: false,
     stashes: false,
@@ -712,6 +739,7 @@ test("sidebar divider resizes only its adjacent expanded sections", () => {
     30,
     {
       local: undefined,
+      pullRequests: undefined,
       remote: undefined,
       submodules: undefined,
       stashes: undefined,
@@ -723,6 +751,7 @@ test("sidebar divider resizes only its adjacent expanded sections", () => {
     layout,
     {
       local: undefined,
+      pullRequests: undefined,
       remote: undefined,
       submodules: undefined,
       stashes: undefined,
