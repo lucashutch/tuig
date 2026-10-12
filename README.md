@@ -107,6 +107,12 @@ Tuig is designed for the mouse, with keyboard controls for common actions.
 | Stage selected file            |                              | `s`                       |
 | Unstage selected file          |                              | `u`                       |
 | Stage or unstage first hunk    |                              | `h`                       |
+| Select diff lines to stage     | Click a changed line         | `Enter` to stage/unstage  |
+| Add lines to the selection     | `Ctrl`+click, `Alt`+click    |                           |
+| Select a range of lines        | `Alt`+drag                   |                           |
+| Clear the line selection       |                              | `Esc`                     |
+| Show file history or blame     | Right-click a file or line   |                           |
+| Compare two commits            | Right-click a commit         |                           |
 | Write a commit message         | Click summary or description | `c`, `Tab` between fields |
 | Commit staged changes          | Click the commit button      | `Enter` in the summary    |
 | Fetch / pull / push            | Toolbar                      | `f` / `l` / `p`           |
@@ -117,7 +123,7 @@ Tuig is designed for the mouse, with keyboard controls for common actions.
 | Collapse left/right pane       | Click divider                | `[` / `]`                 |
 | Quit                           |                              | `q`                       |
 
-Clicking a short SHA copies it through OSC 52. Right-click a branch, stash, worktree, changed file, or graph row for actions that apply to that item.
+Clicking a short SHA copies it through OSC 52. Right-click a branch, tag, stash, worktree, submodule, changed file, or graph row for actions that apply to that item.
 
 Click `+` or press `Ctrl+T` to open the repository picker. When its path field is empty, the "Recently opened (closed tabs)" section lists repositories that are not currently open. Use the arrow keys and `Enter`, or click a path, to open one. Press `Delete` or `Backspace` on an empty field to remove the selected recent path from the list. This does not close its tab. Type a path to browse folders, use `Tab` to complete a folder, and press `Enter` to open the typed path. Closing a repository tab leaves it in the recent list.
 
@@ -127,9 +133,19 @@ The repository picker starts in the directory where Tuig was launched. It lists 
 
 Tuig saves the open repositories, their tab order, and the active tab in `~/.config/tuig/session.json` and restores them on the next normal launch. An explicit path becomes the active tab alongside the restored tabs. Use `--clean` to start with only the supplied path, or the current directory when no path is supplied. The clean session replaces the previously saved tab list.
 
+Double-clicking a worktree or submodule in the repository pane opens it in a new repository tab. Tuig shows the branch of each worktree beside its name.
+
+Open a changed file to see its diff. Tuig shows a side-by-side diff when the window is at least 120 columns wide, and an inline diff when it is narrower. Click the diff toggle in the tab row to switch between Side by side and Inline. Tuig saves the choice in `~/.config/tuig/layout.json`. The toggle reads "Split (narrow)" when you prefer side by side but the window is too narrow.
+
+To stage part of a file, open its diff from the Unstaged or Staged section. Click a changed line to select it. Use `Ctrl`+click or `Alt`+click to add or remove a line, and `Alt`+drag to select a range. Press `Enter` to stage the selected lines, or to unstage them when you opened the Staged section. Right-click the selection to stage, unstage, or discard the lines, or to clear the selection. Press `Esc` to clear it. Context lines cannot be selected. The `h` key still applies the first hunk of the selected file.
+
+Right-click a changed file, or a line in its diff, and choose **Show file history** to list the commits that changed that file. A right-click on a diff line also offers **Blame line** and **Show history for line**. Press `Esc` to leave the file history and return to the full graph.
+
+To compare two commits, right-click the first commit and choose **Select for comparison**. Then right-click the second commit and choose **Compare**. The diff pane shows the changes between them. Choose **Clear comparison start** to cancel.
+
 Double-clicking a branch label in the graph switches to that branch. Double-clicking a remote-only label creates the matching local branch and tracks it; if a local branch of that name already exists and has diverged, Tuig asks before moving it onto the remote tip, because local-only commits are abandoned.
 
-Right-clicking a graph row opens a menu. On a branch label it offers checkout, rebase, reset (with a soft/mixed/hard submenu), copy branch name, and delete. On any row it offers a detached checkout of the commit, rebase onto it, reset to it, and copy commit SHA. Hard resets, branch deletion, and overwriting a local branch ask for confirmation first; `Esc` or a click outside closes the menu. Tuig refreshes automatically every 10 seconds; press `r` to refresh when you are not typing.
+Right-clicking a graph row opens a menu. On a branch label it offers checkout, rebase, reset (with a soft/mixed/hard submenu), copy branch name, create branch, and delete. On a tag label it offers push and delete. On any row it offers comparison, a detached checkout of the commit, rebase onto it, reset to it, create branch, cherry-pick, create tag, and copy commit SHA. Hard resets, branch deletion, tag deletion, and overwriting a local branch ask for confirmation first; `Esc` or a click outside closes the menu. Tuig refreshes automatically every 10 seconds; press `r` to refresh when you are not typing.
 
 Tuig fetches and prunes remote refs every minute by default. This picks up new and deleted remote branches, including branches removed after a pull request is merged. Set `remoteFetchIntervalMinutes` in `~/.config/tuig/layout.json` to change the interval. Use `0` to disable automatic fetching. The setting takes effect the next time Tuig starts.
 
@@ -183,9 +199,9 @@ This keeps submodule URLs and recorded commits aligned with the selected branch.
 
 Tuig is useful, but not finished. Current limitations include:
 
-- Hunk mode applies the first hunk in the selected file rather than presenting a hunk picker.
-- Worktrees can be locked, unlocked, and removed from the UI, but creating one still requires Git.
-- Conflict-specific views and split diffs are not available yet.
+- The `h` key applies only the first hunk of the selected file. To stage other parts, select lines in the diff.
+- Worktrees can be opened, locked, unlocked, and removed from the UI, but creating one still requires Git.
+- Commit revert and conflict-specific views are not available yet.
 - Linux is the only supported platform for the first release.
 
 See the [roadmap](docs/roadmap.md) for planned work. Bugs and focused contributions are welcome. Start with [CONTRIBUTING.md](CONTRIBUTING.md).
