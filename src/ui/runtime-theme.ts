@@ -1,22 +1,40 @@
 import {
   BoxRenderable,
+  CliRenderEvents,
   InputRenderable,
   TextareaRenderable,
   TextRenderable,
+  type CliRenderer,
   type Renderable,
   type TextBufferRenderable,
 } from "@opentui/core";
+import type { RepositorySnapshot } from "../git/types.js";
+import type { DiffView } from "./diff-view.js";
+import {
+  emptyGraphIndex,
+  extendGraphIndex,
+  type GraphIndex,
+} from "./graph-index.js";
+import { resolveHeadSha } from "./history.js";
+import type { RuntimePaletteController } from "./runtime-palette.js";
+import {
+  parseCoAuthors,
+  presentCommitCoAuthors,
+  presentCommitMeta,
+} from "./runtime-presentation.js";
 import {
   activeTheme as theme,
   interactionBackground,
   oneDarkTheme,
   semanticColor,
+  setActiveTheme,
   type Theme,
   type ThemeState,
 } from "./theme.js";
 import {
   loadThemeCatalog,
   loadThemePreferences,
+  saveThemePreferences,
   type ThemeCatalog,
   type ThemeSelection,
 } from "./theme-store.js";
@@ -194,4 +212,138 @@ export function updateWidgetTheme(root: Renderable) {
   // Diff children own syntax and row styles. Do not overwrite nested code text.
   if (root.id === "commit-diff" || root.id.endsWith("-document")) return;
   for (const child of root.getChildren()) updateWidgetTheme(child);
+}
+
+export interface RuntimeThemeContext {
+  readonly renderer: Pick<
+    CliRenderer,
+    "root" | "on" | "themeMode" | "setBackgroundColor"
+  >;
+  readonly repository: { root: string };
+  readonly snapshot?: RepositorySnapshot;
+  readonly view: "history" | "commit" | "working";
+  readonly commitIndex: number;
+  graphIndex: GraphIndex;
+  readonly commitDiff: Pick<DiffView, "updateTheme">;
+  readonly commitInfo: TextRenderable;
+  readonly commitHeader: TextRenderable;
+  readonly commitBody: TextRenderable;
+  readonly commitCoAuthors: TextRenderable;
+  readonly palette: Pick<RuntimePaletteController, "page">;
+  /** The commit shown in the details pane, including a file-history commit. */
+  selectedCommit(): RepositorySnapshot["commits"][number] | undefined;
+  showCommandPalette(): void;
+  notify(text: string, tone?: "info" | "error" | "busy"): void;
+  paint(): void;
+}
+
+/** Owns the theme catalog and selection, and repaints the runtime on change. */
+export class RuntimeThemeController {
+  private catalog?: ThemeCatalog;
+  selection: ThemeSelection = { name: "one-dark", mode: "dark" };
+
+  constructor(private readonly context: RuntimeThemeContext) {}
+
+  get entries() {
+    return this.catalog?.entries ?? [];
+  }
+
+  configure(
+    catalog: ThemeCatalog,
+    selection: ThemeSelection,
+    warning?: string,
+  ) {
+    const ctx = this.context;
+    this.catalog = catalog;
+    this.selection = selection;
+    const warnings = [warning, ...catalog.errors].filter(Boolean);
+    if (warnings.length) ctx.notify(warnings.join("; "), "error");
+    ctx.renderer.on(CliRenderEvents.THEME_MODE, (mode: "dark" | "light") => {
+      if (this.selection.mode === "system")
+        void this.activate(this.selection, false, mode);
+    });
+    if (selection.mode === "system") void this.activate(selection, false);
+  }
+
+  async activate(
+    selection: ThemeSelection,
+    persist = true,
+    appearance?: "dark" | "light",
+    preview = false,
+  ) {
+    if (!this.catalog) return;
+    try {
+      const mode =
+        selection.mode === "system"
+          ? (appearance ?? this.context.renderer.themeMode ?? "dark")
+          : selection.mode;
+      setActiveTheme(this.catalog.resolve(selection.name, mode));
+      if (!preview) this.selection = selection;
+      this.repaint();
+      if (persist) await saveThemePreferences(selection);
+    } catch (error) {
+      this.context.notify(
+        `Theme change failed: ${error instanceof Error ? error.message : String(error)}`,
+        "error",
+      );
+    }
+  }
+
+  /** Apply the active theme to every widget, the graph colors, and the commit text. */
+  repaint() {
+    const ctx = this.context;
+    ctx.renderer.setBackgroundColor(theme.bg);
+    updateWidgetTheme(ctx.renderer.root);
+    ctx.commitDiff.updateTheme();
+    const commit = ctx.selectedCommit();
+    if (commit && ctx.view === "commit") {
+      const meta = presentCommitMeta(commit);
+      ctx.commitInfo.content = meta.info;
+      ctx.commitHeader.content = meta.header;
+      ctx.commitBody.content = meta.body;
+      ctx.commitCoAuthors.content = presentCommitCoAuthors(
+        parseCoAuthors(commit.body),
+      );
+    }
+    const snapshot = ctx.snapshot;
+    const headSha = snapshot
+      ? resolveHeadSha(snapshot.branches, snapshot.commits)
+      : undefined;
+    ctx.graphIndex = emptyGraphIndex(
+      snapshot?.files.length ? headSha : undefined,
+      theme.graph,
+    );
+    if (snapshot)
+      extendGraphIndex(ctx.graphIndex, snapshot.commits, theme.graph, headSha);
+    ctx.paint();
+  }
+
+  /** Reload the catalog for the "themes" page, then open the palette on `page`. */
+  async showPicker(page: "themes" | "theme-mode") {
+    const ctx = this.context;
+    if (page === "themes") {
+      const previous = this.catalog;
+      const catalog = await loadThemeCatalog(ctx.repository.root);
+      this.catalog = {
+        ...catalog,
+        entries: catalog.entries.some(
+          (entry) => entry.name === this.selection.name,
+        )
+          ? catalog.entries
+          : [
+              ...catalog.entries,
+              { name: this.selection.name, source: "active selection" },
+            ],
+        resolve: (name, mode) =>
+          catalog.entries.some((entry) => entry.name === name)
+            ? catalog.resolve(name, mode)
+            : previous
+              ? previous.resolve(name, mode)
+              : catalog.resolve(name, mode),
+      };
+      if (catalog.errors.length) ctx.notify(catalog.errors.join("; "), "error");
+    }
+    ctx.palette.page = page;
+    ctx.showCommandPalette();
+  }
 }
