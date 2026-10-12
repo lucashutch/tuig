@@ -9,9 +9,20 @@ export type HistoryColumnPreferences = {
   committerWidth?: number;
   showCommitter?: boolean;
   showSha?: boolean;
+  showPr?: boolean;
 };
 
 const MAX_SAVED_WIDTH = 1000;
+
+const SAVED_SIDEBAR_SECTIONS = [
+  "local",
+  "pullRequests",
+  "remote",
+  "submodules",
+  "stashes",
+  "worktrees",
+] as const;
+type SavedSidebarSection = (typeof SAVED_SIDEBAR_SECTIONS)[number];
 
 export type LayoutPreferences = {
   /** Whether remote author avatars may be fetched and displayed. */
@@ -27,12 +38,8 @@ export type LayoutPreferences = {
   historyColumns?: HistoryColumnPreferences;
   unstagedHeight?: number;
   composerHeight?: number;
-  sidebarHeights?: Partial<
-    Record<"local" | "remote" | "submodules" | "stashes" | "worktrees", number>
-  >;
-  sidebarCollapsed?: Partial<
-    Record<"local" | "remote" | "submodules" | "stashes" | "worktrees", boolean>
-  >;
+  sidebarHeights?: Partial<Record<SavedSidebarSection, number>>;
+  sidebarCollapsed?: Partial<Record<SavedSidebarSection, boolean>>;
 };
 
 export function layoutPreferencesPath(env = process.env): string {
@@ -73,15 +80,10 @@ export function parseLayoutPreferences(value: unknown): LayoutPreferences {
         committerWidth: width("committerWidth"),
         showCommitter: flag("showCommitter"),
         showSha: flag("showSha"),
+        showPr: flag("showPr"),
       }
     : undefined;
-  const sections = [
-    "local",
-    "remote",
-    "submodules",
-    "stashes",
-    "worktrees",
-  ] as const;
+  const sections = SAVED_SIDEBAR_SECTIONS;
   const sectionNumbers = (key: string) => {
     const values = input[key] as Record<string, unknown> | undefined;
     return Object.fromEntries(

@@ -45,6 +45,7 @@ its pending Git read and releases the displayed document.
 - Git 2.43 or newer recommended
 - A patched [Nerd Font](https://www.nerdfonts.com/) for Material file icons
 - A terminal with mouse reporting and true-color support
+- Optional: the [GitHub CLI](https://cli.github.com/), signed in, for pull requests
 
 ## Install
 
@@ -93,6 +94,8 @@ Tuig is designed for the mouse, with keyboard controls for common actions.
 | Move through history           | Wheel over graph             | `j` / `k`, arrow keys     |
 | Check out a branch             | Double-click its graph label |                           |
 | Open a worktree or submodule   | Double-click it in sidebar   |                           |
+| Select a pull request's commit | Click it in sidebar          |                           |
+| Open a pull request on GitHub  | Double-click it in sidebar   |                           |
 | Open graph actions             | Right-click a row or label   |                           |
 | Filter branches                |                              | `/`                       |
 | Inspect a commit               | Click commit                 | `Enter`                   |
@@ -151,7 +154,7 @@ Tuig watches the files of the active repository. A commit, checkout, stage, fetc
 
 Tuig fetches and prunes remote refs every minute by default. This picks up new and deleted remote branches, including branches removed after a pull request is merged. Set `remoteFetchIntervalMinutes` in `~/.config/tuig/layout.json` to change the interval. Use `0` to disable automatic fetching. The setting takes effect the next time Tuig starts.
 
-Tuig also saves layout choices in the same file and applies them to every repository. `leftWidth` and `detailsWidth` hold the sidebar and details pane widths in cells. `leftCollapsed` and `detailsCollapsed` are booleans. `historyColumns` holds `branchWidth`, `graphWidth`, and `committerWidth` in cells, plus the booleans `showCommitter` and `showSha`. `unstagedHeight`, `composerHeight`, `sidebarHeights`, and `sidebarCollapsed` hold the changes and sidebar section layout. Tuig saves 150 ms after the last resize or toggle, and writes through a temporary file. On start it clamps saved widths to the terminal size, and it ignores invalid values one field at a time. Tuig keeps keys it does not know when it writes the file.
+Tuig also saves layout choices in the same file and applies them to every repository. `leftWidth` and `detailsWidth` hold the sidebar and details pane widths in cells. `leftCollapsed` and `detailsCollapsed` are booleans. `historyColumns` holds `branchWidth`, `graphWidth`, and `committerWidth` in cells, plus the booleans `showCommitter`, `showSha`, and `showPr`. `unstagedHeight`, `composerHeight`, `sidebarHeights`, and `sidebarCollapsed` hold the changes and sidebar section layout. Tuig saves 150 ms after the last resize or toggle, and writes through a temporary file. On start it clamps saved widths to the terminal size, and it ignores invalid values one field at a time. Tuig keeps keys it does not know when it writes the file.
 
 Tuig cannot answer password or passphrase prompts. Fetch, pull, and push need credentials that Git finds without asking: a Git credential helper for HTTPS remotes, or an SSH key loaded in `ssh-agent` for SSH remotes. When credentials are missing, the status bar names the remote and says what to set up. Tuig runs SSH with `BatchMode=yes` so it fails at once instead of prompting, unless you set `GIT_SSH_COMMAND`, `GIT_SSH`, or `core.sshCommand`. If an SSH host key is not trusted, run `ssh` to that host once in a terminal to accept it. After a credential failure, automatic fetch pauses for that repository until a fetch, pull, or push succeeds.
 
@@ -162,6 +165,33 @@ Click Undo to preview and confirm restoration of the previous local history stat
 Do not run Git commands from another terminal or tool during Undo. Tuig rechecks the preview before restoring history, but that check and the reset are not atomic. Custom reflog messages can also prevent Tuig from identifying an action correctly.
 
 History rows show one ref label. When a commit carries more refs than fit, the extra count appears as `+N`, and tags are included rather than hidden. Branch labels use a laptop for local refs and a globe for remote refs. In the repository pane, `◉` marks the checked-out branch, `◆` marks a branch available locally and remotely, `○` marks a local branch, and `◌` marks a remote-only branch.
+
+## GitHub pull requests
+
+Tuig shows open GitHub pull requests when the [GitHub CLI](https://cli.github.com/) (`gh`) is installed and signed in. Run `gh auth login` once to sign in. Tuig asks `gh` for the pull requests of the repository's GitHub remote. If `gh` is missing, you are not signed in, or the repository is not on GitHub, Tuig hides the pull request section and the PR column.
+
+The **Pull requests** section sits under the local branches in the repository pane. It lists open pull requests that you wrote, then pull requests that ask for your review, each newest first. A pull request in both groups appears once, with yours. Rows that ask for your review carry an eye icon (``) after the number. The section can be collapsed, resized, and scrolled like the other sections. If `gh` reports an error, the section shows the message on one dim row.
+
+Click a pull request to select its head commit in the graph. Nothing is checked out. Tuig finds the commit through a local branch with the pull request's branch name, then a remote branch with that name. A pull request from a fork has no branch in this repository, so Tuig selects its head commit if that commit is already loaded in the graph. If neither is found, Tuig says that the branch is not fetched. Double-click a pull request to open it in your browser with `xdg-open`.
+
+The history pane has a **PR** column. A commit that carries a branch label for an open pull request shows `#N` and the checks icon. The number is green for an open pull request and dim for a draft. Any open pull request in the repository counts here, not only yours. When more than one pull request matches a commit, the column shows the newest and `+N` for the others. Right-click the history header to hide or show the column. Tuig hides the column when there is no pull request data.
+
+Icons use a [Nerd Font](https://www.nerdfonts.com/), like the rest of Tuig:
+
+| Icon            | Meaning                                                                |
+| --------------- | ---------------------------------------------------------------------- |
+| `` (green)     | Open pull request                                                      |
+| `` (dim)       | Draft pull request                                                     |
+| `✗` (red)       | A check failed, was cancelled, timed out, or needs action              |
+| `⠋` (yellow)    | A check is running. The spinner turns while it is on screen.           |
+| `✓` (dim green) | Every started check passed, but some checks are queued and not started |
+| `✓` (green)     | Every check passed. Skipped and neutral checks count as passed.        |
+| `…` (dim)       | Checks exist, but none has started                                     |
+| `·` (dim)       | The head commit has no checks                                          |
+
+A failed check wins over a running one, so `✗` appears as soon as any check fails.
+
+Tuig reads the pull request list when it starts and when you switch to a tab. It reads the list again every minute while a pull request has running, queued, or not-started checks, and every 3 minutes otherwise. A fetch, pull, or push from Tuig reads the list again 3 seconds later. The automatic background fetch does not. The command palette has **Refresh pull requests** and **Open pull request for current branch**.
 
 ## Themes
 

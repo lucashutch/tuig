@@ -15,6 +15,8 @@ Canonical repository: https://github.com/lucashutch/tuig
 - `src/git/hunks.ts` — splits a file diff into hunks and builds patches for selected lines.
 - `src/git/repository-browser.ts` — directory suggestions for opening repository tabs.
 - `src/git/repository-watcher.ts` — debounced filesystem watch of a repository's HEAD, index, refs, and work tree.
+- `src/git/pull-request-types.ts` — shared pull request types and the `PullRequestService` contract.
+- `src/open-url.ts` — opens a web URL in the browser with a detached `xdg-open`.
 - `src/ui/` — OpenTUI rendering, interaction state, panes, menus, and dialogs.
 - `src/ui/command-palette.ts` — command model, filtering, and ranking for the command palette.
 - `src/ui/diff-view.ts` — diff widget, inline or side-by-side view choice, and line hit testing.
@@ -36,6 +38,8 @@ Canonical repository: https://github.com/lucashutch/tuig
 - `src/ui/runtime-keys.ts` — keyboard dispatch by mode: overlays, composer, branch filter, and pane shortcuts.
 - `src/ui/runtime-layout.ts` — pane sizing and layout calculations.
 - `src/ui/runtime-notifications.ts` — transient messages and the busy spinner.
+- `src/ui/pull-requests.ts` — pull request icons and colors, sidebar grouping, and branch-to-pull-request matching.
+- `src/ui/runtime-pull-requests.ts` — pull request loading per tab, refresh timing, the checks spinner, and row actions.
 - `src/ui/runtime-preferences.ts` — debounced saves and startup restore of layout and session preferences.
 - `src/ui/runtime-paint.ts` — sidebar, history, file, and composer painting.
 - `src/ui/runtime-sidebar.ts` — sidebar interaction, resizing, and branch filtering.

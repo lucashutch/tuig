@@ -144,16 +144,32 @@ import { openGraphMenu as openRuntimeGraphMenu } from "./runtime-graph-menu.js";
 import { RuntimeNotificationsController } from "./runtime-notifications.js";
 import { RuntimeToolbarController } from "./runtime-toolbar.js";
 import {
+  RuntimePullRequestsController,
+  type PullRequestServiceFactory,
+} from "./runtime-pull-requests.js";
+import type { UrlOpener } from "../open-url.js";
+import {
   bindOverlayInputs,
   createOverlayActions,
   createRuntimeActions,
 } from "./runtime-events.js";
 
+/** Services the app entry point injects into the runtime. */
+export interface RuntimeOptions {
+  /**
+   * Creates the pull request service for a repository root. Without it, the
+   * pull request section, history column, and commands are hidden.
+   */
+  pullRequests?: PullRequestServiceFactory;
+  /** Opens a pull request page. Defaults to `xdg-open`. */
+  openUrl?: UrlOpener;
+}
+
 export async function runTuig(
   repositories: GitRepository[],
   activeRepository?: string,
   submodules: Record<string, { root: string; path: string }> = {},
-  _reserved?: undefined,
+  options: RuntimeOptions = {},
   recentRepositories: string[] = [],
 ): Promise<void> {
   const repository =
@@ -181,6 +197,7 @@ export async function runTuig(
     repository.root,
     submodules,
     recentRepositories,
+    options,
   );
   app.configureThemes(catalog, selection, initialTheme.warning);
   await app.start();
@@ -268,6 +285,7 @@ export class Runtime {
   historyColumns: HistoryColumns = {
     showCommitter: true,
     showSha: true,
+    showPr: true,
   };
   readonly historyHeader = new RuntimeHistoryColumnsController(this);
   // Mouse events carry absolute terminal columns, so the column the history
@@ -303,6 +321,9 @@ export class Runtime {
   });
   autoRefreshStarted = false;
   private remoteFetchTimer?: ReturnType<typeof setInterval>;
+  /** True while the periodic background fetch runs. */
+  private backgroundFetching = false;
+  readonly pullRequests: RuntimePullRequestsController;
   private remoteFetchIntervalMinutes = DEFAULT_REMOTE_FETCH_INTERVAL_MINUTES;
   scrollTimer?: ReturnType<typeof setTimeout>;
   scrollSettleTimer?: ReturnType<typeof setTimeout>;
@@ -402,6 +423,7 @@ export class Runtime {
   leftCollapsed = false;
   sidebarCollapsed: Record<SidebarSection, boolean> = {
     local: false,
+    pullRequests: false,
     remote: false,
     submodules: false,
     stashes: false,
@@ -409,6 +431,7 @@ export class Runtime {
   };
   sidebarPreferred: Record<SidebarSection, number | undefined> = {
     local: undefined,
+    pullRequests: undefined,
     remote: undefined,
     submodules: undefined,
     stashes: undefined,
@@ -416,6 +439,7 @@ export class Runtime {
   };
   sidebarStart: Record<SidebarSection, number> = {
     local: 0,
+    pullRequests: 0,
     remote: 0,
     submodules: 0,
     stashes: 0,
@@ -423,6 +447,7 @@ export class Runtime {
   };
   sidebarPendingScroll: Record<SidebarSection, number> = {
     local: 0,
+    pullRequests: 0,
     remote: 0,
     submodules: 0,
     stashes: 0,
@@ -433,6 +458,7 @@ export class Runtime {
     ReturnType<typeof setTimeout> | undefined
   > = {
     local: undefined,
+    pullRequests: undefined,
     remote: undefined,
     submodules: undefined,
     stashes: undefined,
@@ -490,7 +516,12 @@ export class Runtime {
     activeRepository: string,
     submodules: Record<string, { root: string; path: string }> = {},
     recentRepositories: string[] = [],
+    options: RuntimeOptions = {},
   ) {
+    this.pullRequests = new RuntimePullRequestsController(this, {
+      factory: options.pullRequests,
+      openUrl: options.openUrl,
+    });
     this.recentRepositories = promoteRecentRepository(
       recentRepositories,
       repositories.find((candidate) => candidate.root === activeRepository)
@@ -620,6 +651,8 @@ export class Runtime {
       this.renderer.terminalWidth,
     );
     this.layout();
+    // Pull requests load beside the first snapshot rather than after it.
+    this.pullRequests.activate();
     await this.refresh();
     await this.repositoryTabs.focusCheckedOutCommit();
     // Refresh creates width-dependent history content; recompute once with
@@ -630,13 +663,48 @@ export class Runtime {
     if (this.remoteFetchIntervalMinutes > 0) {
       this.remoteFetchTimer = setInterval(() => {
         if (!this.composing && !this.busy && !this.repository.authBlocked)
-          void this.perform(
-            "Fetching remote changes…",
-            () => this.repository.fetch(),
-            true,
-          );
+          void this.backgroundFetch();
       }, this.remoteFetchIntervalMinutes * 60_000);
     }
+  }
+
+  /**
+   * The periodic fetch does not re-list pull requests. It runs every minute
+   * by default, which would override the pull request refresh cadence.
+   */
+  private async backgroundFetch() {
+    this.backgroundFetching = true;
+    try {
+      await this.perform(
+        "Fetching remote changes…",
+        () => this.repository.fetch(),
+        true,
+      );
+    } finally {
+      this.backgroundFetching = false;
+    }
+  }
+
+  /** A fetch, pull, or push from Tuig succeeded. */
+  remoteSynced() {
+    if (!this.backgroundFetching) this.pullRequests.refreshSoon();
+  }
+
+  /** The active tab now shows another repository. */
+  activeRepositoryChanged() {
+    this.pullRequests.activate();
+  }
+
+  /** True when the history PR column has pull request data. */
+  get pullRequestColumnAvailable() {
+    return this.pullRequests.columnAvailable;
+  }
+
+  /** Select a commit in the graph without checking it out. */
+  async focusCommit(sha: string) {
+    const found = await this.repositoryTabs.focusCommit(sha);
+    if (found && this.view === "commit") void this.openCommit();
+    return found;
   }
   persistLayoutPreferences() {
     this.preferences.persistLayout();
@@ -684,6 +752,7 @@ export class Runtime {
   }
   private readonly dispose = () => {
     this.autoRefresh.dispose();
+    this.pullRequests.dispose();
     cancelRuntimeDiff(this);
     this.removeSelectionListener();
     this.notifications.dispose();

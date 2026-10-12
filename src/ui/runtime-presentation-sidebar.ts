@@ -17,6 +17,12 @@ import {
   LAPTOP_BRANCH_ICON,
   REMOTE_BRANCH_ICON,
 } from "./history.js";
+import {
+  fitSegments,
+  pullRequestSidebarRow,
+  type PullRequestPanel,
+  type StyledSegment,
+} from "./pull-requests.js";
 import { clipColumns, fitColumns } from "./runtime-presentation-text.js";
 import { activeTheme as oneDarkTheme } from "./theme.js";
 
@@ -30,6 +36,9 @@ export const SIDEBAR_LOCAL_HEADER_ROW = 2;
 export const SIDEBAR_BRANCH_LIMIT = 10;
 export const SIDEBAR_SECTIONS = [
   "local",
+  // Pull requests sit under local branches: local branches stay at the top,
+  // and the open work they track is next to them, above the long remote list.
+  "pullRequests",
   "remote",
   "submodules",
   "stashes",
@@ -41,7 +50,16 @@ export type SidebarRect = {
   contentTop: number;
   contentHeight: number;
   dividerTop?: number;
+  /** Set for a section that takes no rows, header included. */
+  hidden?: boolean;
 };
+/** Sections left out of the sidebar entirely, such as unavailable pull requests. */
+export type SidebarHidden = Partial<Record<SidebarSection, boolean>>;
+
+/** Hidden sections for a pull request panel. No panel means the feature is off. */
+export function sidebarHiddenSections(panel?: PullRequestPanel): SidebarHidden {
+  return { pullRequests: !panel || panel.kind === "hidden" };
+}
 export const SIDEBAR_MIN_CONTENT_HEIGHT = 3;
 
 /** Single pane-local geometry shared by painting, hit testing and scrolling. */
@@ -49,14 +67,16 @@ export function layoutSidebarSections(
   height: number,
   preferred: Record<SidebarSection, number | undefined>,
   collapsed: Record<SidebarSection, boolean>,
+  hidden: SidebarHidden = {},
 ): Record<SidebarSection, SidebarRect> {
-  const headers = Math.min(Math.max(0, height), SIDEBAR_SECTIONS.length);
+  const shown = SIDEBAR_SECTIONS.filter((s) => !hidden[s]);
+  const headers = Math.min(Math.max(0, height), shown.length);
   const dividers = Math.min(
     Math.max(0, height - headers),
-    SIDEBAR_SECTIONS.length - 1,
+    Math.max(0, shown.length - 1),
   );
   let spare = Math.max(0, height - headers - dividers);
-  const open = SIDEBAR_SECTIONS.filter((s) => !collapsed[s]);
+  const open = shown.filter((s) => !collapsed[s]);
   const sizes = Object.fromEntries(
     SIDEBAR_SECTIONS.map((s) => [s, 0]),
   ) as Record<SidebarSection, number>;
@@ -117,7 +137,15 @@ export function layoutSidebarSections(
   }
   let top = 0;
   const result = {} as Record<SidebarSection, SidebarRect>;
-  SIDEBAR_SECTIONS.forEach((s, i) => {
+  for (const s of SIDEBAR_SECTIONS)
+    if (hidden[s])
+      result[s] = {
+        headerTop: top,
+        contentTop: top,
+        contentHeight: 0,
+        hidden: true,
+      };
+  shown.forEach((s, i) => {
     const headerTop = top;
     top += Number(i < headers);
     const contentTop = top;
@@ -137,7 +165,9 @@ export function resizeSidebarBoundary(
   y: number,
 ): Record<SidebarSection, number | undefined> {
   const index = SIDEBAR_SECTIONS.indexOf(section);
-  const next = SIDEBAR_SECTIONS.slice(index + 1).find((s) => !collapsed[s]);
+  const next = SIDEBAR_SECTIONS.slice(index + 1).find(
+    (s) => !collapsed[s] && !layout[s].hidden,
+  );
   if (collapsed[section] || !next) return preferred;
   const current = layout[section].contentHeight;
   const neighbour = layout[next].contentHeight;
@@ -155,7 +185,7 @@ export function resizeSidebarBoundary(
   const stable = Object.fromEntries(
     SIDEBAR_SECTIONS.map((candidate) => [
       candidate,
-      collapsed[candidate]
+      collapsed[candidate] || layout[candidate].hidden
         ? preferred[candidate]
         : layout[candidate].contentHeight,
     ]),
@@ -172,7 +202,9 @@ export function sidebarHeader(
       ? "LOCAL BRANCHES"
       : section === "remote"
         ? "REMOTES"
-        : section.toUpperCase();
+        : section === "pullRequests"
+          ? "PULL REQUESTS"
+          : section.toUpperCase();
   return `${collapsed ? "▶" : "▼"} ${label} ${count}`;
 }
 export function sidebarScrollbar(
@@ -274,6 +306,8 @@ export function sidebarRowSource(
       },
     };
   }
+  // Pull request rows come from the pull request controller, not the snapshot.
+  if (section === "pullRequests") return { total: 0, rowAt: () => undefined };
   if (section === "submodules")
     return { total: snapshot.submodules.length * 2, rowAt: () => undefined };
   if (section === "stashes")
@@ -426,6 +460,75 @@ export function renderStashSidebarViewport(
       return color;
     }),
   );
+}
+
+/**
+ * Styled pull request viewport: one row per pull request, or one dim row while
+ * the list loads or when it failed. Returns whether a visible row shows
+ * running checks, so the caller knows to keep the spinner going.
+ */
+export function renderPullRequestSidebarViewport(
+  panel: PullRequestPanel,
+  width: number,
+  start: number,
+  viewport: number,
+  spinnerFrame?: string,
+): { content: StyledText; running: boolean } {
+  const safeWidth = Math.max(1, width);
+  const safeViewport = Math.max(0, viewport);
+  const pullRequests = panel.kind === "list" ? panel.pullRequests : [];
+  const total =
+    panel.kind === "list"
+      ? pullRequests.length
+      : panel.kind === "hidden"
+        ? 0
+        : 1;
+  const clamped = Math.max(
+    0,
+    Math.min(Math.max(0, total - safeViewport), start),
+  );
+  const thumb = sidebarScrollbar(total, clamped, safeViewport);
+  const bodyWidth = safeWidth - 1;
+  let running = false;
+  const chunks = Array.from({ length: safeViewport }, (_, index) => {
+    const pr = pullRequests[clamped + index];
+    if (pr?.checks === "running") running = true;
+    const body: StyledSegment[] =
+      safeWidth === 1
+        ? []
+        : pr
+          ? pullRequestSidebarRow(pr, bodyWidth, oneDarkTheme, spinnerFrame)
+          : fitSegments(
+              index === 0 && clamped === 0
+                ? [
+                    {
+                      text:
+                        panel.kind === "loading"
+                          ? "  Loading..."
+                          : panel.kind === "message"
+                            ? `  ${panel.text}`
+                            : panel.kind === "list"
+                              ? "  (none)"
+                              : "",
+                      color: oneDarkTheme.muted,
+                    },
+                  ]
+                : [],
+              bodyWidth,
+              oneDarkTheme.muted,
+            );
+    const track =
+      total > safeViewport
+        ? index >= thumb.thumbTop && index < thumb.thumbTop + thumb.thumbSize
+          ? "█"
+          : "│"
+        : " ";
+    return [
+      ...body.map((segment) => fg(segment.color)(segment.text)),
+      fg(oneDarkTheme.text)(`${track}${index + 1 < safeViewport ? "\n" : ""}`),
+    ];
+  });
+  return { content: new StyledText(chunks.flat()), running };
 }
 
 /** Row of the REMOTES header, which moves with the local branch list. */

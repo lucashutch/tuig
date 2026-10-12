@@ -22,6 +22,7 @@ import {
   type RuntimeCommandsContext,
 } from "./runtime-commands.js";
 import { clipColumns, type ToolbarAction } from "./runtime-presentation.js";
+import type { RuntimePullRequestsController } from "./runtime-pull-requests.js";
 import type { RuntimeTabsController } from "./runtime-tabs.js";
 import { dialogColor } from "./runtime-theme.js";
 import { activeTheme as oneDarkTheme, setActiveTheme } from "./theme.js";
@@ -79,6 +80,10 @@ export interface RuntimePaletteContext extends RuntimeCommandsContext {
   persistLayoutPreferences(): void;
   layout(): void;
   toggleAvatars(): void;
+  pullRequests?: Pick<
+    RuntimePullRequestsController,
+    "enabled" | "refresh" | "forCurrentBranch" | "openForCurrentBranch"
+  >;
 }
 
 /** Owns command palette state, painting, theme preview, and activation. */
@@ -94,6 +99,31 @@ export class RuntimePaletteController {
   private previousEditor?: InputRenderable | TextareaRenderable;
 
   constructor(private readonly context: RuntimePaletteContext) {}
+
+  /** Pull request commands, listed only when pull request support is on. */
+  private pullRequestCommands(): PaletteCommand[] {
+    const pullRequests = this.context.pullRequests;
+    if (!pullRequests?.enabled) return [];
+    const current = pullRequests.forCurrentBranch();
+    return [
+      {
+        id: "pull-requests.refresh",
+        title: "Refresh pull requests",
+        category: "Repository",
+        keywords: ["github", "pr", "checks"],
+        run: () => void pullRequests.refresh(),
+      },
+      {
+        id: "pull-requests.open-current",
+        title: "Open pull request for current branch",
+        category: "Repository",
+        keywords: ["github", "pr", "browser"],
+        enabled: Boolean(current),
+        disabledReason: "No open pull request for the current branch",
+        run: () => void pullRequests.openForCurrentBranch(),
+      },
+    ];
+  }
 
   private commands(): PaletteCommand[] {
     if (this.page === "themes")
@@ -198,6 +228,7 @@ export class RuntimePaletteController {
         ),
         run: toolbar("pop"),
       },
+      ...this.pullRequestCommands(),
       {
         id: "repository.open",
         title: "Open new repository tab",

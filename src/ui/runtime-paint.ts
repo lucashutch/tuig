@@ -40,21 +40,31 @@ import {
   fileColor,
   fitColumns,
   layoutSidebarSections,
+  renderPullRequestSidebarViewport,
   renderStashSidebarViewport,
   renderWorktreeSidebarViewport,
   renderSidebarViewportRows,
   renderSubmoduleSidebarViewport,
   sidebarHeader,
+  sidebarHiddenSections,
   sidebarRowSource,
+  type SidebarRect,
   type SidebarSection,
 } from "./runtime-presentation.js";
 import { activeTheme as oneDarkTheme, interactionBackground } from "./theme.js";
 import { applyActionTheme, setActionState } from "./runtime-theme.js";
 import {
   historyColumnLayout,
+  visibleHistoryColumns,
   type HistoryColumns,
   type HistoryDividerKey,
 } from "./history-columns.js";
+import {
+  pullRequestHistoryCell,
+  pullRequestPanelRows,
+  type PullRequestCommitIndex,
+  type PullRequestPanel,
+} from "./pull-requests.js";
 import { createRuntimeWidgets, type ChangeSection } from "./runtime-widgets.js";
 
 type SidebarWidgets = ReturnType<
@@ -71,6 +81,18 @@ export interface RuntimeSidebarPaintContext {
   sidebarSections: SidebarWidgets;
   sidebarPaneWidth: number;
   branchFilter: string;
+  /** Pull request data. Absent when the feature is off. */
+  pullRequests?: RuntimePullRequestPaintSource;
+}
+
+/** What painting needs from the pull request controller. */
+export interface RuntimePullRequestPaintSource {
+  readonly panel: PullRequestPanel;
+  /** Matcher for the history PR column, or undefined when it has no data. */
+  readonly columnIndex?: PullRequestCommitIndex;
+  readonly spinnerFrame: string;
+  /** Report whether an area drew running checks, to start or stop the spinner. */
+  spinnerShown(area: "sidebar" | "history", running: boolean): void;
 }
 
 export interface RuntimePaintContext extends RuntimeSidebarPaintContext {
@@ -150,14 +172,29 @@ export function paint(ctx: RuntimePaintContext) {
 export function paintSidebar(ctx: RuntimeSidebarPaintContext) {
   const s = ctx.snapshot;
   if (!s) return;
+  const panel: PullRequestPanel = ctx.pullRequests?.panel ?? {
+    kind: "hidden",
+  };
   const rects = layoutSidebarSections(
     ctx.contentHeight,
     ctx.sidebarPreferred,
     ctx.sidebarCollapsed,
+    sidebarHiddenSections(ctx.pullRequests?.panel),
   );
+  let pullRequestsRunning = false;
   for (const section of SIDEBAR_SECTIONS) {
     const rect = rects[section],
       widgets = ctx.sidebarSections[section];
+    if (rect.hidden) {
+      widgets.box.visible = false;
+      widgets.divider.visible = false;
+      widgets.dividerBar.visible = false;
+      continue;
+    }
+    if (section === "pullRequests") {
+      pullRequestsRunning = paintPullRequestSection(ctx, panel, rect);
+      continue;
+    }
     const collapsed = ctx.sidebarCollapsed[section];
     const source = collapsed
       ? undefined
@@ -171,10 +208,6 @@ export function paintSidebar(ctx: RuntimeSidebarPaintContext) {
       ),
     );
     if (!collapsed) ctx.sidebarStart[section] = start;
-    widgets.box.top = rect.headerTop;
-    widgets.box.height = Math.max(1, 1 + rect.contentHeight);
-    widgets.box.width = ctx.sidebarPaneWidth;
-    widgets.box.visible = rect.headerTop < ctx.contentHeight;
     const count =
       section === "local" || section === "remote"
         ? (source?.total ??
@@ -190,9 +223,7 @@ export function paintSidebar(ctx: RuntimeSidebarPaintContext) {
       count,
       ctx.sidebarCollapsed[section],
     );
-    widgets.text.top = 1;
-    widgets.text.height = Math.max(1, rect.contentHeight);
-    widgets.text.visible = !collapsed && rect.contentHeight > 0;
+    placeSectionWidgets(ctx, widgets, rect, collapsed);
     widgets.text.content = collapsed
       ? ""
       : section === "submodules" && s.submodules.length > 0
@@ -224,22 +255,79 @@ export function paintSidebar(ctx: RuntimeSidebarPaintContext) {
                 start,
                 rect.contentHeight,
               ).join("\n");
-    const showDivider = rect.dividerTop !== undefined;
-    widgets.divider.top = Math.max(0, (rect.dividerTop ?? 0) - 1);
-    widgets.divider.left = Math.floor(ctx.sidebarPaneWidth / 4);
-    widgets.divider.width = Math.min(
-      ctx.sidebarPaneWidth,
-      Math.max(5, Math.floor(ctx.sidebarPaneWidth / 2)),
-    );
-    widgets.divider.visible = showDivider;
-    widgets.dividerBar.top = rect.dividerTop ?? 0;
-    widgets.dividerBar.width = ctx.sidebarPaneWidth;
-    const width = Math.max(1, ctx.sidebarPaneWidth),
-      grip = Math.max(3, Math.min(5, Math.floor(width / 3))),
-      gripStart = Math.max(0, Math.floor((width - grip) / 2));
-    widgets.dividerBar.content = `${"─".repeat(gripStart)}${"━".repeat(grip)}${"─".repeat(Math.max(0, width - gripStart - grip))}`;
-    widgets.dividerBar.visible = showDivider;
   }
+  ctx.pullRequests?.spinnerShown("sidebar", pullRequestsRunning);
+}
+
+type SidebarSectionWidgets = SidebarWidgets[SidebarSection];
+
+/** Draw the pull request section. Returns whether running checks are on screen. */
+function paintPullRequestSection(
+  ctx: RuntimeSidebarPaintContext,
+  panel: PullRequestPanel,
+  rect: SidebarRect,
+): boolean {
+  const widgets = ctx.sidebarSections.pullRequests;
+  const collapsed = ctx.sidebarCollapsed.pullRequests;
+  const total = pullRequestPanelRows(panel);
+  const start = Math.max(
+    0,
+    Math.min(
+      Math.max(0, total - rect.contentHeight),
+      ctx.sidebarStart.pullRequests,
+    ),
+  );
+  if (!collapsed) ctx.sidebarStart.pullRequests = start;
+  widgets.header.content = sidebarHeader(
+    "pullRequests",
+    panel.kind === "list" ? panel.pullRequests.length : 0,
+    collapsed,
+  );
+  placeSectionWidgets(ctx, widgets, rect, collapsed);
+  if (collapsed) {
+    widgets.text.content = "";
+    return false;
+  }
+  const viewport = renderPullRequestSidebarViewport(
+    panel,
+    ctx.sidebarPaneWidth,
+    start,
+    rect.contentHeight,
+    ctx.pullRequests?.spinnerFrame,
+  );
+  widgets.text.content = viewport.content;
+  return viewport.running && rect.contentHeight > 0;
+}
+
+/** Position a section's box, content, and the divider below it. */
+function placeSectionWidgets(
+  ctx: RuntimeSidebarPaintContext,
+  widgets: SidebarSectionWidgets,
+  rect: SidebarRect,
+  collapsed: boolean,
+) {
+  widgets.box.top = rect.headerTop;
+  widgets.box.height = Math.max(1, 1 + rect.contentHeight);
+  widgets.box.width = ctx.sidebarPaneWidth;
+  widgets.box.visible = rect.headerTop < ctx.contentHeight;
+  widgets.text.top = 1;
+  widgets.text.height = Math.max(1, rect.contentHeight);
+  widgets.text.visible = !collapsed && rect.contentHeight > 0;
+  const showDivider = rect.dividerTop !== undefined;
+  widgets.divider.top = Math.max(0, (rect.dividerTop ?? 0) - 1);
+  widgets.divider.left = Math.floor(ctx.sidebarPaneWidth / 4);
+  widgets.divider.width = Math.min(
+    ctx.sidebarPaneWidth,
+    Math.max(5, Math.floor(ctx.sidebarPaneWidth / 2)),
+  );
+  widgets.divider.visible = showDivider;
+  widgets.dividerBar.top = rect.dividerTop ?? 0;
+  widgets.dividerBar.width = ctx.sidebarPaneWidth;
+  const width = Math.max(1, ctx.sidebarPaneWidth),
+    grip = Math.max(3, Math.min(5, Math.floor(width / 3))),
+    gripStart = Math.max(0, Math.floor((width - grip) / 2));
+  widgets.dividerBar.content = `${"─".repeat(gripStart)}${"━".repeat(grip)}${"─".repeat(Math.max(0, width - gripStart - grip))}`;
+  widgets.dividerBar.visible = showDivider;
 }
 
 export function paintHistory(ctx: RuntimePaintContext) {
@@ -261,7 +349,12 @@ export function paintHistory(ctx: RuntimePaintContext) {
   start = Math.max(0, Math.min(Math.max(0, total - visibleUnits(ctx)), start));
   ctx.historyStart = start;
   const visible = visibleUnits(ctx);
-  const columns = ctx.historyColumns ?? { showCommitter: true, showSha: true };
+  const pullRequests = ctx.pullRequests?.columnIndex;
+  const columns = visibleHistoryColumns(
+    ctx.historyColumns ?? { showCommitter: true, showSha: true },
+    Boolean(pullRequests),
+  );
+  let pullRequestsRunning = false;
   const geometry = historyColumnLayout(
     ctx.historyContentWidth,
     ctx.graphColumns,
@@ -320,6 +413,9 @@ export function paintHistory(ctx: RuntimePaintContext) {
           separator(" │ ", "committerWidth"),
           fg(headerColor)(fitColumns("Committer", authorWidth)),
         ]
+      : []),
+    ...(columns.showPr
+      ? [separator(" │ "), fg(headerColor)(fitColumns("PR", geometry.prWidth))]
       : []),
     ...(columns.showSha ? [separator(" │ "), fg(headerColor)("SHA     ")] : []),
     separator("│\n"),
@@ -380,6 +476,11 @@ export function paintHistory(ctx: RuntimePaintContext) {
           columns.showCommitter ? "".padEnd(authorWidth) : "",
         ),
       ),
+      bg(rowBg)(
+        fg(oneDarkTheme.border)(
+          columns.showPr ? `   ${"".padEnd(geometry.prWidth)}` : "",
+        ),
+      ),
       bg(rowBg)(fg(oneDarkTheme.border)(columns.showSha ? "   " : "")),
       bg(rowBg)(columns.showSha ? "".padEnd(8) : ""),
       bg(rowBg)(
@@ -435,7 +536,11 @@ export function paintHistory(ctx: RuntimePaintContext) {
         ctx.graphColumns,
         oneDarkTheme.muted,
       ),
-      author = fitColumns(row.commit.committer, authorWidth, true);
+      author = fitColumns(row.commit.committer, authorWidth, true),
+      rowPullRequests = columns.showPr
+        ? pullRequests!.forCommit(row.commit)
+        : [];
+    if (rowPullRequests[0]?.checks === "running") pullRequestsRunning = true;
     chunks.push(
       bg(stash ? oneDarkTheme.panelRaised : rowBg)(
         fg(
@@ -458,6 +563,17 @@ export function paintHistory(ctx: RuntimePaintContext) {
       ),
       bg(rowBg)(fg(oneDarkTheme.border)(columns.showCommitter ? "   " : "")),
       bg(rowBg)(fg(oneDarkTheme.author)(columns.showCommitter ? author : "")),
+      ...(columns.showPr
+        ? [
+            bg(rowBg)(fg(oneDarkTheme.border)("   ")),
+            ...pullRequestHistoryCell(
+              rowPullRequests,
+              geometry.prWidth,
+              oneDarkTheme,
+              ctx.pullRequests?.spinnerFrame,
+            ).map((segment) => bg(rowBg)(fg(segment.color)(segment.text))),
+          ]
+        : []),
       bg(rowBg)(fg(oneDarkTheme.border)(columns.showSha ? "   " : "")),
       bg(rowBg)(
         fg(oneDarkTheme.accent)(
@@ -507,6 +623,10 @@ export function paintHistory(ctx: RuntimePaintContext) {
       });
   }
   ctx.historyText.content = new StyledText(chunks);
+  ctx.pullRequests?.spinnerShown(
+    "history",
+    pullRequestsRunning && !ctx.commitDiffVisible,
+  );
   // Diff rows do not paint empty trailing cells. Hide the history text while
   // the diff is open so short patches cannot show graph rows underneath it.
   ctx.historyText.visible = !ctx.commitDiffVisible;

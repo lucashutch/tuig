@@ -122,6 +122,8 @@ export interface RuntimeTabsContext extends RuntimeDataContext {
   autoRefresh: ReturnType<typeof createAutoRefresh>;
   autoRefreshStarted: boolean;
   paintViewToggles(): void;
+  /** Called once the active tab's repository has changed. */
+  activeRepositoryChanged?(): void;
   closePopup(): void;
   notify(text: string, tone?: "info" | "error" | "busy"): void;
   persistSessionPreferences(): void;
@@ -625,6 +627,7 @@ export class RuntimeTabsController {
     this.context.activeTabId = id;
     if (this.context.autoRefreshStarted)
       void this.context.autoRefresh.follow(tab.repository);
+    this.context.activeRepositoryChanged?.();
     this.context.persistSessionPreferences();
     this.context.snapshot = undefined;
     this.context.snapshotSignature = undefined;
@@ -695,20 +698,30 @@ export class RuntimeTabsController {
    * this method and therefore do not snap the reader back to HEAD.
    */
   async focusCheckedOutCommit() {
-    let snapshot = this.context.snapshot;
+    const snapshot = this.context.snapshot;
     if (!snapshot) return;
     const headSha =
       snapshot.headSha ?? resolveHeadSha(snapshot.branches, snapshot.commits);
-    if (!headSha) return;
-    let index = snapshot.commits.findIndex((commit) => commit.sha === headSha);
+    if (headSha) await this.focusCommit(headSha);
+  }
+
+  /**
+   * Select a commit and center it in the history pane, paging history until
+   * the commit is loaded. Nothing is checked out. Returns false when the
+   * commit is not in the graph.
+   */
+  async focusCommit(sha: string): Promise<boolean> {
+    let snapshot = this.context.snapshot;
+    if (!snapshot) return false;
+    let index = snapshot.commits.findIndex((commit) => commit.sha === sha);
     while (index < 0 && !snapshot.commitsComplete) {
       const count = snapshot.commits.length;
       await loadMoreRuntimeCommits(this.context);
       snapshot = this.context.snapshot ?? snapshot;
       if (snapshot.commits.length === count) break;
-      index = snapshot.commits.findIndex((commit) => commit.sha === headSha);
+      index = snapshot.commits.findIndex((commit) => commit.sha === sha);
     }
-    if (index < 0) return;
+    if (index < 0) return false;
     this.context.commitIndex = index;
     this.context.historySelection = "commit";
     this.context.historyViewportDetached = false;
@@ -719,6 +732,7 @@ export class RuntimeTabsController {
       snapshot.commits.length,
     );
     this.context.paintHistory();
+    return true;
   }
 
   async closeRepositoryTab(id: string): Promise<void> {

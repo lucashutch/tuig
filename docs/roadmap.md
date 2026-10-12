@@ -1,6 +1,6 @@
 # Roadmap
 
-Tuig already has a compact colored commit graph with merge edges, branch labels, and tags; commit metadata and diffs; a changed-file tree with staging and commits; fetch/pull/push shortcuts; stash create/apply/pop/drop; worktree open, lock, and remove; cherry-pick, reset, and rebase with confirmation dialogs; tag creation, push, and deletion; repository tabs with recent repositories and folder discovery; side-by-side diffs; line staging; file history and line blame; commit comparison; a command palette; OpenCode V2 themes; and author avatars. The work below tracks the remaining path beyond that MVP.
+Tuig already has a compact colored commit graph with merge edges, branch labels, and tags; commit metadata and diffs; a changed-file tree with staging and commits; fetch/pull/push shortcuts; stash create/apply/pop/drop; worktree open, lock, and remove; cherry-pick, reset, and rebase with confirmation dialogs; tag creation, push, and deletion; repository tabs with recent repositories and folder discovery; side-by-side diffs; line staging; file history and line blame; commit comparison; a command palette; OpenCode V2 themes; author avatars; and GitHub pull requests with check status in the repository pane and the history graph. The work below tracks the remaining path beyond that MVP.
 
 ## Finish the core workflow
 

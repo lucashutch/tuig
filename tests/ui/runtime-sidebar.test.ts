@@ -10,6 +10,7 @@ import {
 } from "../../src/ui/runtime-sidebar.js";
 import {
   layoutSidebarSections,
+  sidebarHiddenSections,
   SIDEBAR_SECTIONS,
   type SidebarSection,
 } from "../../src/ui/runtime-presentation.js";
@@ -105,6 +106,7 @@ function rowIn(context: RuntimeSidebarContext, section: SidebarSection) {
     context.contentHeight,
     context.sidebarPreferred,
     context.sidebarCollapsed,
+    sidebarHiddenSections(context.pullRequests?.panel),
   );
   return rects[section].contentTop;
 }
@@ -202,6 +204,7 @@ describe("sidebar scrolling", () => {
       context.contentHeight,
       context.sidebarPreferred,
       context.sidebarCollapsed,
+      sidebarHiddenSections(),
     );
     expect(context.sidebarStart.local).toBe(40 - rects.local.contentHeight);
   });

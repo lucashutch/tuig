@@ -5,6 +5,7 @@ import {
   historyColumnLayout,
   historyDividerAt,
   isDividerDoubleClick,
+  visibleHistoryColumns,
   type HistoryColumns,
   type HistoryDividerKey,
 } from "./history-columns.js";
@@ -14,6 +15,8 @@ export interface RuntimeHistoryColumnsContext {
   historyColumns: HistoryColumns;
   historyContentWidth: number;
   historyContentLeft: number;
+  /** True when pull request data exists, so the PR column can be drawn. */
+  pullRequestColumnAvailable?: boolean;
   /** Graph lane count, which sets the graph column width. */
   graphColumns: number;
   commitDiffVisible: boolean;
@@ -55,7 +58,10 @@ export class RuntimeHistoryColumnsController {
     return historyColumnLayout(
       ctx.historyContentWidth,
       ctx.graphColumns,
-      ctx.historyColumns,
+      visibleHistoryColumns(
+        ctx.historyColumns,
+        ctx.pullRequestColumnAvailable ?? false,
+      ),
     );
   }
 
@@ -74,9 +80,15 @@ export class RuntimeHistoryColumnsController {
       const sha = {
         label: `${ctx.historyColumns.showSha ? "[x]" : "[ ]"} SHA`,
       };
+      const pr = {
+        label: `${(ctx.historyColumns.showPr ?? true) ? "[x]" : "[ ]"} PR`,
+      };
       ctx.openPopup(
         "History columns",
-        [committer, sha],
+        // The PR toggle appears only when there is pull request data to show.
+        ctx.pullRequestColumnAvailable
+          ? [committer, pr, sha]
+          : [committer, sha],
         x,
         y + ctx.paneTop,
         (item) => {
@@ -84,6 +96,7 @@ export class RuntimeHistoryColumnsController {
           if (item === committer)
             columns.showCommitter = !columns.showCommitter;
           if (item === sha) columns.showSha = !columns.showSha;
+          if (item === pr) columns.showPr = !(columns.showPr ?? true);
           ctx.persistLayoutPreferences();
           ctx.paintHistory();
         },
