@@ -69,7 +69,6 @@ test("file painting uses the same deep-row action geometry as hit testing", () =
     sectionCollapsed: { unstaged: false, staged: false },
     sectionStart: { unstaged: 0, staged: 0 },
     fileStart: 0,
-    setFileStart() {},
     files: () => [file],
     label: () => ({}),
     list: () => list,
@@ -133,20 +132,11 @@ function paintContext(
     },
     graphColumns: 1,
     graphScroll: 0,
-    setGraphScroll(value: number) {
-      context.graphScroll = value;
-    },
-    setGraphVisibleColumns(value: number) {
-      context.graphVisibleColumns = value;
-    },
     graphVisibleColumns: 1,
     branchHints: new Map<string, string>(),
     historySelection: "commit",
     commitIndex: 0,
     historyStart: options.historyStart,
-    setHistoryStart(value: number) {
-      context.historyStart = value;
-    },
     historyViewportDetached: true,
     historyContentWidth: 120,
     historyShaHits: new Map(),

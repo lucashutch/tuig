@@ -83,7 +83,6 @@ export interface RuntimePaintContext extends RuntimeSidebarPaintContext {
   sectionCollapsed: Record<ChangeSection, boolean>;
   sectionStart: Record<ChangeSection, number>;
   fileStart: number;
-  setFileStart(value: number): void;
   files(section?: ChangeSection): ChangedFile[];
   label(section: ChangeSection): TextRenderable;
   list(section: ChangeSection): TextRenderable;
@@ -100,15 +99,13 @@ export interface RuntimePaintContext extends RuntimeSidebarPaintContext {
   graphRowsAt(from: number, count: number): readonly GraphRow[];
   graphColumns: number;
   graphScroll: number;
-  setGraphScroll(value: number): void;
-  setGraphVisibleColumns(value: number): void;
+  graphVisibleColumns: number;
   branchHints: Map<string, string>;
   historySelection: "working" | "commit";
   commitIndex: number;
   comparisonStartSha?: string;
   comparisonBaseSha?: string;
   historyStart: number;
-  setHistoryStart(value: number): void;
   historyViewportDetached: boolean;
   historyContentWidth: number;
   historyColumns?: HistoryColumns;
@@ -262,7 +259,7 @@ export function paintHistory(ctx: RuntimePaintContext) {
       start = selectedDisplay - visibleUnits(ctx) + 1;
   }
   start = Math.max(0, Math.min(Math.max(0, total - visibleUnits(ctx)), start));
-  ctx.setHistoryStart(start);
+  ctx.historyStart = start;
   const visible = visibleUnits(ctx);
   const columns = ctx.historyColumns ?? { showCommitter: true, showSha: true };
   const geometry = historyColumnLayout(
@@ -281,8 +278,8 @@ export function paintHistory(ctx: RuntimePaintContext) {
       ctx.graphColumns,
       graphVisibleColumns,
     );
-  ctx.setGraphVisibleColumns(graphVisibleColumns);
-  ctx.setGraphScroll(graphScroll);
+  ctx.graphVisibleColumns = graphVisibleColumns;
+  ctx.graphScroll = graphScroll;
   const headerColor =
     ctx.focus === "history" ? oneDarkTheme.focusRing : oneDarkTheme.muted;
   // Arrows sit at the right edge of the graph column, in the accent colour, so
@@ -573,7 +570,7 @@ export function paintSection(ctx: RuntimePaintContext, section: ChangeSection) {
       ),
     );
   ctx.sectionStart[section] = start;
-  if (active || commit) ctx.setFileStart(start);
+  if (active || commit) ctx.fileStart = start;
   const rows = all.slice(start, start + limit);
   if (!rows.length) {
     list.content = commit

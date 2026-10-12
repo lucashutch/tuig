@@ -81,7 +81,7 @@ export interface RuntimeDataContext {
   snapshotReadStartedAt?: number;
   diffRequest: number;
   diffAbort?: AbortController;
-  diffTooLarge?: boolean;
+  diffTooLarge: boolean;
   commitFilesRequest: number;
   busy: boolean;
   refreshPending: boolean;

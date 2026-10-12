@@ -40,14 +40,14 @@ export class RuntimeDiffSelectionController {
   private dragAnchor?: number;
   private dragSelecting = true;
 
-  constructor(private readonly context: () => RuntimeDiffSelectionContext) {}
+  constructor(private readonly context: RuntimeDiffSelectionContext) {}
 
   get size() {
     return this.rows.size;
   }
 
   click(x: number, y: number, button: number, ctrl: boolean, alt: boolean) {
-    const ctx = this.context();
+    const ctx = this.context;
     if (!ctx.commitDiff.visible) return;
     const hit = ctx.commitDiff.lineTargetAt(x, y);
     const file = ctx.selectedFile();
@@ -145,7 +145,7 @@ export class RuntimeDiffSelectionController {
   }
 
   drag(x: number, y: number) {
-    const ctx = this.context();
+    const ctx = this.context;
     if (this.dragAnchor === undefined || this.snapshot !== ctx.commitDiff.diff)
       return false;
     const hit = ctx.commitDiff.lineTargetAt(x, y);
@@ -170,7 +170,7 @@ export class RuntimeDiffSelectionController {
   }
 
   clear(notify = true) {
-    const ctx = this.context();
+    const ctx = this.context;
     this.dragEnd();
     this.rows.clear();
     this.snapshot = "";
@@ -180,7 +180,7 @@ export class RuntimeDiffSelectionController {
   }
 
   apply(discard = false) {
-    const ctx = this.context();
+    const ctx = this.context;
     if (
       ctx.diffOrigin !== "working" ||
       !this.rows.size ||

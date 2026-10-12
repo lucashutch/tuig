@@ -32,7 +32,7 @@ export interface RuntimeCommandsContext {
   suppressEnterUntil: number;
   discardArmed: boolean;
   /** Label of the mutation currently running, when one is. */
-  busy?: string;
+  mutationBusy?: string;
   /** Controller for the running remote mutation, when one is cancellable. */
   mutationAbort?: AbortController;
   namePrompt?: {
@@ -78,9 +78,9 @@ export async function perform(
   // Index-only work leaves history alone, so it can skip the history walk.
   scope: "history" | "working" = "history",
 ) {
-  if (context.busy !== undefined)
-    return context.notify(`${context.busy} is still running`, "error");
-  context.busy = label;
+  if (context.mutationBusy !== undefined)
+    return context.notify(`${context.mutationBusy} is still running`, "error");
+  context.mutationBusy = label;
   const abort = remote ? new AbortController() : undefined;
   context.mutationAbort = abort;
   context.notify(label, "busy");
@@ -95,7 +95,7 @@ export async function perform(
       context.notify(`Cancelled ${label.toLowerCase()}`);
     else context.fail(error);
   } finally {
-    context.busy = undefined;
+    context.mutationBusy = undefined;
     context.mutationAbort = undefined;
   }
 }
@@ -118,10 +118,13 @@ export async function runToolbarAction(
 ) {
   if (action === "refresh") return void context.refresh();
   if (action === "undo") {
-    if (context.busy !== undefined)
-      return context.notify(`${context.busy} is still running`, "error");
-    context.busy = "Checking undo…";
-    context.notify(context.busy, "busy");
+    if (context.mutationBusy !== undefined)
+      return context.notify(
+        `${context.mutationBusy} is still running`,
+        "error",
+      );
+    context.mutationBusy = "Checking undo…";
+    context.notify(context.mutationBusy, "busy");
     try {
       const preview = await context.repository.getUndoPreview();
       confirmThen(
@@ -145,7 +148,7 @@ export async function runToolbarAction(
     } catch (error) {
       context.fail(error);
     } finally {
-      context.busy = undefined;
+      context.mutationBusy = undefined;
     }
     return;
   }
@@ -654,9 +657,9 @@ export async function commit(context: RuntimeCommandsContext) {
     : context.amend
       ? "Amending commit"
       : "Committing";
-  if (context.busy !== undefined)
-    return context.notify(`${context.busy} is still running`, "error");
-  context.busy = label;
+  if (context.mutationBusy !== undefined)
+    return context.notify(`${context.mutationBusy} is still running`, "error");
+  context.mutationBusy = label;
   context.composerSummary.blur();
   context.composerBody.blur();
   const reword = context.editingCommitSha;
@@ -679,7 +682,7 @@ export async function commit(context: RuntimeCommandsContext) {
     context.fail(error);
     if (reword) setTimeout(() => context.composerSummary.focus(), 0);
   } finally {
-    context.busy = undefined;
+    context.mutationBusy = undefined;
   }
 }
 

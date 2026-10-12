@@ -177,7 +177,7 @@ for (const view of ["history", "working", "commit"] as const) {
         unstaged: true,
         state: "modified",
       }));
-      const openFileMenu = mock(() => {});
+      const openGraphMenu = mock(() => {});
       const context = {
         view,
         mode: "unstaged",
@@ -198,7 +198,7 @@ for (const view of ["history", "working", "commit"] as const) {
         layout: () => {},
         openWorkingDiff: async () => {},
         loadDiff: async () => {},
-        openFileMenu,
+        openGraphMenu,
       } as unknown as RuntimeFilesContext;
 
       filesClick(context, "unstaged", 8);
@@ -208,7 +208,7 @@ for (const view of ["history", "working", "commit"] as const) {
 
       if (view === "history") {
         filesClick(context, "unstaged", 8, 2, 42);
-        expect(openFileMenu).toHaveBeenCalledWith(42, 8, {
+        expect(openGraphMenu).toHaveBeenCalledWith(42, 8, {
           sha: "",
           file: changedFiles[start],
           fileStaged: false,
