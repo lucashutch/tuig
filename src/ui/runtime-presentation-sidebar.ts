@@ -104,8 +104,10 @@ export function layoutSidebarSections(
     }
   }
   const recipients = unspecified.length ? unspecified : open;
+  // One share for every recipient. Recomputing it from the shrinking spare
+  // left rows unassigned at the bottom of the pane.
+  const share = Math.floor(spare / Math.max(1, recipients.length));
   for (const s of recipients) {
-    const share = Math.floor(spare / Math.max(1, recipients.length));
     sizes[s] += share;
     spare -= share;
   }
