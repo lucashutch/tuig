@@ -75,6 +75,8 @@ import {
   layoutRuntime,
   layoutChanges,
   type RuntimeLayoutContext,
+  clampDetailsWidth,
+  clampSidebarWidth,
 } from "./runtime-layout.js";
 import {
   paint as paintRuntime,
@@ -796,6 +798,7 @@ export class Runtime {
         this.paintHistory();
       },
       historyDragEnd: () => {
+        if (this.historyColumnDrag) this.persistLayoutPreferences();
         this.historyColumnDrag = undefined;
         this.setHistoryDividerHover(undefined);
       },
@@ -834,15 +837,15 @@ export class Runtime {
       stageAll: () => void this.stageAll(),
       unstageAll: () => void this.unstageAll(),
       resizeLeft: (x) => {
-        this.leftWidth = Math.max(16, Math.min(x, renderer.terminalWidth - 45));
+        this.leftWidth = clampSidebarWidth(x, renderer.terminalWidth);
         this.leftCollapsed = false;
         this.persistLayoutPreferences();
         this.layout();
       },
       resizeRight: (x) => {
-        this.detailsWidth = Math.max(
-          30,
-          Math.min(renderer.terminalWidth - x - 1, renderer.terminalWidth - 35),
+        this.detailsWidth = clampDetailsWidth(
+          renderer.terminalWidth - x - 1,
+          renderer.terminalWidth,
         );
         this.detailsCollapsed = false;
         this.persistLayoutPreferences();
@@ -850,10 +853,12 @@ export class Runtime {
       },
       toggleLeft: () => {
         this.leftCollapsed = !this.leftCollapsed;
+        this.persistLayoutPreferences();
         this.layout();
       },
       toggleRight: () => {
         this.detailsCollapsed = !this.detailsCollapsed;
+        this.persistLayoutPreferences();
         this.layout();
       },
       resize: () => this.layout(),
@@ -1137,6 +1142,17 @@ export class Runtime {
     this.diffViewPreference = preferences.diffView ?? "side-by-side";
     this.leftWidth = preferences.leftWidth ?? this.leftWidth;
     this.detailsWidth = preferences.detailsWidth ?? this.detailsWidth;
+    this.leftCollapsed = preferences.leftCollapsed ?? this.leftCollapsed;
+    this.detailsCollapsed =
+      preferences.detailsCollapsed ?? this.detailsCollapsed;
+    this.historyColumns = {
+      ...this.historyColumns,
+      ...Object.fromEntries(
+        Object.entries(preferences.historyColumns ?? {}).filter(
+          ([, value]) => value !== undefined,
+        ),
+      ),
+    };
     this.preferredUnstagedHeight = preferences.unstagedHeight;
     this.preferredComposerHeight = preferences.composerHeight;
     this.sidebarPreferred = {
@@ -1156,6 +1172,16 @@ export class Runtime {
     this.renderer.requestRender();
     // Terminal dimensions are reliable only after the renderer has started.
     await Bun.sleep(0);
+    // Saved widths come from a terminal of unknown size, so clamp them to the
+    // live one. Layout clamps again on every later resize.
+    this.leftWidth = clampSidebarWidth(
+      this.leftWidth,
+      this.renderer.terminalWidth,
+    );
+    this.detailsWidth = clampDetailsWidth(
+      this.detailsWidth,
+      this.renderer.terminalWidth,
+    );
     this.layout();
     await this.refresh();
     await this.focusCheckedOutCommit();
@@ -1191,9 +1217,11 @@ export class Runtime {
     await saveLayoutPreferences({
       avatarsEnabled: this.avatarsEnabled,
       diffView: this.diffViewPreference,
-      remoteFetchIntervalMinutes: this.remoteFetchIntervalMinutes,
       leftWidth: this.leftWidth,
       detailsWidth: this.detailsWidth,
+      leftCollapsed: this.leftCollapsed,
+      detailsCollapsed: this.detailsCollapsed,
+      historyColumns: { ...this.historyColumns },
       unstagedHeight: this.preferredUnstagedHeight,
       composerHeight: this.preferredComposerHeight,
       sidebarHeights: this.sidebarPreferred,
@@ -1775,6 +1803,7 @@ export class Runtime {
         keywords: ["lhs", "sidebar", "branches", "show", "hide"],
         run: () => {
           this.leftCollapsed = !this.leftCollapsed;
+          this.persistLayoutPreferences();
           this.layout();
         },
       },
@@ -1786,6 +1815,7 @@ export class Runtime {
         keywords: ["rhs", "details", "show", "hide"],
         run: () => {
           this.detailsCollapsed = !this.detailsCollapsed;
+          this.persistLayoutPreferences();
           this.layout();
         },
       },
@@ -3278,6 +3308,7 @@ export class Runtime {
                 !this.historyColumns.showCommitter;
             if (item === sha)
               this.historyColumns.showSha = !this.historyColumns.showSha;
+            this.persistLayoutPreferences();
             this.paintHistory();
           },
         );
@@ -3296,6 +3327,7 @@ export class Runtime {
           // Double-click restores the column's default width.
           this.lastDividerPress = undefined;
           delete this.historyColumns[key];
+          this.persistLayoutPreferences();
           this.paintHistory();
         } else if (key) {
           this.lastDividerPress = { key, at: now };
@@ -3862,10 +3894,12 @@ export class Runtime {
     }
     if (key.name === "[") {
       this.leftCollapsed = !this.leftCollapsed;
+      this.persistLayoutPreferences();
       return this.layout();
     }
     if (key.name === "]") {
       this.detailsCollapsed = !this.detailsCollapsed;
+      this.persistLayoutPreferences();
       return this.layout();
     }
     if (key.name === "left" || key.name === "right") {

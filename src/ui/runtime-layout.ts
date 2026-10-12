@@ -98,6 +98,16 @@ export interface RuntimeLayoutContext extends LayoutWidgets {
   paint(): void;
 }
 
+/** Sidebar width limits shared by dragging and restoring a saved width. */
+export function clampSidebarWidth(width: number, terminalWidth: number) {
+  return Math.max(16, Math.min(width, terminalWidth - 45));
+}
+
+/** Details pane width limits shared by dragging and restoring a saved width. */
+export function clampDetailsWidth(width: number, terminalWidth: number) {
+  return Math.max(30, Math.min(width, terminalWidth - 35));
+}
+
 export function layoutRuntime(context: RuntimeLayoutContext) {
   const total = Math.max(1, context.renderer.terminalWidth);
   // The header and toolbar own the top rows, so the panes start below them.
