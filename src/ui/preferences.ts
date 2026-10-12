@@ -1,6 +1,17 @@
-import { mkdir } from "node:fs/promises";
+import { mkdir, rename, rm, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { homedir } from "node:os";
+
+/** Saved history column layout. Widths are cells and clamp to the pane on use. */
+export type HistoryColumnPreferences = {
+  branchWidth?: number;
+  graphWidth?: number;
+  committerWidth?: number;
+  showCommitter?: boolean;
+  showSha?: boolean;
+};
+
+const MAX_SAVED_WIDTH = 1000;
 
 export type LayoutPreferences = {
   /** Whether remote author avatars may be fetched and displayed. */
@@ -11,6 +22,9 @@ export type LayoutPreferences = {
   remoteFetchIntervalMinutes?: number;
   leftWidth?: number;
   detailsWidth?: number;
+  leftCollapsed?: boolean;
+  detailsCollapsed?: boolean;
+  historyColumns?: HistoryColumnPreferences;
   unstagedHeight?: number;
   composerHeight?: number;
   sidebarHeights?: Partial<
@@ -35,6 +49,32 @@ export function parseLayoutPreferences(value: unknown): LayoutPreferences {
       ? number
       : undefined;
   };
+  const columnInput =
+    input.historyColumns && typeof input.historyColumns === "object"
+      ? (input.historyColumns as Record<string, unknown>)
+      : undefined;
+  const width = (key: string) => {
+    const number = columnInput?.[key];
+    return typeof number === "number" &&
+      Number.isFinite(number) &&
+      number >= 1 &&
+      number <= MAX_SAVED_WIDTH
+      ? Math.round(number)
+      : undefined;
+  };
+  const flag = (key: string) =>
+    typeof columnInput?.[key] === "boolean"
+      ? (columnInput[key] as boolean)
+      : undefined;
+  const historyColumns = columnInput
+    ? {
+        branchWidth: width("branchWidth"),
+        graphWidth: width("graphWidth"),
+        committerWidth: width("committerWidth"),
+        showCommitter: flag("showCommitter"),
+        showSha: flag("showSha"),
+      }
+    : undefined;
   const sections = [
     "local",
     "remote",
@@ -86,6 +126,15 @@ export function parseLayoutPreferences(value: unknown): LayoutPreferences {
     remoteFetchIntervalMinutes: positive("remoteFetchIntervalMinutes"),
     leftWidth: positive("leftWidth"),
     detailsWidth: positive("detailsWidth"),
+    leftCollapsed:
+      typeof input.leftCollapsed === "boolean"
+        ? input.leftCollapsed
+        : undefined,
+    detailsCollapsed:
+      typeof input.detailsCollapsed === "boolean"
+        ? input.detailsCollapsed
+        : undefined,
+    ...(historyColumns ? { historyColumns } : {}),
     unstagedHeight: positive("unstagedHeight"),
     composerHeight: positive("composerHeight"),
     ...(sidebarHeights ? { sidebarHeights } : {}),
@@ -103,10 +152,43 @@ export async function loadLayoutPreferences(
   }
 }
 
-export async function saveLayoutPreferences(
+let saveQueue: Promise<unknown> = Promise.resolve();
+
+/**
+ * Merges the defined preferences into the existing file. Keys that Tuig does
+ * not manage, and keys left undefined here, keep their stored values. Writes
+ * go to a temporary file first so a crash cannot leave a truncated file.
+ */
+export function saveLayoutPreferences(
   preferences: LayoutPreferences,
   path = layoutPreferencesPath(),
 ): Promise<void> {
-  await mkdir(dirname(path), { recursive: true });
-  await Bun.write(path, `${JSON.stringify(preferences, null, 2)}\n`);
+  const run = async () => {
+    let existing: Record<string, unknown> = {};
+    try {
+      const stored: unknown = await Bun.file(path).json();
+      if (stored && typeof stored === "object" && !Array.isArray(stored))
+        existing = stored as Record<string, unknown>;
+    } catch {
+      // A missing or malformed file is replaced.
+    }
+    const defined = Object.fromEntries(
+      Object.entries(preferences).filter(([, value]) => value !== undefined),
+    );
+    await mkdir(dirname(path), { recursive: true });
+    const temporary = `${path}.${process.pid}.${crypto.randomUUID()}.tmp`;
+    try {
+      await writeFile(
+        temporary,
+        `${JSON.stringify({ ...existing, ...defined }, null, 2)}\n`,
+      );
+      await rename(temporary, path);
+    } catch (error) {
+      await rm(temporary, { force: true });
+      throw error;
+    }
+  };
+  const result = saveQueue.then(run, run);
+  saveQueue = result.catch(() => undefined);
+  return result;
 }

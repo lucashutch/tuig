@@ -21,7 +21,7 @@ The bottom row is split. Keybinding hints for the focused pane stay on the left,
 Drag the history header dividers after Branch / Tag, Graph, or Message to resize
 those columns. Hold `Shift` while scrolling over history to pan a wide graph
 left or right. A horizontal mouse wheel also works. Right-click the history
-header to show or hide Committer and SHA. These settings last for the session.
+header to show or hide Committer and SHA. Tuig remembers these column settings, the pane sizes, and the collapsed panes between sessions.
 
 Tuig starts with One Dark. You can change the interface, graph, diff, and syntax colors through the command palette.
 
@@ -148,6 +148,8 @@ Double-clicking a branch label in the graph switches to that branch. Double-clic
 Right-clicking a graph row opens a menu. On a branch label it offers checkout, rebase, reset (with a soft/mixed/hard submenu), copy branch name, create branch, and delete. On a tag label it offers push and delete. On any row it offers comparison, a detached checkout of the commit, rebase onto it, reset to it, create branch, cherry-pick, create tag, and copy commit SHA. Hard resets, branch deletion, tag deletion, and overwriting a local branch ask for confirmation first; `Esc` or a click outside closes the menu. Tuig refreshes automatically every 10 seconds; press `r` to refresh when you are not typing.
 
 Tuig fetches and prunes remote refs every minute by default. This picks up new and deleted remote branches, including branches removed after a pull request is merged. Set `remoteFetchIntervalMinutes` in `~/.config/tuig/layout.json` to change the interval. Use `0` to disable automatic fetching. The setting takes effect the next time Tuig starts.
+
+Tuig also saves layout choices in the same file and applies them to every repository. `leftWidth` and `detailsWidth` hold the sidebar and details pane widths in cells. `leftCollapsed` and `detailsCollapsed` are booleans. `historyColumns` holds `branchWidth`, `graphWidth`, and `committerWidth` in cells, plus the booleans `showCommitter` and `showSha`. `unstagedHeight`, `composerHeight`, `sidebarHeights`, and `sidebarCollapsed` hold the changes and sidebar section layout. Tuig saves 150 ms after the last resize or toggle, and writes through a temporary file. On start it clamps saved widths to the terminal size, and it ignores invalid values one field at a time. Tuig keeps keys it does not know when it writes the file.
 
 Press `Esc` to cancel a fetch, pull, or push that is still running. Tuig prevents a second repository mutation from starting until the first one finishes.
 
