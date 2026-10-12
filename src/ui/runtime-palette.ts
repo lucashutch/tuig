@@ -5,15 +5,11 @@ import {
   bg,
   fg,
   type BoxRenderable,
+  type CliRenderer,
   type InputRenderable,
   type TextareaRenderable,
   type TextRenderable,
 } from "@opentui/core";
-import type {
-  ChangedFile,
-  GitRepository,
-  RepositorySnapshot,
-} from "../git/types.js";
 import {
   clampPaletteViewport,
   commandMatches,
@@ -26,24 +22,26 @@ import {
   type RuntimeCommandsContext,
 } from "./runtime-commands.js";
 import { clipColumns, type ToolbarAction } from "./runtime-presentation.js";
-import type { RuntimePopupController } from "./runtime-popup.js";
+import type { RuntimeTabsController } from "./runtime-tabs.js";
 import { dialogColor } from "./runtime-theme.js";
-import type { ChangeSection } from "./runtime-widgets.js";
 import { activeTheme as oneDarkTheme, setActiveTheme } from "./theme.js";
 import type { ThemeEntry, ThemeSelection } from "./theme-store.js";
 
 export type PalettePage = "commands" | "themes" | "theme-mode";
 
-export interface RuntimePaletteContext {
+export interface RuntimePaletteContext extends RuntimeCommandsContext {
   overlayCatcher: BoxRenderable;
-  box: BoxRenderable;
-  input: InputRenderable;
-  text: TextRenderable;
-  footer: TextRenderable;
-  popupController: RuntimePopupController;
-  terminalSize(): { width: number; height: number };
-  currentEditor(): InputRenderable | TextareaRenderable | undefined;
-  requestRender(): void;
+  commandPaletteBox: BoxRenderable;
+  commandPaletteInput: InputRenderable;
+  commandPaletteText: TextRenderable;
+  commandPaletteFooter: TextRenderable;
+  renderer: Pick<
+    CliRenderer,
+    | "terminalWidth"
+    | "terminalHeight"
+    | "currentFocusedEditor"
+    | "requestRender"
+  >;
   themeEntries: ThemeEntry[];
   themeSelection: ThemeSelection;
   activateTheme(
@@ -54,17 +52,11 @@ export interface RuntimePaletteContext {
   ): Promise<void>;
   showThemePicker(page: "themes" | "theme-mode"): Promise<void>;
   repaintTheme(): void;
-  commandsContext(): RuntimeCommandsContext;
-  repository: GitRepository;
-  snapshot?: RepositorySnapshot;
-  busy?: string;
   composing: boolean;
-  tabCount: number;
+  tabs: readonly unknown[];
   leftCollapsed: boolean;
   detailsCollapsed: boolean;
   avatarsEnabled: boolean;
-  selectedFile(): ChangedFile | undefined;
-  files(section: ChangeSection): ChangedFile[];
   perform(
     label: string,
     action: (signal?: AbortSignal) => Promise<void>,
@@ -77,9 +69,13 @@ export interface RuntimePaletteContext {
   focusComposer(): void;
   startBranchFilter(): void;
   setFocus(focus: "history" | "changes"): void;
-  showRepositoryPicker(): void;
-  closeActiveRepositoryTab(): Promise<void>;
-  activateRelativeRepositoryTab(delta: number): Promise<void>;
+  activeTabId: string;
+  repositoryTabs: Pick<
+    RuntimeTabsController,
+    | "showRepositoryPicker"
+    | "closeRepositoryTab"
+    | "activateRelativeRepositoryTab"
+  >;
   persistLayoutPreferences(): void;
   layout(): void;
   toggleAvatars(): void;
@@ -121,15 +117,15 @@ export class RuntimePaletteController {
       }));
     const snapshot = this.context.snapshot;
     const selected = this.context.selectedFile();
-    const busyReason = this.context.busy
-      ? `${this.context.busy} is still running`
+    const busyReason = this.context.mutationBusy
+      ? `${this.context.mutationBusy} is still running`
       : undefined;
     const repositoryAvailability = (enabled: boolean, reason: string) => ({
       enabled: enabled && !busyReason,
       disabledReason: busyReason ?? (enabled ? undefined : reason),
     });
     const toolbar = (action: ToolbarAction) => () =>
-      void runRuntimeToolbarAction(this.context.commandsContext(), action);
+      void runRuntimeToolbarAction(this.context, action);
     return [
       {
         id: "theme.change",
@@ -208,16 +204,19 @@ export class RuntimePaletteController {
         category: "Repository",
         keywords: ["add tab", "open repository"],
         shortcut: "Ctrl+T",
-        run: () => this.context.showRepositoryPicker(),
+        run: () => this.context.repositoryTabs.showRepositoryPicker(),
       },
       {
         id: "repository.close",
         title: "Close current repository tab",
         category: "Repository",
         shortcut: "Ctrl+W",
-        enabled: this.context.tabCount > 1 && !busyReason,
+        enabled: this.context.tabs.length > 1 && !busyReason,
         disabledReason: busyReason ?? "Cannot close the only repository tab",
-        run: () => void this.context.closeActiveRepositoryTab(),
+        run: () =>
+          void this.context.repositoryTabs.closeRepositoryTab(
+            this.context.activeTabId,
+          ),
       },
       {
         id: "changes.commit",
@@ -324,18 +323,20 @@ export class RuntimePaletteController {
         title: "Next repository tab",
         category: "Navigation",
         shortcut: "Ctrl+Tab",
-        enabled: this.context.tabCount > 1 && !busyReason,
+        enabled: this.context.tabs.length > 1 && !busyReason,
         disabledReason: busyReason ?? "Only one repository tab is open",
-        run: () => void this.context.activateRelativeRepositoryTab(1),
+        run: () =>
+          void this.context.repositoryTabs.activateRelativeRepositoryTab(1),
       },
       {
         id: "navigation.previous-tab",
         title: "Previous repository tab",
         category: "Navigation",
         shortcut: "Ctrl+Shift+Tab",
-        enabled: this.context.tabCount > 1 && !busyReason,
+        enabled: this.context.tabs.length > 1 && !busyReason,
         disabledReason: busyReason ?? "Only one repository tab is open",
-        run: () => void this.context.activateRelativeRepositoryTab(-1),
+        run: () =>
+          void this.context.repositoryTabs.activateRelativeRepositoryTab(-1),
       },
       {
         id: "view.sidebar",
@@ -374,7 +375,7 @@ export class RuntimePaletteController {
   show() {
     if (this.isOpen) return this.close();
     this.context.popupController.close();
-    this.previousEditor = this.context.currentEditor() as
+    this.previousEditor = this.context.renderer.currentFocusedEditor as
       | InputRenderable
       | TextareaRenderable
       | undefined;
@@ -384,13 +385,13 @@ export class RuntimePaletteController {
         ...oneDarkTheme,
         graph: [...oneDarkTheme.graph],
       };
-    this.context.input.value = "";
+    this.context.commandPaletteInput.value = "";
     this.index = 0;
     this.start = 0;
     this.context.overlayCatcher.visible = true;
-    this.context.box.visible = true;
+    this.context.commandPaletteBox.visible = true;
     this.paint();
-    setTimeout(() => this.context.input.focus(), 0);
+    setTimeout(() => this.context.commandPaletteInput.focus(), 0);
   }
 
   close(restoreFocus = true) {
@@ -400,8 +401,8 @@ export class RuntimePaletteController {
     this.themeOriginal = undefined;
     this.themePreview = undefined;
     this.page = "commands";
-    this.context.input.blur();
-    this.context.box.visible = false;
+    this.context.commandPaletteInput.blur();
+    this.context.commandPaletteBox.visible = false;
     this.context.overlayCatcher.visible = this.context.popupController.isOpen;
     const previous = this.previousEditor;
     this.previousEditor = undefined;
@@ -410,42 +411,48 @@ export class RuntimePaletteController {
       this.context.repaintTheme();
     }
     if (restoreFocus && previous) setTimeout(() => previous.focus(), 0);
-    this.context.requestRender();
+    this.context.renderer.requestRender();
   }
 
   paint() {
     if (!this.isOpen) return;
-    const terminalWidth = Math.max(1, this.context.terminalSize().width);
-    const terminalHeight = Math.max(1, this.context.terminalSize().height);
+    const terminalWidth = Math.max(1, this.context.renderer.terminalWidth);
+    const terminalHeight = Math.max(1, this.context.renderer.terminalHeight);
     const width = Math.max(1, Math.min(76, terminalWidth - 2));
-    this.matches = commandMatches(this.commands(), this.context.input.value);
+    this.matches = commandMatches(
+      this.commands(),
+      this.context.commandPaletteInput.value,
+    );
     // Reserve space for the search field, spacing, footer, and outer padding.
     this.rows = Math.max(
       1,
       Math.min(12, this.matches.length, terminalHeight - 7),
     );
-    this.context.box.left = Math.max(
+    this.context.commandPaletteBox.left = Math.max(
       0,
       Math.floor((terminalWidth - width) / 2),
     );
-    this.context.box.top = Math.max(
+    this.context.commandPaletteBox.top = Math.max(
       0,
       Math.floor((terminalHeight - this.rows - 7) / 3),
     );
-    this.context.box.width = width;
-    this.context.box.height = Math.min(terminalHeight, this.rows + 7);
-    this.context.input.placeholder =
+    this.context.commandPaletteBox.width = width;
+    this.context.commandPaletteBox.height = Math.min(
+      terminalHeight,
+      this.rows + 7,
+    );
+    this.context.commandPaletteInput.placeholder =
       this.page === "commands"
         ? "Search commands"
         : this.page === "themes"
           ? "Search themes"
           : "Search modes";
-    this.context.input.width = Math.max(1, width - 4);
-    this.context.text.width = Math.max(1, width - 4);
-    this.context.text.height = this.rows;
-    this.context.footer.top = this.rows + 4;
-    this.context.footer.width = Math.max(1, width - 4);
-    this.context.footer.content = new StyledText([
+    this.context.commandPaletteInput.width = Math.max(1, width - 4);
+    this.context.commandPaletteText.width = Math.max(1, width - 4);
+    this.context.commandPaletteText.height = this.rows;
+    this.context.commandPaletteFooter.top = this.rows + 4;
+    this.context.commandPaletteFooter.width = Math.max(1, width - 4);
+    this.context.commandPaletteFooter.content = new StyledText([
       fg(dialogColor("text.muted", oneDarkTheme.muted))(
         clipColumns(
           "↑↓ navigate   enter select   esc close",
@@ -469,7 +476,7 @@ export class RuntimePaletteController {
     this.previewTheme();
     const visible = this.matches.slice(this.start, this.start + this.rows);
     if (visible.length === 0) {
-      this.context.text.content = new StyledText([
+      this.context.commandPaletteText.content = new StyledText([
         fg(dialogColor("text.muted", oneDarkTheme.muted))(
           " No matching commands",
         ),
@@ -520,7 +527,7 @@ export class RuntimePaletteController {
         ),
       ];
     });
-    this.context.text.content = new StyledText(content.flat());
+    this.context.commandPaletteText.content = new StyledText(content.flat());
   }
 
   private previewTheme() {
@@ -553,7 +560,8 @@ export class RuntimePaletteController {
   }
 
   hoverRow(y: number) {
-    const index = this.start + y - Number(this.context.box.top) - 3;
+    const index =
+      this.start + y - Number(this.context.commandPaletteBox.top) - 3;
     const command = this.matches[index]?.command;
     if (!command || command.enabled === false || index === this.index) return;
     this.index = index;
@@ -562,7 +570,8 @@ export class RuntimePaletteController {
 
   activateRow(y: number, button: number) {
     if (button !== MouseButton.LEFT) return;
-    const index = this.start + y - Number(this.context.box.top) - 3;
+    const index =
+      this.start + y - Number(this.context.commandPaletteBox.top) - 3;
     const command = this.matches[index]?.command;
     if (!command || command.enabled === false) return;
     this.index = index;

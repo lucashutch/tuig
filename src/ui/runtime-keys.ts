@@ -18,9 +18,10 @@ import {
   type RuntimeFilesContext,
 } from "./runtime-files.js";
 import type { RuntimePopupController } from "./runtime-popup.js";
+import type { RuntimeTabsController } from "./runtime-tabs.js";
 import type { ChangeSection } from "./runtime-widgets.js";
 
-export interface RuntimeKeysContext {
+export interface RuntimeKeysContext extends RuntimeFilesContext {
   suppressEnterUntil: number;
   /** The editor that currently owns keyboard focus, if any. */
   readonly focusedEditor: unknown;
@@ -39,7 +40,6 @@ export interface RuntimeKeysContext {
   readonly repository: GitRepository;
   /** Diff lines selected for line staging. */
   readonly selectedLineCount: number;
-  readonly files: RuntimeFilesContext;
   readonly commitDiff: { visible: boolean };
   readonly commitDiffEmpty: { visible: boolean };
   readonly diffTooLarge: boolean;
@@ -59,11 +59,13 @@ export interface RuntimeKeysContext {
   closeCommandPalette: () => void;
   movePaletteSelection: (delta: number) => void;
   showCommandPalette: () => void;
-  /** Handle a key while the repository path input is focused. */
-  repositoryPickerKey: (key: KeyEvent) => void;
-  showRepositoryPicker: () => void;
-  closeRepositoryTab: (id: string) => Promise<void>;
-  activateRepositoryTab: (id: string) => Promise<void>;
+  repositoryTabs: Pick<
+    RuntimeTabsController,
+    | "repositoryPickerKey"
+    | "showRepositoryPicker"
+    | "closeRepositoryTab"
+    | "activateRepositoryTab"
+  >;
   paintComposer: () => void;
   paintHints: () => void;
   paint: () => void;
@@ -86,8 +88,7 @@ export interface RuntimeKeysContext {
   scrollGraphColumns: (delta: number) => boolean;
   selectedFile: () => { path: string } | undefined;
   openCommit: () => unknown;
-  openWorkingDiff: () => unknown;
-  loadDiff: (allowLarge?: boolean) => Promise<unknown>;
+  loadDiff: (allowLarge?: boolean) => Promise<void>;
   refresh: () => unknown;
   perform: (
     label: string,
@@ -115,7 +116,7 @@ export async function handleKey(ctx: RuntimeKeysContext, key: KeyEvent) {
   const focusedEditor = ctx.focusedEditor;
   if (focusedEditor === ctx.commandPaletteInput) return paletteKey(ctx, key);
   if (focusedEditor === ctx.repositoryPathInput)
-    return ctx.repositoryPickerKey(key);
+    return ctx.repositoryTabs.repositoryPickerKey(key);
   if (globalKey(ctx, key)) return;
   if (composerKey(ctx, key, focusedEditor)) return;
   if (key.name === "escape") return escapeKey(ctx);
@@ -164,18 +165,18 @@ function globalKey(ctx: RuntimeKeysContext, key: KeyEvent): boolean {
     return true;
   }
   if (key.ctrl && key.name === "t") {
-    ctx.showRepositoryPicker();
+    ctx.repositoryTabs.showRepositoryPicker();
     return true;
   }
   if (key.ctrl && key.name === "w") {
-    void ctx.closeRepositoryTab(ctx.activeTabId);
+    void ctx.repositoryTabs.closeRepositoryTab(ctx.activeTabId);
     return true;
   }
   if (key.ctrl && key.name === "tab") {
     const index = ctx.tabs.findIndex((tab) => tab.id === ctx.activeTabId);
     const delta = key.shift ? -1 : 1;
     const next = (index + delta + ctx.tabs.length) % ctx.tabs.length;
-    void ctx.activateRepositoryTab(ctx.tabs[next]!.id);
+    void ctx.repositoryTabs.activateRepositoryTab(ctx.tabs[next]!.id);
     return true;
   }
   return false;
@@ -365,7 +366,7 @@ function paneKey(ctx: RuntimeKeysContext, key: KeyEvent) {
 function moveFile(ctx: RuntimeKeysContext, delta: number) {
   if (ctx.selectedLineCount) ctx.clearLineSelection(false);
   if (ctx.historyFilterActive) return ctx.filesScroll("unstaged", delta);
-  moveRuntimeFile(ctx.files, delta);
+  moveRuntimeFile(ctx, delta);
 }
 
 async function openSelectedFile(ctx: RuntimeKeysContext) {

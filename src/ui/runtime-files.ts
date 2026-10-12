@@ -28,7 +28,7 @@ export interface RuntimeFilesContext {
   contentHeight: number;
   commitFilesTop: number;
   diffOrigin?: "working" | "commit";
-  selectedCommitSha?: string;
+  snapshotCommitSha?: string;
   widgets: {
     unstagedText: TextRenderable;
     stagedText: TextRenderable;
@@ -46,7 +46,7 @@ export interface RuntimeFilesContext {
   fail(error: unknown): void;
   persistLayoutPreferences(): void;
   /** Opens a context menu for a right-clicked file row. */
-  openFileMenu(
+  openGraphMenu(
     x: number,
     y: number,
     target: {
@@ -197,8 +197,8 @@ export function filesClick(
       (candidate) => candidate.path === node.path,
     );
     if (!file) return;
-    context.openFileMenu(x ?? 0, y, {
-      sha: context.view === "commit" ? (context.selectedCommitSha ?? "") : "",
+    context.openGraphMenu(x ?? 0, y, {
+      sha: context.view === "commit" ? (context.snapshotCommitSha ?? "") : "",
       file,
       fileStaged: section === "staged",
     });

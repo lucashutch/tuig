@@ -72,7 +72,7 @@ const filesContext = (
   notify: () => {},
   fail: () => {},
   persistLayoutPreferences: () => {},
-  openFileMenu: () => {},
+  openGraphMenu: () => {},
 });
 
 describe("paint caches", () => {

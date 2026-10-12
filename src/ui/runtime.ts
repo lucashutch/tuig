@@ -21,6 +21,8 @@ import type {
   ChangedFile,
   GitRepository,
   RepositorySnapshot,
+  Submodule,
+  Worktree,
 } from "../git/types.js";
 import { type GraphRow } from "./graph.js";
 import { createAutoRefresh } from "./auto-refresh.js";
@@ -53,19 +55,11 @@ import {
   type GraphMenuTarget,
 } from "./graph-menu.js";
 import { RuntimePopupController } from "./runtime-popup.js";
-import {
-  RuntimeTabsController,
-  type RuntimeTab,
-  type RuntimeTabsContext,
-} from "./runtime-tabs.js";
-import {
-  RuntimePaletteController,
-  type RuntimePaletteContext,
-} from "./runtime-palette.js";
+import { RuntimeTabsController, type RuntimeTab } from "./runtime-tabs.js";
+import { RuntimePaletteController } from "./runtime-palette.js";
 import {
   layoutRuntime,
   layoutChanges,
-  type RuntimeLayoutContext,
   clampDetailsWidth,
   clampSidebarWidth,
 } from "./runtime-layout.js";
@@ -75,8 +69,6 @@ import {
   paintFiles as paintRuntimeFiles,
   paintHistory as paintRuntimeHistory,
   paintSidebar as paintRuntimeSidebar,
-  type RuntimePaintContext,
-  type RuntimeSidebarPaintContext,
 } from "./runtime-paint.js";
 import { activeTheme as oneDarkTheme } from "./theme.js";
 import { setActiveTheme } from "./theme.js";
@@ -112,13 +104,9 @@ import {
   sectionRows as runtimeSectionRows,
   selectedFile as selectedRuntimeFile,
   toggleSection as toggleRuntimeSection,
-  type RuntimeFilesContext,
 } from "./runtime-files.js";
 import { loadLayoutPreferences, saveLayoutPreferences } from "./preferences.js";
-import {
-  handleKey as handleRuntimeKey,
-  type RuntimeKeysContext,
-} from "./runtime-keys.js";
+import { handleKey as handleRuntimeKey } from "./runtime-keys.js";
 import {
   promoteRecentRepository,
   saveSessionPreferences,
@@ -143,14 +131,12 @@ import {
   cancelGraphAvatars as cancelRuntimeGraphAvatars,
   updateGraphAvatars as updateRuntimeGraphAvatars,
   type GraphAvatarRequest,
-  type RuntimeDataContext,
 } from "./runtime-data.js";
 import { cancelAvatarWork, terminalGraphicsSupported } from "./avatars.js";
 import {
   historyClick as handleHistoryClick,
   moveCommit as moveHistoryCommit,
   queueHistoryScroll as queueRuntimeHistoryScroll,
-  type RuntimeHistoryContext,
 } from "./runtime-history.js";
 import {
   acceptBranchFilter as acceptRuntimeBranchFilter,
@@ -163,7 +149,6 @@ import {
   sidebarScroll as scrollRuntimeSidebar,
   startBranchFilter as startRuntimeBranchFilter,
   toggleSidebarSection as toggleRuntimeSidebarSection,
-  type RuntimeSidebarContext,
 } from "./runtime-sidebar.js";
 import {
   cancelActiveMutation,
@@ -178,12 +163,8 @@ import {
   submitNamePrompt as submitRuntimeNamePrompt,
   unstageAll as unstageAllRuntime,
   runFileAction as runRuntimeFileAction,
-  type RuntimeCommandsContext,
 } from "./runtime-commands.js";
-import {
-  RuntimeDiffSelectionController,
-  type RuntimeDiffSelectionContext,
-} from "./runtime-diff-selection.js";
+import { RuntimeDiffSelectionController } from "./runtime-diff-selection.js";
 
 export async function runTuig(
   repositories: GitRepository[],
@@ -297,24 +278,24 @@ export class Runtime {
   private readonly removeSelectionListener = () => {
     this.renderer.off(CliRenderEvents.SELECTION, this.copyCompletedSelection);
   };
-  private snapshot?: RepositorySnapshot;
-  private snapshotSignature?: string;
-  private historyLimit = HISTORY_PAGE;
-  private loadingMoreCommits = false;
-  private historyPageFailures = 0;
-  private commitIndex = 0;
-  private historySelection: "working" | "commit" = "working";
-  private fileIndex = 0;
-  private mode: ChangeSection = "unstaged";
-  private view: "history" | "commit" | "working" = "history";
-  private commitFiles: ChangedFile[] = [];
+  snapshot?: RepositorySnapshot;
+  snapshotSignature?: string;
+  historyLimit = HISTORY_PAGE;
+  loadingMoreCommits = false;
+  historyPageFailures = 0;
+  commitIndex = 0;
+  historySelection: "working" | "commit" = "working";
+  fileIndex = 0;
+  mode: ChangeSection = "unstaged";
+  view: "history" | "commit" | "working" = "history";
+  commitFiles: ChangedFile[] = [];
   /** Older endpoint retained while the user browses for a comparison target. */
-  private comparisonStartSha?: string;
+  comparisonStartSha?: string;
   /** Older endpoint for the comparison surface currently open. */
-  private comparisonBaseSha?: string;
-  private graphIndex: GraphIndex = emptyGraphIndex();
+  comparisonBaseSha?: string;
+  graphIndex: GraphIndex = emptyGraphIndex();
   private themeCatalog?: Awaited<ReturnType<typeof loadThemeCatalog>>;
-  private themeSelection: Awaited<ReturnType<typeof loadThemePreferences>> = {
+  themeSelection: Awaited<ReturnType<typeof loadThemePreferences>> = {
     name: "one-dark",
     mode: "dark",
   };
@@ -335,7 +316,7 @@ export class Runtime {
     if (selection.mode === "system") void this.activateTheme(selection, false);
   }
 
-  private async activateTheme(
+  async activateTheme(
     selection: typeof this.themeSelection,
     persist = true,
     appearance?: "dark" | "light",
@@ -359,7 +340,7 @@ export class Runtime {
     }
   }
 
-  private repaintTheme() {
+  repaintTheme() {
     this.renderer.setBackgroundColor(oneDarkTheme.bg);
     updateWidgetTheme(this.renderer.root);
     this.commitDiff.updateTheme();
@@ -392,7 +373,7 @@ export class Runtime {
     this.paint();
   }
 
-  private async showThemePicker(page: "themes" | "theme-mode") {
+  async showThemePicker(page: "themes" | "theme-mode") {
     if (page === "themes") {
       const previous = this.themeCatalog;
       const catalog = await loadThemeCatalog(this.repository.root);
@@ -426,28 +407,28 @@ export class Runtime {
     index: number;
     line?: number;
   };
-  private get historyFilterActive() {
+  get historyFilterActive() {
     return this.historyFilter !== undefined;
   }
-  private get selectedCommitSha() {
+  get selectedCommitSha() {
     return this.historyFilter?.commits[this.historyFilter.index]?.sha;
   }
 
   // Horizontal graph offset, in lanes, used once the graph is wider than the
   // share of the history pane it is allowed to take.
-  private graphScroll = 0;
-  private graphVisibleColumns = 1;
-  private branchHints = new Map<string, string>();
-  private branchHintIndex = emptyBranchHintIndex();
-  private historyStart = 0;
-  private historyViewportDetached = false;
-  private historyContentWidth = 1;
-  private historyColumns: HistoryColumns = {
+  graphScroll = 0;
+  graphVisibleColumns = 1;
+  branchHints = new Map<string, string>();
+  branchHintIndex = emptyBranchHintIndex();
+  historyStart = 0;
+  historyViewportDetached = false;
+  historyContentWidth = 1;
+  historyColumns: HistoryColumns = {
     showCommitter: true,
     showSha: true,
   };
   private historyDividerHover?: HistoryDividerKey;
-  private hoveredHistoryLine?: number;
+  hoveredHistoryLine?: number;
   private lastDividerPress?: { key: HistoryDividerKey; at: number };
   private historyColumnDrag?: {
     key: HistoryDividerKey;
@@ -456,29 +437,29 @@ export class Runtime {
   };
   // Mouse events carry absolute terminal columns, so the column the history
   // text starts at is kept to translate them into row offsets.
-  private historyContentLeft = 1;
-  private fileStart = 0;
-  private sectionCollapsed: Record<ChangeSection, boolean> = {
+  historyContentLeft = 1;
+  fileStart = 0;
+  sectionCollapsed: Record<ChangeSection, boolean> = {
     unstaged: false,
     staged: false,
   };
-  private sectionStart: Record<ChangeSection, number> = {
+  sectionStart: Record<ChangeSection, number> = {
     unstaged: 0,
     staged: 0,
   };
-  private discardArmed = false;
-  private mutationBusy?: string;
-  private mutationAbort?: AbortController;
-  private diffRequest = 0;
-  private diffAbort?: AbortController;
-  private diffTooLarge = false;
-  private commitFilesRequest = 0;
+  discardArmed = false;
+  mutationBusy?: string;
+  mutationAbort?: AbortController;
+  diffRequest = 0;
+  diffAbort?: AbortController;
+  diffTooLarge = false;
+  commitFilesRequest = 0;
   private historyFilterRequest = 0;
-  private snapshotRequest = 0;
-  private snapshotReadStartedAt?: number;
+  snapshotRequest = 0;
+  snapshotReadStartedAt?: number;
   // Only the active tab is watched. A tab switch reads a fresh snapshot, so
   // background tabs need no watch or poll of their own.
-  private readonly autoRefresh = createAutoRefresh({
+  readonly autoRefresh = createAutoRefresh({
     poll: () => {
       if (!this.composing) void this.refresh("Auto-refreshing…", true);
     },
@@ -486,27 +467,27 @@ export class Runtime {
     fallback: (error) =>
       debugLog("refresh", "watching failed, polling instead", error),
   });
-  private autoRefreshStarted = false;
+  autoRefreshStarted = false;
   private remoteFetchTimer?: ReturnType<typeof setInterval>;
   private remoteFetchIntervalMinutes = DEFAULT_REMOTE_FETCH_INTERVAL_MINUTES;
-  private scrollTimer?: ReturnType<typeof setTimeout>;
-  private scrollSettleTimer?: ReturnType<typeof setTimeout>;
-  private historyScrolling = false;
-  private pendingScroll = 0;
-  private historyShaHits = new Map<number, { start: number; end: number }>();
-  private historyLabelHits = new Map<
+  scrollTimer?: ReturnType<typeof setTimeout>;
+  scrollSettleTimer?: ReturnType<typeof setTimeout>;
+  historyScrolling = false;
+  pendingScroll = 0;
+  historyShaHits = new Map<number, { start: number; end: number }>();
+  historyLabelHits = new Map<
     number,
     { start: number; end: number; ref?: BranchRef }
   >();
-  private readonly popupController: RuntimePopupController;
+  readonly popupController: RuntimePopupController;
   private readonly palette: RuntimePaletteController;
-  private readonly repositoryTabs: RuntimeTabsController;
-  private lastGraphClick?: { row: number; at: number; label: boolean };
-  private expandedFiles = new Set<string>();
-  private seenFileDirectories = new Set<string>();
-  private hoveredFileRow?: { section: ChangeSection; row: number };
-  private focus: "history" | "changes" = "history";
-  private syncedAt?: number;
+  readonly repositoryTabs: RuntimeTabsController;
+  lastGraphClick?: { row: number; at: number; label: boolean };
+  expandedFiles = new Set<string>();
+  seenFileDirectories = new Set<string>();
+  hoveredFileRow?: { section: ChangeSection; row: number };
+  focus: "history" | "changes" = "history";
+  syncedAt?: number;
   private messageTimer?: ReturnType<typeof setTimeout>;
   private busySpinnerText = "";
   private readonly busySpinner = createBrailleSpinner((frame) =>
@@ -515,113 +496,113 @@ export class Runtime {
   // Reading `content` back off a renderable returns a StyledText, so the
   // message text is tracked here for width and layout maths.
   private messageText = "";
-  private busy = false;
+  busy = false;
   private disposed = false;
-  private refreshPending = false;
-  private pendingRefreshMessage?: string;
+  refreshPending = false;
+  pendingRefreshMessage?: string;
   private readonly header: TextRenderable;
-  private readonly tabBar: TextRenderable;
+  readonly tabBar: TextRenderable;
   private readonly avatarToggle: TextRenderable;
-  private readonly diffViewToggle: TextRenderable;
+  readonly diffViewToggle: TextRenderable;
   private readonly toolbar: TextRenderable;
-  private readonly sidebar: BoxRenderable;
-  private readonly history: BoxRenderable;
-  private readonly details: BoxRenderable;
+  readonly sidebar: BoxRenderable;
+  readonly history: BoxRenderable;
+  readonly details: BoxRenderable;
   private readonly hints: TextRenderable;
   private readonly message: TextRenderable;
   private readonly sidebarText: TextRenderable;
-  private readonly sidebarSections: ReturnType<
+  readonly sidebarSections: ReturnType<
     typeof createRuntimeWidgets
   >["sidebarSections"];
-  private readonly historyText: TextRenderable;
-  private readonly commitDiff: DiffView;
-  private readonly commitDiffEmpty: TextRenderable;
-  private readonly unstagedLabel: TextRenderable;
-  private readonly unstagedText: TextRenderable;
-  private readonly stagedLabel: TextRenderable;
-  private readonly stagedText: TextRenderable;
-  private readonly unstagedDivider: BoxRenderable;
-  private readonly composerDivider: BoxRenderable;
-  private readonly unstagedDividerBar: TextRenderable;
-  private readonly composerDividerBar: TextRenderable;
-  private readonly discardButton: TextRenderable;
-  private readonly stageAllButton: TextRenderable;
-  private readonly unstageAllButton: TextRenderable;
-  private readonly composerBox: BoxRenderable;
-  private readonly composerSummary: InputRenderable;
-  private readonly composerBody: TextareaRenderable;
-  private readonly commitButton: TextRenderable;
-  private readonly amendButton: TextRenderable;
-  private readonly workingBanner: TextRenderable;
-  private readonly commitInfoBox: BoxRenderable;
-  private readonly commitInfoLabel: TextRenderable;
-  private readonly commitBodyBox: ScrollBoxRenderable;
-  private readonly commitInfo: TextRenderable;
-  private readonly authorPhoto: ImageRenderable;
-  private readonly authorBadge: TextRenderable;
-  private readonly commitCoAuthors: TextRenderable;
-  private readonly commitCoAuthorProvider: ImageRenderable;
-  private readonly graphAvatars: ImageRenderable[];
-  private readonly ensureGraphAvatarSlots: (count: number) => void;
-  private readonly editMessageButton: TextRenderable;
-  private readonly commitHeader: TextRenderable;
-  private readonly commitBody: TextRenderable;
-  private readonly leftDivider: BoxRenderable;
-  private readonly rightDivider: BoxRenderable;
-  private readonly leftDividerBar: TextRenderable;
-  private readonly rightDividerBar: TextRenderable;
-  private readonly overlayCatcher: BoxRenderable;
+  readonly historyText: TextRenderable;
+  readonly commitDiff: DiffView;
+  readonly commitDiffEmpty: TextRenderable;
+  readonly unstagedLabel: TextRenderable;
+  readonly unstagedText: TextRenderable;
+  readonly stagedLabel: TextRenderable;
+  readonly stagedText: TextRenderable;
+  readonly unstagedDivider: BoxRenderable;
+  readonly composerDivider: BoxRenderable;
+  readonly unstagedDividerBar: TextRenderable;
+  readonly composerDividerBar: TextRenderable;
+  readonly discardButton: TextRenderable;
+  readonly stageAllButton: TextRenderable;
+  readonly unstageAllButton: TextRenderable;
+  readonly composerBox: BoxRenderable;
+  readonly composerSummary: InputRenderable;
+  readonly composerBody: TextareaRenderable;
+  readonly commitButton: TextRenderable;
+  readonly amendButton: TextRenderable;
+  readonly workingBanner: TextRenderable;
+  readonly commitInfoBox: BoxRenderable;
+  readonly commitInfoLabel: TextRenderable;
+  readonly commitBodyBox: ScrollBoxRenderable;
+  readonly commitInfo: TextRenderable;
+  readonly authorPhoto: ImageRenderable;
+  readonly authorBadge: TextRenderable;
+  readonly commitCoAuthors: TextRenderable;
+  readonly commitCoAuthorProvider: ImageRenderable;
+  readonly graphAvatars: ImageRenderable[];
+  readonly ensureGraphAvatarSlots: (count: number) => void;
+  readonly editMessageButton: TextRenderable;
+  readonly commitHeader: TextRenderable;
+  readonly commitBody: TextRenderable;
+  readonly leftDivider: BoxRenderable;
+  readonly rightDivider: BoxRenderable;
+  readonly leftDividerBar: TextRenderable;
+  readonly rightDividerBar: TextRenderable;
+  readonly overlayCatcher: BoxRenderable;
   private readonly menuBox: BoxRenderable;
   private readonly menuText: TextRenderable;
   private readonly submenuBox: BoxRenderable;
   private readonly submenuText: TextRenderable;
-  private readonly branchFilterInput: InputRenderable;
-  private readonly promptInput: InputRenderable;
-  private readonly repositoryPathInput: InputRenderable;
-  private readonly repositoryPickerBox: BoxRenderable;
-  private readonly repositoryPickerText: TextRenderable;
-  private readonly commandPaletteBox: BoxRenderable;
-  private readonly commandPaletteInput: InputRenderable;
-  private readonly commandPaletteText: TextRenderable;
-  private readonly commandPaletteFooter: TextRenderable;
-  private repository: GitRepository;
-  private tabs: RuntimeTab[];
-  private activeTabId: string;
-  private nextTabId = 1;
-  private lastSidebarClick?: { key: string; at: number };
-  private recentRepositories: string[];
-  private leftWidth = 28;
-  private detailsWidth = 44;
-  private leftCollapsed = false;
-  private sidebarCollapsed: Record<SidebarSection, boolean> = {
+  readonly branchFilterInput: InputRenderable;
+  readonly promptInput: InputRenderable;
+  readonly repositoryPathInput: InputRenderable;
+  readonly repositoryPickerBox: BoxRenderable;
+  readonly repositoryPickerText: TextRenderable;
+  readonly commandPaletteBox: BoxRenderable;
+  readonly commandPaletteInput: InputRenderable;
+  readonly commandPaletteText: TextRenderable;
+  readonly commandPaletteFooter: TextRenderable;
+  repository: GitRepository;
+  tabs: RuntimeTab[];
+  activeTabId: string;
+  nextTabId = 1;
+  lastSidebarClick?: { key: string; at: number };
+  recentRepositories: string[];
+  leftWidth = 28;
+  detailsWidth = 44;
+  leftCollapsed = false;
+  sidebarCollapsed: Record<SidebarSection, boolean> = {
     local: false,
     remote: false,
     submodules: false,
     stashes: false,
     worktrees: false,
   };
-  private sidebarPreferred: Record<SidebarSection, number | undefined> = {
+  sidebarPreferred: Record<SidebarSection, number | undefined> = {
     local: undefined,
     remote: undefined,
     submodules: undefined,
     stashes: undefined,
     worktrees: undefined,
   };
-  private sidebarStart: Record<SidebarSection, number> = {
+  sidebarStart: Record<SidebarSection, number> = {
     local: 0,
     remote: 0,
     submodules: 0,
     stashes: 0,
     worktrees: 0,
   };
-  private sidebarPendingScroll: Record<SidebarSection, number> = {
+  sidebarPendingScroll: Record<SidebarSection, number> = {
     local: 0,
     remote: 0,
     submodules: 0,
     stashes: 0,
     worktrees: 0,
   };
-  private sidebarScrollTimers: Record<
+  sidebarScrollTimers: Record<
     SidebarSection,
     ReturnType<typeof setTimeout> | undefined
   > = {
@@ -631,52 +612,50 @@ export class Runtime {
     stashes: undefined,
     worktrees: undefined,
   };
-  private detailsCollapsed = false;
-  private branchFilter = "";
-  private branchFilterActive = false;
-  private branchSelection: Record<"local" | "remote", number> = {
+  detailsCollapsed = false;
+  branchFilter = "";
+  branchFilterActive = false;
+  branchSelection: Record<"local" | "remote", number> = {
     local: -1,
     remote: -1,
   };
-  private namePrompt?: {
+  namePrompt?: {
     title: string;
     placeholder: string;
     run: (value: string) => Promise<void>;
   };
-  private diffOrigin?: "working" | "commit";
-  private readonly diffSelection = new RuntimeDiffSelectionController(() =>
-    this.diffSelectionContext(),
-  );
-  private suppressEnterUntil = 0;
-  private commitFilesTop = 19;
+  diffOrigin?: "working" | "commit";
+  private readonly diffSelection = new RuntimeDiffSelectionController(this);
+  suppressEnterUntil = 0;
+  commitFilesTop = 19;
   // Widths read back off renderables can lag by a frame, so panes keep the
   // numeric widths from the latest layout pass for width-dependent painting.
-  private sidebarPaneWidth = 28;
-  private detailsPaneWidth = 44;
+  sidebarPaneWidth = 28;
+  detailsPaneWidth = 44;
   private toolbarHits: ToolbarHit[] = [];
   private toolbarHovered?: ToolbarAction;
   private toolbarPressed?: ToolbarAction;
   private busyFrame = "";
-  private commitHeaderValue = "";
-  private commitBodyValue = "";
-  private commitInfoValue = "";
-  private commitCoAuthorsValue = "";
-  private commitCoAuthorsProviderVisible = false;
-  private avatarRequest = 0;
-  private avatarsEnabled = true;
-  private diffViewPreference: DiffViewMode = "side-by-side";
-  private avatarAbort?: AbortController;
-  private graphAvatarKeys: Array<string | undefined> = [];
-  private graphAvatarTokens: number[] = [];
-  private graphAvatarAborts: Array<AbortController | undefined> = [];
-  private preferredUnstagedHeight?: number;
-  private preferredComposerHeight?: number;
+  commitHeaderValue = "";
+  commitBodyValue = "";
+  commitInfoValue = "";
+  commitCoAuthorsValue = "";
+  commitCoAuthorsProviderVisible = false;
+  avatarRequest = 0;
+  avatarsEnabled = true;
+  diffViewPreference: DiffViewMode = "side-by-side";
+  avatarAbort?: AbortController;
+  graphAvatarKeys: Array<string | undefined> = [];
+  graphAvatarTokens: number[] = [];
+  graphAvatarAborts: Array<AbortController | undefined> = [];
+  preferredUnstagedHeight?: number;
+  preferredComposerHeight?: number;
   private preferencesTimer?: ReturnType<typeof setTimeout>;
   private sessionPreferencesTimer?: ReturnType<typeof setTimeout>;
-  private amend = false;
-  private amendDraft?: { summary: string; body: string };
-  private editingCommitSha?: string;
-  private editReturnState?: {
+  amend = false;
+  amendDraft?: { summary: string; body: string };
+  editingCommitSha?: string;
+  editReturnState?: {
     summary: string;
     body: string;
     amend: boolean;
@@ -684,7 +663,7 @@ export class Runtime {
   };
 
   constructor(
-    private renderer: CliRenderer,
+    readonly renderer: CliRenderer,
     repositories: GitRepository[],
     activeRepository: string,
     submodules: Record<string, { root: string; path: string }> = {},
@@ -776,8 +755,7 @@ export class Runtime {
       filesScroll: (section, delta) => this.filesScroll(section, delta),
       filesClick: (section, y, button, x) =>
         this.filesClick(section, y, button, x),
-      filesHover: (section, y) =>
-        handleRuntimeFilesHover(this.filesContext(), section, y),
+      filesHover: (section, y) => handleRuntimeFilesHover(this, section, y),
       toggleSection: (section) => this.toggleSection(section),
       resizeChangeSplit: (y) => this.resizeChangeSplit(y),
       resizeComposer: (y) => this.resizeComposer(y),
@@ -1038,10 +1016,10 @@ export class Runtime {
         this.namePrompt = undefined;
       },
     });
-    this.palette = new RuntimePaletteController(this.paletteContext());
-    this.repositoryTabs = new RuntimeTabsController(this.tabsContext());
+    this.palette = new RuntimePaletteController(this);
+    this.repositoryTabs = new RuntimeTabsController(this);
     this.branchFilterInput.on(InputRenderableEvents.INPUT, () => {
-      cancelRuntimeSidebarScroll(this.sidebarContext());
+      cancelRuntimeSidebarScroll(this);
       this.branchFilter = this.branchFilterInput.value;
       this.sidebarStart.local = 0;
       this.sidebarStart.remote = 0;
@@ -1144,7 +1122,7 @@ export class Runtime {
       }, this.remoteFetchIntervalMinutes * 60_000);
     }
   }
-  private persistLayoutPreferences() {
+  persistLayoutPreferences() {
     if (this.preferencesTimer) clearTimeout(this.preferencesTimer);
     this.preferencesTimer = setTimeout(() => {
       this.preferencesTimer = undefined;
@@ -1170,7 +1148,7 @@ export class Runtime {
       sidebarCollapsed: this.sidebarCollapsed,
     });
   }
-  private persistSessionPreferences() {
+  persistSessionPreferences() {
     if (this.sessionPreferencesTimer)
       clearTimeout(this.sessionPreferencesTimer);
     this.sessionPreferencesTimer = setTimeout(() => {
@@ -1201,7 +1179,7 @@ export class Runtime {
     });
   }
   /** True while either commit-message editor holds the keyboard. */
-  private get composing(): boolean {
+  get composing(): boolean {
     const focused = this.renderer.currentFocusedEditor;
     return (
       focused === this.composerSummary ||
@@ -1211,14 +1189,14 @@ export class Runtime {
       focused === this.repositoryPathInput
     );
   }
-  private label(section: ChangeSection): TextRenderable {
+  label(section: ChangeSection): TextRenderable {
     return section === "unstaged" ? this.unstagedLabel : this.stagedLabel;
   }
-  private list(section: ChangeSection): TextRenderable {
+  list(section: ChangeSection): TextRenderable {
     return section === "unstaged" ? this.unstagedText : this.stagedText;
   }
   /** Rows the given list can show, which is its rendered height. */
-  private sectionViewport(section: ChangeSection): number {
+  sectionViewport(section: ChangeSection): number {
     if (this.view === "commit")
       return Math.max(
         1,
@@ -1228,7 +1206,7 @@ export class Runtime {
     return Math.max(0, Number(this.list(section).height));
   }
   /** Rows available to the panes, once the header row is taken out. */
-  private get contentHeight(): number {
+  get contentHeight(): number {
     return Math.max(1, this.renderer.terminalHeight - PANE_TOP);
   }
   /**
@@ -1237,7 +1215,7 @@ export class Runtime {
    * Messages expire so the keybinding hints on the left, which they never
    * overwrite, remain the resting state of the row.
    */
-  private notify(text: string, tone: "info" | "error" | "busy" = "info") {
+  notify(text: string, tone: "info" | "error" | "busy" = "info") {
     if (this.disposed) return;
     if (this.messageTimer) clearTimeout(this.messageTimer);
     this.messageTimer = undefined;
@@ -1278,22 +1256,22 @@ export class Runtime {
   private readonly dispose = () => {
     this.disposed = true;
     this.autoRefresh.dispose();
-    cancelRuntimeDiff(this.dataContext());
+    cancelRuntimeDiff(this);
     this.removeSelectionListener();
     this.stopBusySpinner();
     if (this.messageTimer) clearTimeout(this.messageTimer);
     this.messageTimer = undefined;
   };
-  private async shutdown() {
+  async shutdown() {
     this.avatarAbort?.abort();
-    cancelRuntimeGraphAvatars(this.dataContext());
+    cancelRuntimeGraphAvatars(this);
     cancelAvatarWork();
     this.mutationAbort?.abort();
     this.autoRefresh.dispose();
     if (this.remoteFetchTimer) clearInterval(this.remoteFetchTimer);
     if (this.scrollTimer) clearTimeout(this.scrollTimer);
     if (this.scrollSettleTimer) clearTimeout(this.scrollSettleTimer);
-    cancelRuntimeSidebarScroll(this.sidebarContext());
+    cancelRuntimeSidebarScroll(this);
     if (this.messageTimer) clearTimeout(this.messageTimer);
     await this.flushSessionPreferences().catch(() => undefined);
     for (const tab of this.tabs) tab.repository.dispose?.();
@@ -1301,18 +1279,18 @@ export class Runtime {
     await this.flushLayoutPreferences().catch(() => undefined);
     return this.renderer.destroy();
   }
-  private fail(error: unknown) {
+  fail(error: unknown) {
     this.notify(
       error instanceof Error ? error.message : String(error),
       "error",
     );
   }
-  private positionMessage() {
+  positionMessage() {
     const width = Bun.stringWidth(this.messageText);
     this.message.width = Math.max(1, width);
     this.message.left = Math.max(1, this.renderer.terminalWidth - width - 1);
   }
-  private paintHints() {
+  paintHints() {
     const text = formatHints({
       focus: this.focus,
       view: this.view,
@@ -1333,7 +1311,7 @@ export class Runtime {
     this.hints.width = Math.max(1, Bun.stringWidth(content));
     this.hints.content = content;
   }
-  private paintHeader() {
+  paintHeader() {
     // The repository summary shares the toolbar's label row and stops before
     // its first action. The toolbar's second row remains available for glyphs.
     const firstAction =
@@ -1346,7 +1324,7 @@ export class Runtime {
       width,
     });
   }
-  private paintViewToggles() {
+  paintViewToggles() {
     this.avatarToggle.content = `${this.avatarsEnabled ? "■" : "□"} Avatars`;
     const splitPreferred = this.diffViewPreference === "side-by-side";
     this.diffViewToggle.content = `${splitPreferred ? "■" : "□"} ${
@@ -1358,17 +1336,26 @@ export class Runtime {
     }`;
   }
 
-  private tabsContext(): RuntimeTabsContext {
-    return this as unknown as RuntimeTabsContext;
+  get widgets() {
+    return this;
   }
 
-  private toggleAvatars() {
+  // OpenTUI falls back to colored character blocks when Kitty and Sixel
+  // graphics are unavailable. Those approximations are too coarse for
+  // these small avatars, so use the text fallbacks instead.
+  get avatarSupported() {
+    return (
+      this.avatarsEnabled &&
+      terminalGraphicsSupported(this.authorPhoto.effectiveProtocol)
+    );
+  }
+
+  toggleAvatars() {
     this.avatarsEnabled = !this.avatarsEnabled;
     this.avatarAbort?.abort();
-    cancelRuntimeGraphAvatars(this.dataContext());
+    cancelRuntimeGraphAvatars(this);
     const commit = this.snapshot?.commits[this.commitIndex];
-    if (commit && this.view === "commit")
-      showRuntimeCommitMeta(this.dataContext(), commit);
+    if (commit && this.view === "commit") showRuntimeCommitMeta(this, commit);
     this.persistLayoutPreferences();
     this.repositoryTabs.paintTabs();
     this.paint();
@@ -1390,15 +1377,15 @@ export class Runtime {
     return this.palette.isOpen;
   }
 
-  private get commandPaletteRows() {
+  get commandPaletteRows() {
     return this.palette.rows;
   }
 
-  private showCommandPalette() {
+  showCommandPalette() {
     this.palette.show();
   }
 
-  private closeCommandPalette(restoreFocus = true) {
+  closeCommandPalette(restoreFocus = true) {
     this.palette.close(restoreFocus);
   }
 
@@ -1406,95 +1393,11 @@ export class Runtime {
     this.palette.paint();
   }
 
-  private movePaletteSelection(delta: number) {
+  movePaletteSelection(delta: number) {
     this.palette.moveSelection(delta);
   }
 
-  private paletteContext(): RuntimePaletteContext {
-    // eslint-disable-next-line @typescript-eslint/no-this-alias
-    const runtime = this;
-    return {
-      overlayCatcher: this.overlayCatcher,
-      box: this.commandPaletteBox,
-      input: this.commandPaletteInput,
-      text: this.commandPaletteText,
-      footer: this.commandPaletteFooter,
-      popupController: this.popupController,
-      terminalSize: () => ({
-        width: this.renderer.terminalWidth,
-        height: this.renderer.terminalHeight,
-      }),
-      currentEditor: () =>
-        this.renderer.currentFocusedEditor as
-          | InputRenderable
-          | TextareaRenderable
-          | undefined,
-      requestRender: () => this.renderer.requestRender(),
-      get themeEntries() {
-        return runtime.themeCatalog?.entries ?? [];
-      },
-      get themeSelection() {
-        return runtime.themeSelection;
-      },
-      activateTheme: (selection, persist, appearance, preview) =>
-        this.activateTheme(selection, persist, appearance, preview),
-      showThemePicker: (page) => this.showThemePicker(page),
-      repaintTheme: () => this.repaintTheme(),
-      commandsContext: () => this.commandsContext(),
-      get repository() {
-        return runtime.repository;
-      },
-      get snapshot() {
-        return runtime.snapshot;
-      },
-      get busy() {
-        return runtime.mutationBusy;
-      },
-      get composing() {
-        return runtime.composing;
-      },
-      get tabCount() {
-        return runtime.tabs.length;
-      },
-      get leftCollapsed() {
-        return runtime.leftCollapsed;
-      },
-      set leftCollapsed(value) {
-        runtime.leftCollapsed = value;
-      },
-      get detailsCollapsed() {
-        return runtime.detailsCollapsed;
-      },
-      set detailsCollapsed(value) {
-        runtime.detailsCollapsed = value;
-      },
-      get avatarsEnabled() {
-        return runtime.avatarsEnabled;
-      },
-      selectedFile: () => this.selectedFile(),
-      files: (section) => this.files(section),
-      perform: (label, action, remote, scope) =>
-        this.perform(label, action, remote, scope),
-      stageAll: () => this.stageAll(),
-      unstageAll: () => this.unstageAll(),
-      discardAll: () => this.discardAll(),
-      focusComposer: () => {
-        setTimeout(() => this.composerSummary.focus(), 0);
-      },
-      startBranchFilter: () => this.startBranchFilter(),
-      setFocus: (focus) => this.setFocus(focus),
-      showRepositoryPicker: () => this.repositoryTabs.showRepositoryPicker(),
-      closeActiveRepositoryTab: () =>
-        this.repositoryTabs.closeRepositoryTab(this.activeTabId),
-      activateRelativeRepositoryTab: (delta) =>
-        this.repositoryTabs.activateRelativeRepositoryTab(delta),
-      persistLayoutPreferences: () => this.persistLayoutPreferences(),
-      layout: () => this.layout(),
-      toggleAvatars: () => this.toggleAvatars(),
-    };
-  }
-
-  private paintToolbar() {
+  paintToolbar() {
     const width = Math.max(1, this.renderer.terminalWidth);
     const toolbar = renderToolbar(toolbarButtons(this.snapshot), width, {
       hovered: this.toolbarHovered,
@@ -1517,143 +1420,38 @@ export class Runtime {
     await this.runToolbarAction(action);
   }
   private runToolbarAction(action: ToolbarAction) {
-    return runRuntimeToolbarAction(this.commandsContext(), action);
+    return runRuntimeToolbarAction(this, action);
   }
-  private setFocus(focus: "history" | "changes") {
+  setFocus(focus: "history" | "changes") {
     if (this.focus === focus) return;
     this.focus = focus;
     this.paintHints();
     this.paint();
   }
-  private layout() {
-    layoutRuntime(this.layoutContext());
+  layout() {
+    layoutRuntime(this);
     this.repositoryTabs.paintTabs();
     this.paintCommandPalette();
   }
-  private layoutChanges(height: number) {
-    layoutChanges(this.layoutContext(), height);
+  layoutChanges(height: number) {
+    layoutChanges(this, height);
   }
-  private layoutContext(): RuntimeLayoutContext {
-    return this as unknown as RuntimeLayoutContext;
+  files(section: ChangeSection = this.mode): ChangedFile[] {
+    return runtimeFiles(this, section);
   }
-  private filesContext(): RuntimeFilesContext {
-    // Accessors keep file interactions attached to the live runtime state.
-    // eslint-disable-next-line @typescript-eslint/no-this-alias
-    const runtime = this;
-    return {
-      get snapshot() {
-        return runtime.snapshot;
-      },
-      get commitFiles() {
-        return runtime.commitFiles;
-      },
-      get view() {
-        return runtime.view;
-      },
-      set view(value) {
-        runtime.view = value;
-      },
-      get mode() {
-        return runtime.mode;
-      },
-      set mode(value) {
-        runtime.mode = value;
-      },
-      get fileIndex() {
-        return runtime.fileIndex;
-      },
-      set fileIndex(value) {
-        runtime.fileIndex = value;
-      },
-      get fileStart() {
-        return runtime.fileStart;
-      },
-      set fileStart(value) {
-        runtime.fileStart = value;
-      },
-      sectionCollapsed: this.sectionCollapsed,
-      sectionStart: this.sectionStart,
-      get expandedFiles() {
-        return runtime.expandedFiles;
-      },
-      get hoveredFileRow() {
-        return runtime.hoveredFileRow;
-      },
-      set hoveredFileRow(value) {
-        runtime.hoveredFileRow = value;
-      },
-      set expandedFiles(value) {
-        runtime.expandedFiles = value;
-      },
-      get preferredUnstagedHeight() {
-        return runtime.preferredUnstagedHeight;
-      },
-      set preferredUnstagedHeight(value) {
-        runtime.preferredUnstagedHeight = value;
-      },
-      get preferredComposerHeight() {
-        return runtime.preferredComposerHeight;
-      },
-      set preferredComposerHeight(value) {
-        runtime.preferredComposerHeight = value;
-      },
-      get contentHeight() {
-        return runtime.contentHeight;
-      },
-      get commitFilesTop() {
-        return runtime.commitFilesTop;
-      },
-      get diffOrigin() {
-        return runtime.diffOrigin;
-      },
-      set diffOrigin(value) {
-        runtime.diffOrigin = value;
-      },
-      get selectedCommitSha() {
-        return runtime.snapshot?.commits[runtime.commitIndex]?.sha;
-      },
-      widgets: {
-        unstagedText: this.unstagedText,
-        stagedText: this.stagedText,
-        commitDiff: this.commitDiff,
-        commitDiffEmpty: this.commitDiffEmpty,
-      },
-      sectionViewport: (section) => this.sectionViewport(section),
-      setFocus: (focus) => this.setFocus(focus),
-      layout: () => this.layout(),
-      paint: () => this.paint(),
-      paintFiles: () => this.paintFiles(),
-      loadDiff: () => this.loadDiff(),
-      openWorkingDiff: () => this.openWorkingDiff(),
-      notify: (text) => this.notify(text),
-      fail: (error) => this.fail(error),
-      persistLayoutPreferences: () => this.persistLayoutPreferences(),
-      openFileMenu: (x, y, target) => this.openGraphMenu(x, y, target),
-      runFileAction: (action, files, directory) =>
-        void runRuntimeFileAction(
-          this.commandsContext(),
-          action,
-          files,
-          directory,
-        ),
-    };
-  }
-  private files(section: ChangeSection = this.mode): ChangedFile[] {
-    return runtimeFiles(this.filesContext(), section);
-  }
-  private sectionRows(section: ChangeSection) {
-    return runtimeSectionRows(this.filesContext(), section);
+  sectionRows(section: ChangeSection) {
+    return runtimeSectionRows(this, section);
   }
   private toggleSection(section: ChangeSection) {
-    toggleRuntimeSection(this.filesContext(), section);
+    toggleRuntimeSection(this, section);
   }
   private resizeChangeSplit(y: number) {
-    resizeRuntimeChangeSplit(this.filesContext(), y);
+    resizeRuntimeChangeSplit(this, y);
   }
   private resizeComposer(y: number) {
-    resizeRuntimeComposer(this.filesContext(), y);
+    resizeRuntimeComposer(this, y);
   }
-  private filesScroll(section: ChangeSection, delta: number) {
+  filesScroll(section: ChangeSection, delta: number) {
     if (this.historyFilter) {
       const max = Math.max(0, this.historyFilter.commits.length - 1);
       this.historyFilter.index = Math.max(
@@ -1670,7 +1468,7 @@ export class Runtime {
       void this.loadDiff().catch((error) => this.fail(error));
       return;
     }
-    scrollRuntimeFiles(this.filesContext(), section, delta);
+    scrollRuntimeFiles(this, section, delta);
   }
   private filesClick(
     section: ChangeSection,
@@ -1690,18 +1488,120 @@ export class Runtime {
       void this.loadDiff().catch((error) => this.fail(error));
       return;
     }
-    handleRuntimeFilesClick(this.filesContext(), section, y, button, x);
+    handleRuntimeFilesClick(this, section, y, button, x);
   }
-  private selectedFile() {
-    return selectedRuntimeFile(this.filesContext());
+  readonly paneTop = PANE_TOP;
+  readonly doubleClickMs = DOUBLE_CLICK_MS;
+
+  get commitDiffVisible() {
+    return this.commitDiff.visible;
   }
 
-  private refresh(message?: string, automatic = false) {
+  // A getter, not a snapshot: a page can land while a queued scroll still
+  // holds the runtime, and it would clamp against a stale count.
+  get graphRowCount() {
+    return this.graphIndex.length;
+  }
+
+  openSubmodule(submodule: Submodule) {
+    return this.repositoryTabs.openSubmodule(submodule);
+  }
+
+  openWorktree(worktree: Worktree) {
+    return this.repositoryTabs.openWorktree(worktree);
+  }
+
+  get graphColumns() {
+    return this.graphIndex.columns;
+  }
+
+  /** The header separator under the pointer or being dragged. */
+  get historyDivider() {
+    return this.historyColumnDrag
+      ? { key: this.historyColumnDrag.key, dragging: true }
+      : this.historyDividerHover
+        ? { key: this.historyDividerHover, dragging: false }
+        : undefined;
+  }
+
+  requestMoreCommits() {
+    void loadMoreRuntimeCommits(this);
+  }
+
+  updateGraphAvatars(requests: readonly GraphAvatarRequest[]) {
+    return updateRuntimeGraphAvatars(this, requests);
+  }
+
+  get headSha() {
+    return this.snapshot?.headSha;
+  }
+
+  selectedCommit() {
+    return (
+      this.historyFilter?.commits[this.historyFilter.index] ??
+      this.snapshot?.commits[this.commitIndex]
+    );
+  }
+
+  get terminalWidth() {
+    return this.renderer.terminalWidth;
+  }
+
+  get terminalHeight() {
+    return this.renderer.terminalHeight;
+  }
+
+  copy(text: string) {
+    return this.renderer.copyToClipboardOSC52(text);
+  }
+
+  get themeEntries() {
+    return this.themeCatalog?.entries ?? [];
+  }
+
+  focusComposer() {
+    setTimeout(() => this.composerSummary.focus(), 0);
+  }
+
+  get focusedEditor() {
+    return this.renderer.currentFocusedEditor;
+  }
+
+  get mutationActive() {
+    return this.mutationAbort !== undefined;
+  }
+
+  /** Diff lines selected for line staging. */
+  get selectedLineCount() {
+    return this.diffSelection.size;
+  }
+
+  cancelMutation() {
+    void cancelActiveMutation(this);
+  }
+
+  get snapshotCommitSha() {
+    return this.snapshot?.commits[this.commitIndex]?.sha;
+  }
+
+  runFileAction(
+    action: "stage" | "discard" | "unstage",
+    files: ChangedFile[],
+    directory: boolean,
+  ) {
+    void runRuntimeFileAction(this, action, files, directory);
+  }
+
+  selectedFile() {
+    return selectedRuntimeFile(this);
+  }
+
+  refresh(message?: string, automatic = false) {
     if (this.historyFilter) {
       if (automatic) return Promise.resolve();
       this.clearHistoryFilter();
     }
-    return refreshRuntimeData(this.dataContext(), message, automatic);
+    return refreshRuntimeData(this, message, automatic);
   }
 
   /**
@@ -1718,383 +1618,33 @@ export class Runtime {
   }
 
   /** Refresh after a change that cannot have touched history. */
-  private refreshWorkingStatus(message?: string) {
-    return refreshRuntimeWorkingStatus(this.dataContext(), message);
+  refreshWorkingStatus(message?: string) {
+    return refreshRuntimeWorkingStatus(this, message);
   }
 
-  private dataContext(): RuntimeDataContext {
-    // Accessors keep async data operations attached to the live runtime state.
-    // eslint-disable-next-line @typescript-eslint/no-this-alias
-    const runtime = this;
-    return {
-      repository: this.repository,
-      widgets: {
-        history: this.history,
-        historyText: this.historyText,
-        graphAvatars: this.graphAvatars,
-        ensureGraphAvatarSlots: this.ensureGraphAvatarSlots,
-        commitDiff: this.commitDiff,
-        commitDiffEmpty: this.commitDiffEmpty,
-        workingBanner: this.workingBanner,
-        unstagedText: this.unstagedText,
-        commitInfo: this.commitInfo,
-        commitHeader: this.commitHeader,
-        commitBody: this.commitBody,
-        commitBodyBox: this.commitBodyBox,
-        commitInfoBox: this.commitInfoBox,
-        authorPhoto: this.authorPhoto,
-        authorBadge: this.authorBadge,
-        commitCoAuthors: this.commitCoAuthors,
-        commitCoAuthorProvider: this.commitCoAuthorProvider,
-      },
-      get snapshot() {
-        return runtime.snapshot;
-      },
-      set snapshot(value) {
-        runtime.snapshot = value;
-      },
-      get historyLimit() {
-        return runtime.historyLimit;
-      },
-      set historyLimit(value) {
-        runtime.historyLimit = value;
-      },
-      get loadingMoreCommits() {
-        return runtime.loadingMoreCommits;
-      },
-      set loadingMoreCommits(value) {
-        runtime.loadingMoreCommits = value;
-      },
-      get historyPageFailures() {
-        return runtime.historyPageFailures;
-      },
-      set historyPageFailures(value) {
-        runtime.historyPageFailures = value;
-      },
-      get snapshotSignature() {
-        return runtime.snapshotSignature;
-      },
-      set snapshotSignature(value) {
-        runtime.snapshotSignature = value;
-      },
-      get snapshotRequest() {
-        return runtime.snapshotRequest;
-      },
-      set snapshotRequest(value) {
-        runtime.snapshotRequest = value;
-      },
-      get diffRequest() {
-        return runtime.diffRequest;
-      },
-      set diffRequest(value) {
-        runtime.diffRequest = value;
-      },
-      get diffAbort() {
-        return runtime.diffAbort;
-      },
-      set diffAbort(value) {
-        runtime.diffAbort = value;
-      },
-      get diffTooLarge() {
-        return runtime.diffTooLarge;
-      },
-      set diffTooLarge(value) {
-        runtime.diffTooLarge = value ?? false;
-      },
-      get commitFilesRequest() {
-        return runtime.commitFilesRequest;
-      },
-      set commitFilesRequest(value) {
-        runtime.commitFilesRequest = value;
-      },
-      get busy() {
-        return runtime.busy;
-      },
-      set busy(value) {
-        runtime.busy = value;
-      },
-      get snapshotReadStartedAt() {
-        return runtime.snapshotReadStartedAt;
-      },
-      set snapshotReadStartedAt(value) {
-        runtime.snapshotReadStartedAt = value;
-      },
-      get refreshPending() {
-        return runtime.refreshPending;
-      },
-      set refreshPending(value) {
-        runtime.refreshPending = value;
-      },
-      get pendingRefreshMessage() {
-        return runtime.pendingRefreshMessage;
-      },
-      set pendingRefreshMessage(value) {
-        runtime.pendingRefreshMessage = value;
-      },
-      get view() {
-        return runtime.view;
-      },
-      set view(value) {
-        runtime.view = value;
-      },
-      get mode() {
-        return runtime.mode;
-      },
-      set mode(value) {
-        runtime.mode = value;
-      },
-      get diffOrigin() {
-        return runtime.diffOrigin;
-      },
-      set diffOrigin(value) {
-        runtime.diffOrigin = value;
-      },
-      get historySelection() {
-        return runtime.historySelection;
-      },
-      set historySelection(value) {
-        runtime.historySelection = value;
-      },
-      get commitIndex() {
-        return runtime.commitIndex;
-      },
-      set commitIndex(value) {
-        runtime.commitIndex = value;
-      },
-      get selectedCommitSha() {
-        return runtime.historyFilter?.commits[runtime.historyFilter.index]?.sha;
-      },
-      get fileIndex() {
-        return runtime.fileIndex;
-      },
-      set fileIndex(value) {
-        runtime.fileIndex = value;
-      },
-      get fileStart() {
-        return runtime.fileStart;
-      },
-      set fileStart(value) {
-        runtime.fileStart = value;
-      },
-      get commitFiles() {
-        return runtime.commitFiles;
-      },
-      set commitFiles(value) {
-        runtime.commitFiles = value;
-      },
-      get comparisonBaseSha() {
-        return runtime.comparisonBaseSha;
-      },
-      set comparisonBaseSha(value) {
-        runtime.comparisonBaseSha = value;
-      },
-      get comparisonStartSha() {
-        return runtime.comparisonStartSha;
-      },
-      get graphIndex() {
-        return runtime.graphIndex;
-      },
-      set graphIndex(value) {
-        runtime.graphIndex = value;
-      },
-      get branchHints() {
-        return runtime.branchHints;
-      },
-      set branchHints(value) {
-        runtime.branchHints = value;
-      },
-      get branchHintIndex() {
-        return runtime.branchHintIndex;
-      },
-      set branchHintIndex(value) {
-        runtime.branchHintIndex = value;
-      },
-      get detailsPaneWidth() {
-        return runtime.detailsPaneWidth;
-      },
-      set detailsPaneWidth(value) {
-        runtime.detailsPaneWidth = value;
-      },
-      get commitInfoValue() {
-        return runtime.commitInfoValue;
-      },
-      set commitInfoValue(value) {
-        runtime.commitInfoValue = value;
-      },
-      get commitHeaderValue() {
-        return runtime.commitHeaderValue;
-      },
-      set commitHeaderValue(value) {
-        runtime.commitHeaderValue = value;
-      },
-      get commitBodyValue() {
-        return runtime.commitBodyValue;
-      },
-      set commitBodyValue(value) {
-        runtime.commitBodyValue = value;
-      },
-      get commitCoAuthorsValue() {
-        return runtime.commitCoAuthorsValue;
-      },
-      set commitCoAuthorsValue(value) {
-        runtime.commitCoAuthorsValue = value;
-      },
-      get commitCoAuthorsProviderVisible() {
-        return runtime.commitCoAuthorsProviderVisible;
-      },
-      set commitCoAuthorsProviderVisible(value) {
-        runtime.commitCoAuthorsProviderVisible = value;
-      },
-      get avatarRequest() {
-        return runtime.avatarRequest;
-      },
-      set avatarRequest(value) {
-        runtime.avatarRequest = value;
-      },
-      get avatarAbort() {
-        return runtime.avatarAbort;
-      },
-      set avatarAbort(value) {
-        runtime.avatarAbort = value;
-      },
-      graphAvatarKeys: runtime.graphAvatarKeys,
-      graphAvatarTokens: runtime.graphAvatarTokens,
-      graphAvatarAborts: runtime.graphAvatarAborts,
-      // OpenTUI falls back to colored character blocks when Kitty and Sixel
-      // graphics are unavailable. Those approximations are too coarse for
-      // these small avatars, so use the text fallbacks instead.
-      get avatarSupported() {
-        return (
-          runtime.avatarsEnabled &&
-          terminalGraphicsSupported(runtime.authorPhoto.effectiveProtocol)
-        );
-      },
-      files: () => this.files(),
-      selectedFile: () => this.selectedFile(),
-      ensureFileVisible: () => this.ensureFileVisible(),
-      layout: () => this.layout(),
-      paint: () => this.paint(),
-      paintFiles: () => this.paintFiles(),
-      paintHistory: () => this.paintHistory(),
-      paintHints: () => this.paintHints(),
-      notify: (text, tone) => this.notify(text, tone),
-      fail: (error) => this.fail(error),
-      refresh: (text) => this.refresh(text),
-    };
-  }
-
-  private paintContext(): RuntimePaintContext {
-    return {
-      snapshot: this.snapshot,
-      contentHeight: this.contentHeight,
-      sidebarPreferred: this.sidebarPreferred,
-      sidebarCollapsed: this.sidebarCollapsed,
-      sidebarStart: this.sidebarStart,
-      sidebarSections: this.sidebarSections,
-      sidebarPaneWidth: this.sidebarPaneWidth,
-      branchFilter: this.branchFilter,
-      paintHeader: () => this.paintHeader(),
-      paintToolbar: () => this.paintToolbar(),
-      layoutChanges: (height) => this.layoutChanges(height),
-      view: this.view,
-      mode: this.mode,
-      focus: this.focus,
-      sectionCollapsed: this.sectionCollapsed,
-      sectionStart: this.sectionStart,
-      fileStart: this.fileStart,
-      setFileStart: (value) => {
-        this.fileStart = value;
-      },
-      files: (section) => this.files(section),
-      label: (section) => this.label(section),
-      list: (section) => this.list(section),
-      sectionViewport: (section) => this.sectionViewport(section),
-      selectedFile: () => this.selectedFile(),
-      expandedFiles: this.expandedFiles,
-      seenFileDirectories: this.seenFileDirectories,
-      hoveredFileRow: this.hoveredFileRow,
-      hoveredHistoryLine: this.hoveredHistoryLine,
-      detailsPaneWidth: this.detailsPaneWidth,
-      graphRowCount: this.graphIndex.length,
-      graphRowsAt: (from, count) => this.graphRowsAt(from, count),
-      graphColumns: this.graphIndex.columns,
-      graphScroll: this.graphScroll,
-      setGraphScroll: (value) => {
-        this.graphScroll = value;
-      },
-      setGraphVisibleColumns: (value) => {
-        this.graphVisibleColumns = value;
-      },
-      branchHints: this.branchHints,
-      historySelection: this.historySelection,
-      commitIndex: this.commitIndex,
-      comparisonStartSha: this.comparisonStartSha,
-      comparisonBaseSha: this.comparisonBaseSha,
-      historyStart: this.historyStart,
-      setHistoryStart: (value) => {
-        this.historyStart = value;
-      },
-      historyViewportDetached: this.historyViewportDetached,
-      historyContentWidth: this.historyContentWidth,
-      historyColumns: this.historyColumns,
-      historyDivider: this.historyColumnDrag
-        ? { key: this.historyColumnDrag.key, dragging: true }
-        : this.historyDividerHover
-          ? { key: this.historyDividerHover, dragging: false }
-          : undefined,
-      historyShaHits: this.historyShaHits,
-      historyLabelHits: this.historyLabelHits,
-      historyText: this.historyText,
-      commitDiffVisible: this.commitDiff.visible,
-      historyScrolling: this.historyScrolling,
-      requestMoreCommits: () => {
-        void loadMoreRuntimeCommits(this.dataContext());
-      },
-      updateGraphAvatars: (requests: readonly GraphAvatarRequest[]) =>
-        updateRuntimeGraphAvatars(this.dataContext(), requests),
-      editingCommitSha: this.editingCommitSha,
-      composerSummary: this.composerSummary,
-      commitButton: this.commitButton,
-      amendButton: this.amendButton,
-      amend: this.amend,
-    };
-  }
-
-  private paint() {
-    paintRuntime(this.paintContext());
+  paint() {
+    paintRuntime(this);
     // The shared painter renders the ordinary commit-file picker. File-history
     // mode reuses that surface, so it must be the final writer on every full
     // paint rather than only on scroll events.
     if (this.historyFilter) {
-      layoutChanges(this.layoutContext(), this.contentHeight);
+      layoutChanges(this, this.contentHeight);
       this.paintHistoryFilter();
     }
   }
-  private sidebarPaintContext(): RuntimeSidebarPaintContext {
-    return {
-      snapshot: this.snapshot,
-      contentHeight: this.contentHeight,
-      sidebarPreferred: this.sidebarPreferred,
-      sidebarCollapsed: this.sidebarCollapsed,
-      sidebarStart: this.sidebarStart,
-      sidebarSections: this.sidebarSections,
-      sidebarPaneWidth: this.sidebarPaneWidth,
-      branchFilter: this.branchFilter,
-    };
+  paintSidebar() {
+    paintRuntimeSidebar(this);
   }
-  private paintSidebar() {
-    paintRuntimeSidebar(this.sidebarPaintContext());
+  paintHistory() {
+    paintRuntimeHistory(this);
   }
-  private paintHistory() {
-    paintRuntimeHistory(this.paintContext());
-  }
-  private paintFiles() {
+  paintFiles() {
     if (this.historyFilter) {
-      layoutChanges(this.layoutContext(), this.contentHeight);
+      layoutChanges(this, this.contentHeight);
       this.paintHistoryFilter();
       return;
     }
-    paintRuntimeFiles(this.paintContext());
+    paintRuntimeFiles(this);
   }
 
   private paintHistoryFilter() {
@@ -2152,120 +1702,23 @@ export class Runtime {
   private showHistoryFilterCommit() {
     const filter = this.historyFilter;
     const commit = filter?.commits[filter.index];
-    if (commit) showRuntimeCommitMeta(this.dataContext(), commit);
+    if (commit) showRuntimeCommitMeta(this, commit);
   }
-  private paintComposer() {
-    paintRuntimeComposer(this.paintContext());
-  }
-
-  private ensureFileVisible() {
-    ensureRuntimeFileVisible(this.filesContext());
+  paintComposer() {
+    paintRuntimeComposer(this);
   }
 
-  private loadDiff(allowLarge = false) {
-    return loadRuntimeDiff(this.dataContext(), allowLarge);
+  ensureFileVisible() {
+    ensureRuntimeFileVisible(this);
   }
 
-  private historyContext(): RuntimeHistoryContext {
-    // eslint-disable-next-line @typescript-eslint/no-this-alias
-    const runtime = this;
-    return {
-      get snapshot() {
-        return runtime.snapshot;
-      },
-      get graphRowCount() {
-        // A getter, not a snapshot: a page can land while a queued scroll
-        // still holds this context, and it would clamp against a stale count.
-        return runtime.graphIndex.length;
-      },
-      get commitIndex() {
-        return runtime.commitIndex;
-      },
-      set commitIndex(value) {
-        runtime.commitIndex = value;
-      },
-      get historySelection() {
-        return runtime.historySelection;
-      },
-      set historySelection(value) {
-        runtime.historySelection = value;
-      },
-      get historyStart() {
-        return runtime.historyStart;
-      },
-      set historyStart(value) {
-        runtime.historyStart = value;
-      },
-      get historyViewportDetached() {
-        return runtime.historyViewportDetached;
-      },
-      set historyViewportDetached(value) {
-        runtime.historyViewportDetached = value;
-      },
-      historyContentLeft: this.historyContentLeft,
-      contentHeight: this.contentHeight,
-      get pendingScroll() {
-        return runtime.pendingScroll;
-      },
-      set pendingScroll(value) {
-        runtime.pendingScroll = value;
-      },
-      get scrollTimer() {
-        return runtime.scrollTimer;
-      },
-      set scrollTimer(value) {
-        runtime.scrollTimer = value;
-      },
-      get scrollSettleTimer() {
-        return runtime.scrollSettleTimer;
-      },
-      set scrollSettleTimer(value) {
-        runtime.scrollSettleTimer = value;
-      },
-      get historyScrolling() {
-        return runtime.historyScrolling;
-      },
-      set historyScrolling(value) {
-        runtime.historyScrolling = value;
-      },
-      get lastGraphClick() {
-        return runtime.lastGraphClick;
-      },
-      set lastGraphClick(value) {
-        runtime.lastGraphClick = value;
-      },
-      historyShaHits: this.historyShaHits,
-      historyLabelHits: this.historyLabelHits,
-      renderer: this.renderer,
-      paneTop: PANE_TOP,
-      doubleClickMs: DOUBLE_CLICK_MS,
-      commitDiffVisible: this.commitDiff.visible,
-      get diffOrigin() {
-        return runtime.diffOrigin;
-      },
-      set diffOrigin(value) {
-        runtime.diffOrigin = value;
-      },
-      get mode() {
-        return runtime.mode;
-      },
-      set mode(value) {
-        runtime.mode = value;
-      },
-      paint: () => this.paint(),
-      paintHistory: () => this.paintHistory(),
-      openCommit: () => this.openCommit(),
-      openGraphMenu: (x, y, target) => this.openGraphMenu(x, y, target),
-      closeDiff: () => this.closeDiff(),
-      checkoutBranch: (branch) => this.checkoutBranch(branch),
-      setFocus: (focus) => this.setFocus(focus),
-      notify: (text) => this.notify(text),
-    };
+  loadDiff(allowLarge = false) {
+    return loadRuntimeDiff(this, allowLarge);
   }
 
-  private moveCommit(delta: number) {
+  moveCommit(delta: number) {
     const wasCommitView = this.view === "commit";
-    moveHistoryCommit(this.historyContext(), delta);
+    moveHistoryCommit(this, delta);
     if (
       wasCommitView &&
       this.view === "commit" &&
@@ -2279,7 +1732,7 @@ export class Runtime {
    * Held rows cost about 750 bytes a commit, so the graph is stored as lane
    * state every few hundred rows and the window is rebuilt when it is painted.
    */
-  private graphRowsAt(from: number, count: number): readonly GraphRow[] {
+  graphRowsAt(from: number, count: number): readonly GraphRow[] {
     const commits = this.snapshot?.commits;
     if (!commits) return [];
     return graphWindow(
@@ -2291,10 +1744,10 @@ export class Runtime {
     );
   }
   private queueHistoryScroll(delta: number) {
-    queueRuntimeHistoryScroll(this.historyContext(), delta);
+    queueRuntimeHistoryScroll(this, delta);
   }
   /** Pan the graph sideways; returns false when nothing is hidden. */
-  private scrollGraphColumns(delta: number): boolean {
+  scrollGraphColumns(delta: number): boolean {
     const next = clampGraphScroll(
       this.graphScroll + delta,
       this.graphIndex.columns,
@@ -2370,85 +1823,11 @@ export class Runtime {
       }
       return;
     }
-    handleHistoryClick(this.historyContext(), x, y, button);
-  }
-
-  private sidebarContext(): RuntimeSidebarContext {
-    // eslint-disable-next-line @typescript-eslint/no-this-alias
-    const runtime = this;
-    return {
-      get snapshot() {
-        return runtime.snapshot;
-      },
-      get contentHeight() {
-        return runtime.contentHeight;
-      },
-      get sidebarPaneWidth() {
-        return runtime.sidebarPaneWidth;
-      },
-      paneTop: PANE_TOP,
-      get view() {
-        return runtime.view;
-      },
-      get leftCollapsed() {
-        return runtime.leftCollapsed;
-      },
-      set leftCollapsed(value) {
-        runtime.leftCollapsed = value;
-      },
-      get branchFilter() {
-        return runtime.branchFilter;
-      },
-      set branchFilter(value) {
-        runtime.branchFilter = value;
-      },
-      get branchFilterActive() {
-        return runtime.branchFilterActive;
-      },
-      set branchFilterActive(value) {
-        runtime.branchFilterActive = value;
-      },
-      get suppressEnterUntil() {
-        return runtime.suppressEnterUntil;
-      },
-      set suppressEnterUntil(value) {
-        runtime.suppressEnterUntil = value;
-      },
-      get sidebarPreferred() {
-        return runtime.sidebarPreferred;
-      },
-      set sidebarPreferred(value) {
-        runtime.sidebarPreferred = value;
-      },
-      sidebarCollapsed: this.sidebarCollapsed,
-      sidebarStart: this.sidebarStart,
-      sidebarPendingScroll: this.sidebarPendingScroll,
-      sidebarScrollTimers: this.sidebarScrollTimers,
-      branchSelection: this.branchSelection,
-      get lastSidebarClick() {
-        return runtime.lastSidebarClick;
-      },
-      set lastSidebarClick(value) {
-        runtime.lastSidebarClick = value;
-      },
-      doubleClickMs: DOUBLE_CLICK_MS,
-      branchFilterInput: this.branchFilterInput,
-      layout: () => this.layout(),
-      paint: () => this.paint(),
-      paintSidebar: () => this.paintSidebar(),
-      paintHints: () => this.paintHints(),
-      persistLayoutPreferences: () => this.persistLayoutPreferences(),
-      notify: (text) => this.notify(text),
-      checkoutBranch: (branch) => this.checkoutBranch(branch),
-      openSubmodule: (submodule) =>
-        this.repositoryTabs.openSubmodule(submodule),
-      openWorktree: (worktree) => this.repositoryTabs.openWorktree(worktree),
-      openGraphMenu: (x, y, target) => this.openGraphMenu(x, y, target),
-    };
+    handleHistoryClick(this, x, y, button);
   }
 
   /** Open the graph context menu at a terminal position. */
-  private openGraphMenu(x: number, y: number, target: GraphMenuTarget) {
+  openGraphMenu(x: number, y: number, target: GraphMenuTarget) {
     if (!this.snapshot) return;
     if (this.branchFilterActive) this.finishBranchFilter();
     const built = buildGraphMenu(
@@ -2511,9 +1890,9 @@ export class Runtime {
         (commit) => commit.sha === target.sha,
       );
       if (index !== undefined && index >= 0) this.commitIndex = index;
-      return openRuntimeComparison(this.dataContext(), base);
+      return openRuntimeComparison(this, base);
     }
-    return runRuntimeMenuAction(this.commandsContext(), action, target);
+    return runRuntimeMenuAction(this, action, target);
   }
 
   private async showFileHistory(file: ChangedFile, start?: string) {
@@ -2596,7 +1975,7 @@ export class Runtime {
     }
   }
 
-  private clearHistoryFilter() {
+  clearHistoryFilter() {
     this.historyFilterRequest++;
     const saved = this.historyFilter;
     if (!saved) return false;
@@ -2605,14 +1984,14 @@ export class Runtime {
     this.closeDiff();
     return true;
   }
-  private checkoutBranch(branch: BranchRef) {
-    return checkoutRuntimeBranch(this.commandsContext(), branch);
+  checkoutBranch(branch: BranchRef) {
+    return checkoutRuntimeBranch(this, branch);
   }
   private submitNamePrompt() {
-    return submitRuntimeNamePrompt(this.commandsContext());
+    return submitRuntimeNamePrompt(this);
   }
 
-  private openPopup(
+  openPopup(
     title: string,
     items: GraphMenuItem[],
     x: number,
@@ -2623,18 +2002,18 @@ export class Runtime {
     this.popupController.open(title, items, x, y, select, promptActive);
   }
 
-  private closePopup() {
+  closePopup() {
     this.popupController.close();
   }
 
-  private openCommit() {
-    return openRuntimeCommit(this.dataContext());
+  openCommit() {
+    return openRuntimeCommit(this);
   }
-  private openWorkingDiff() {
-    return openRuntimeWorkingDiff(this.dataContext());
+  openWorkingDiff() {
+    return openRuntimeWorkingDiff(this);
   }
-  private closeDiff() {
-    closeRuntimeDiff(this.dataContext());
+  closeDiff() {
+    closeRuntimeDiff(this);
   }
 
   private copyCommitSha() {
@@ -2699,211 +2078,46 @@ export class Runtime {
     this.amend = state.amend;
     this.amendDraft = state.amendDraft;
   }
-  private cancelEditMessage() {
+  cancelEditMessage() {
     this.composerSummary.blur();
     this.composerBody.blur();
     this.editingCommitSha = undefined;
     this.restoreEditReturnState();
     const commit = this.snapshot?.commits[this.commitIndex];
-    if (commit) showRuntimeCommitMeta(this.dataContext(), commit);
+    if (commit) showRuntimeCommitMeta(this, commit);
     this.paintComposer();
     this.paintHints();
   }
   private sidebarClick(x: number, y: number, button: number) {
-    handleSidebarClick(this.sidebarContext(), x, y, button);
+    handleSidebarClick(this, x, y, button);
   }
-  private startBranchFilter() {
-    startRuntimeBranchFilter(this.sidebarContext());
+  startBranchFilter() {
+    startRuntimeBranchFilter(this);
   }
-  private finishBranchFilter() {
-    finishRuntimeBranchFilter(this.sidebarContext());
+  finishBranchFilter() {
+    finishRuntimeBranchFilter(this);
   }
   private acceptBranchFilter() {
-    acceptRuntimeBranchFilter(this.sidebarContext());
+    acceptRuntimeBranchFilter(this);
   }
   private activateFilteredBranch() {
-    activateRuntimeFilteredBranch(this.sidebarContext());
+    activateRuntimeFilteredBranch(this);
   }
-  private cancelBranchFilter() {
-    cancelRuntimeBranchFilter(this.sidebarContext());
+  cancelBranchFilter() {
+    cancelRuntimeBranchFilter(this);
   }
   private toggleSidebarSection(section: SidebarSection) {
-    toggleRuntimeSidebarSection(this.sidebarContext(), section);
+    toggleRuntimeSidebarSection(this, section);
   }
   private sidebarScroll(y: number, delta: number) {
-    scrollRuntimeSidebar(this.sidebarContext(), y, delta);
+    scrollRuntimeSidebar(this, y, delta);
   }
   private resizeSidebar(section: SidebarSection, y: number) {
-    resizeRuntimeSidebar(this.sidebarContext(), section, y);
+    resizeRuntimeSidebar(this, section, y);
   }
 
   private key(key: KeyEvent) {
-    return handleRuntimeKey(this.keysContext(), key);
-  }
-  private keysContext(): RuntimeKeysContext {
-    // Accessors keep key handling attached to the live runtime state.
-    // eslint-disable-next-line @typescript-eslint/no-this-alias
-    const runtime = this;
-    return {
-      get suppressEnterUntil() {
-        return runtime.suppressEnterUntil;
-      },
-      set suppressEnterUntil(value) {
-        runtime.suppressEnterUntil = value;
-      },
-      get focusedEditor() {
-        return runtime.renderer.currentFocusedEditor;
-      },
-      commandPaletteInput: this.commandPaletteInput,
-      repositoryPathInput: this.repositoryPathInput,
-      composerSummary: this.composerSummary,
-      composerBody: this.composerBody,
-      popupController: this.popupController,
-      get commandPaletteRows() {
-        return runtime.commandPaletteRows;
-      },
-      get composing() {
-        return runtime.composing;
-      },
-      get mutationActive() {
-        return runtime.mutationAbort !== undefined;
-      },
-      get historyFilterActive() {
-        return runtime.historyFilter !== undefined;
-      },
-      get tabs() {
-        return runtime.tabs;
-      },
-      get activeTabId() {
-        return runtime.activeTabId;
-      },
-      get snapshot() {
-        return runtime.snapshot;
-      },
-      get repository() {
-        return runtime.repository;
-      },
-      get selectedLineCount() {
-        return runtime.diffSelection.size;
-      },
-      get files() {
-        return runtime.filesContext();
-      },
-      commitDiff: this.commitDiff,
-      commitDiffEmpty: this.commitDiffEmpty,
-      get diffTooLarge() {
-        return runtime.diffTooLarge;
-      },
-      get view() {
-        return runtime.view;
-      },
-      set view(value) {
-        runtime.view = value;
-      },
-      get focus() {
-        return runtime.focus;
-      },
-      set focus(value) {
-        runtime.focus = value;
-      },
-      get mode() {
-        return runtime.mode;
-      },
-      set mode(value) {
-        runtime.mode = value;
-      },
-      get fileIndex() {
-        return runtime.fileIndex;
-      },
-      set fileIndex(value) {
-        runtime.fileIndex = value;
-      },
-      get fileStart() {
-        return runtime.fileStart;
-      },
-      set fileStart(value) {
-        runtime.fileStart = value;
-      },
-      sectionStart: this.sectionStart,
-      get leftCollapsed() {
-        return runtime.leftCollapsed;
-      },
-      set leftCollapsed(value) {
-        runtime.leftCollapsed = value;
-      },
-      get detailsCollapsed() {
-        return runtime.detailsCollapsed;
-      },
-      set detailsCollapsed(value) {
-        runtime.detailsCollapsed = value;
-      },
-      get diffOrigin() {
-        return runtime.diffOrigin;
-      },
-      set diffOrigin(value) {
-        runtime.diffOrigin = value;
-      },
-      get branchFilter() {
-        return runtime.branchFilter;
-      },
-      set branchFilter(value) {
-        runtime.branchFilter = value;
-      },
-      get branchFilterActive() {
-        return runtime.branchFilterActive;
-      },
-      set branchFilterActive(value) {
-        runtime.branchFilterActive = value;
-      },
-      branchSelection: this.branchSelection,
-      get editingCommitSha() {
-        return runtime.editingCommitSha;
-      },
-      set editingCommitSha(value) {
-        runtime.editingCommitSha = value;
-      },
-      closeCommandPalette: () => this.closeCommandPalette(),
-      movePaletteSelection: (delta) => this.movePaletteSelection(delta),
-      showCommandPalette: () => this.showCommandPalette(),
-      repositoryPickerKey: (key) =>
-        this.repositoryTabs.repositoryPickerKey(key),
-      showRepositoryPicker: () => this.repositoryTabs.showRepositoryPicker(),
-      closeRepositoryTab: (id) => this.repositoryTabs.closeRepositoryTab(id),
-      activateRepositoryTab: (id) =>
-        this.repositoryTabs.activateRepositoryTab(id),
-      paintComposer: () => this.paintComposer(),
-      paintHints: () => this.paintHints(),
-      paint: () => this.paint(),
-      layout: () => this.layout(),
-      closePopup: () => this.closePopup(),
-      cancelMutation: () => void cancelActiveMutation(this.commandsContext()),
-      cancelBranchFilter: () => this.cancelBranchFilter(),
-      finishBranchFilter: () => this.finishBranchFilter(),
-      startBranchFilter: () => this.startBranchFilter(),
-      cancelEditMessage: () => this.cancelEditMessage(),
-      clearHistoryFilter: () => this.clearHistoryFilter(),
-      clearLineSelection: (notify) => this.clearLineSelection(notify),
-      applySelectedLines: () => this.applySelectedLines(),
-      closeDiff: () => this.closeDiff(),
-      shutdown: () => this.shutdown(),
-      setFocus: (focus) => this.setFocus(focus),
-      checkoutBranch: (branch) => this.checkoutBranch(branch),
-      moveCommit: (delta) => this.moveCommit(delta),
-      filesScroll: (section, delta) => this.filesScroll(section, delta),
-      scrollGraphColumns: (delta) => this.scrollGraphColumns(delta),
-      selectedFile: () => this.selectedFile(),
-      openCommit: () => this.openCommit(),
-      openWorkingDiff: () => this.openWorkingDiff(),
-      loadDiff: (allowLarge) => this.loadDiff(allowLarge),
-      refresh: () => this.refresh(),
-      perform: (label, action, remote, scope) =>
-        this.perform(label, action, remote, scope),
-      stageFirstHunk: () => this.stageFirstHunk(),
-      stageAll: () => this.stageAll(),
-      discardAll: () => this.discardAll(),
-      notify: (text) => this.notify(text),
-      fail: (error) => this.fail(error),
-    };
+    return handleRuntimeKey(this, key);
   }
   private diffClick(
     x: number,
@@ -2920,160 +2134,33 @@ export class Runtime {
   private diffDragEnd() {
     return this.diffSelection.dragEnd();
   }
-  private clearLineSelection(notify = true) {
+  clearLineSelection(notify = true) {
     this.diffSelection.clear(notify);
   }
-  private applySelectedLines(discard = false) {
+  applySelectedLines(discard = false) {
     return this.diffSelection.apply(discard);
   }
-  private diffSelectionContext(): RuntimeDiffSelectionContext {
-    // eslint-disable-next-line @typescript-eslint/no-this-alias
-    const runtime = this;
-    return {
-      get repository() {
-        return runtime.repository;
-      },
-      commitDiff: this.commitDiff,
-      get diffOrigin() {
-        return runtime.diffOrigin;
-      },
-      get mode() {
-        return runtime.mode;
-      },
-      get comparisonBaseSha() {
-        return runtime.comparisonBaseSha;
-      },
-      get headSha() {
-        return runtime.snapshot?.headSha;
-      },
-      selectedCommit: () =>
-        this.historyFilter?.commits[this.historyFilter.index] ??
-        this.snapshot?.commits[this.commitIndex],
-      selectedFile: () => this.selectedFile(),
-      paintHints: () => this.paintHints(),
-      notify: (text, tone) => this.notify(text, tone),
-      openPopup: (title, items, x, y, select) =>
-        this.openPopup(title, items, x, y, select),
-      openGraphMenu: (x, y, target) => this.openGraphMenu(x, y, target),
-      perform: (label, action, remote, scope) =>
-        this.perform(label, action, remote, scope),
-    };
-  }
-  private commandsContext(): RuntimeCommandsContext {
-    // eslint-disable-next-line @typescript-eslint/no-this-alias
-    const runtime = this;
-    return {
-      repository: this.repository,
-      popupController: this.popupController,
-      promptInput: this.promptInput,
-      composerSummary: this.composerSummary,
-      composerBody: this.composerBody,
-      get snapshot() {
-        return runtime.snapshot;
-      },
-      get syncedAt() {
-        return runtime.syncedAt;
-      },
-      set syncedAt(value) {
-        runtime.syncedAt = value;
-      },
-      get suppressEnterUntil() {
-        return runtime.suppressEnterUntil;
-      },
-      set suppressEnterUntil(value) {
-        runtime.suppressEnterUntil = value;
-      },
-      get discardArmed() {
-        return runtime.discardArmed;
-      },
-      set discardArmed(value) {
-        runtime.discardArmed = value;
-      },
-      get busy() {
-        return runtime.mutationBusy;
-      },
-      set busy(value) {
-        runtime.mutationBusy = value;
-      },
-      get mutationAbort() {
-        return runtime.mutationAbort;
-      },
-      set mutationAbort(value) {
-        runtime.mutationAbort = value;
-      },
-      get namePrompt() {
-        return runtime.namePrompt;
-      },
-      set namePrompt(value) {
-        runtime.namePrompt = value;
-      },
-      get editingCommitSha() {
-        return runtime.editingCommitSha;
-      },
-      set editingCommitSha(value) {
-        runtime.editingCommitSha = value;
-      },
-      get amend() {
-        return runtime.amend;
-      },
-      set amend(value) {
-        runtime.amend = value;
-      },
-      get amendDraft() {
-        return runtime.amendDraft;
-      },
-      set amendDraft(value) {
-        runtime.amendDraft = value;
-      },
-      get editReturnState() {
-        return runtime.editReturnState;
-      },
-      set editReturnState(value) {
-        runtime.editReturnState = value;
-      },
-      get terminalWidth() {
-        return runtime.renderer.terminalWidth;
-      },
-      get terminalHeight() {
-        return runtime.renderer.terminalHeight;
-      },
-      get mode() {
-        return runtime.mode;
-      },
-      files: (section) => this.files(section),
-      selectedFile: () => this.selectedFile(),
-      copy: (text) => this.renderer.copyToClipboardOSC52(text),
-      refresh: (message) => this.refresh(message),
-      refreshWorkingStatus: (message) => this.refreshWorkingStatus(message),
-      paintComposer: () => this.paintComposer(),
-      notify: (text, tone) => this.notify(text, tone),
-      fail: (error) => this.fail(error),
-      openSubmodule: (submodule) =>
-        this.repositoryTabs.openSubmodule(submodule),
-      openWorktree: (worktree) => this.repositoryTabs.openWorktree(worktree),
-    };
-  }
-  private perform(
+  perform(
     label: string,
     action: (signal?: AbortSignal) => Promise<void>,
     remote = false,
     scope: "history" | "working" = "history",
   ) {
-    return performRuntime(this.commandsContext(), label, action, remote, scope);
+    return performRuntime(this, label, action, remote, scope);
   }
   private commit() {
-    return commitRuntime(this.commandsContext());
+    return commitRuntime(this);
   }
-  private stageAll() {
-    return stageAllRuntime(this.commandsContext());
+  stageAll() {
+    return stageAllRuntime(this);
   }
-  private unstageAll() {
-    return unstageAllRuntime(this.commandsContext());
+  unstageAll() {
+    return unstageAllRuntime(this);
   }
-  private discardAll() {
-    return discardAllRuntime(this.commandsContext());
+  discardAll() {
+    return discardAllRuntime(this);
   }
-  private stageFirstHunk() {
-    return stageFirstRuntimeHunk(this.commandsContext());
+  stageFirstHunk() {
+    return stageFirstRuntimeHunk(this);
   }
 }

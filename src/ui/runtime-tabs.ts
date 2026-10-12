@@ -75,7 +75,7 @@ export interface RuntimeTab {
  * Runtime state and callbacks the tab controller needs. The tab switch resets
  * history, composer, and diff state, so the context exposes those fields.
  */
-export interface RuntimeTabsContext {
+export interface RuntimeTabsContext extends RuntimeDataContext {
   renderer: Pick<
     CliRenderer,
     "terminalWidth" | "terminalHeight" | "setTerminalTitle"
@@ -121,7 +121,6 @@ export interface RuntimeTabsContext {
   readonly contentHeight: number;
   autoRefresh: ReturnType<typeof createAutoRefresh>;
   autoRefreshStarted: boolean;
-  dataContext(): RuntimeDataContext;
   paintViewToggles(): void;
   closePopup(): void;
   notify(text: string, tone?: "info" | "error" | "busy"): void;
@@ -617,8 +616,8 @@ export class RuntimeTabsController {
     this.context.amendDraft = undefined;
     this.context.editingCommitSha = undefined;
     this.context.editReturnState = undefined;
-    cancelRuntimeDiff(this.context.dataContext());
-    cancelRuntimeGraphAvatars(this.context.dataContext());
+    cancelRuntimeDiff(this.context);
+    cancelRuntimeGraphAvatars(this.context);
     this.context.avatarAbort?.abort();
     this.context.snapshotRequest++;
     this.context.commitFilesRequest++;
@@ -704,7 +703,7 @@ export class RuntimeTabsController {
     let index = snapshot.commits.findIndex((commit) => commit.sha === headSha);
     while (index < 0 && !snapshot.commitsComplete) {
       const count = snapshot.commits.length;
-      await loadMoreRuntimeCommits(this.context.dataContext());
+      await loadMoreRuntimeCommits(this.context);
       snapshot = this.context.snapshot ?? snapshot;
       if (snapshot.commits.length === count) break;
       index = snapshot.commits.findIndex((commit) => commit.sha === headSha);

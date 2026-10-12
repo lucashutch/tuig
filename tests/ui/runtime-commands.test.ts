@@ -136,19 +136,19 @@ describe("mutation runner", () => {
         },
       } as unknown as RuntimePopupController,
     });
-    context.busy = "Committing…";
+    context.mutationBusy = "Committing…";
     await runToolbarAction(context, "undo");
     expect(previews).toBe(0);
-    context.busy = undefined;
+    context.mutationBusy = undefined;
     await runToolbarAction(context, "undo");
     expect(context.notifications.at(-1)?.text).toContain("Dirty repository");
-    expect(context.busy).toBeUndefined();
+    expect(context.mutationBusy).toBeUndefined();
     rejectPreview = false;
     await runToolbarAction(context, "undo");
     selected();
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(context.notifications.at(-1)?.text).toContain("Stale preview");
-    expect(context.busy).toBeUndefined();
+    expect(context.mutationBusy).toBeUndefined();
   });
 
   test("tracked file discard is immediate", async () => {
@@ -368,7 +368,7 @@ describe("mutation runner", () => {
   test("clears the busy state when a mutation settles", async () => {
     const context = stubContext();
     await perform(context, "Staging…", async () => undefined);
-    expect(context.busy).toBeUndefined();
+    expect(context.mutationBusy).toBeUndefined();
     await perform(context, "Staging again…", async () => undefined);
     expect(
       context.notifications.some((n) => n.text.includes("still running")),
@@ -408,13 +408,13 @@ describe("mutation runner", () => {
     });
     const running = commit(context);
     await Promise.resolve();
-    expect(context.busy).toBe("Committing");
+    expect(context.mutationBusy).toBe("Committing");
     releaseCommit();
     await Promise.resolve();
-    expect(context.busy).toBe("Committing");
+    expect(context.mutationBusy).toBe("Committing");
     releaseRefresh();
     await running;
-    expect(context.busy).toBeUndefined();
+    expect(context.mutationBusy).toBeUndefined();
   });
 
   test("aborts a cancellable remote mutation and reports it", async () => {
@@ -437,7 +437,7 @@ describe("mutation runner", () => {
     expect(
       context.notifications.some((n) => n.text.startsWith("Cancelled")),
     ).toBe(true);
-    expect(context.busy).toBeUndefined();
+    expect(context.mutationBusy).toBeUndefined();
   });
 
   test("reports false when there is nothing to cancel", () => {
