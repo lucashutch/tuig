@@ -3,7 +3,7 @@ import {
   BRAILLE_SPINNER_FRAMES,
   BRAILLE_SPINNER_INTERVAL_MS,
   createBrailleSpinner,
-} from "../../src/ui/runtime.js";
+} from "../../src/ui/runtime-notifications.js";
 
 test("braille spinner starts, advances, and stops without duplicate timers", () => {
   const frames: string[] = [];

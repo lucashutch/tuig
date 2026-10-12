@@ -24,11 +24,15 @@ Canonical repository: https://github.com/lucashutch/tuig
 - `src/ui/auto-refresh.ts` — active-tab watch with a polling fallback and safety-net poll.
 - `src/ui/runtime-diff-selection.ts` — diff line selection, drag selection, and selected-line staging.
 - `src/ui/runtime-files.ts` — changed-file selection, expansion, scrolling, and diff targets.
+- `src/ui/runtime-file-history.ts` — file and line history in the details pane, and line blame.
+- `src/ui/runtime-graph-menu.ts` — graph context menu opening and view actions.
 - `src/ui/runtime-history.ts` — history navigation, scrolling, graph hit testing, and double-click handling.
 - `src/ui/runtime-events.ts` — widget mouse and key actions, and overlay input handlers.
 - `src/ui/runtime-history-columns.ts` — history header dividers, columns menu, and row hover.
 - `src/ui/runtime-keys.ts` — keyboard dispatch by mode: overlays, composer, branch filter, and pane shortcuts.
 - `src/ui/runtime-layout.ts` — pane sizing and layout calculations.
+- `src/ui/runtime-notifications.ts` — transient messages and the busy spinner.
+- `src/ui/runtime-preferences.ts` — debounced saves and startup restore of layout and session preferences.
 - `src/ui/runtime-paint.ts` — sidebar, history, file, and composer painting.
 - `src/ui/runtime-sidebar.ts` — sidebar interaction, resizing, and branch filtering.
 - `src/ui/runtime-toolbar.ts` — toolbar and header painting, hover, press, and dispatch.
@@ -41,7 +45,7 @@ Canonical repository: https://github.com/lucashutch/tuig
 - `src/ui/theme.ts` — Tuig semantic colors and the active theme.
 - `src/ui/theme-resolver.ts` — OpenCode V2 token, mode, reference, and dialog resolution.
 - `src/ui/theme-store.ts` — built-in and custom theme discovery and saved selection.
-- `src/ui/runtime-theme.ts` — live widget color updates without replacing editors.
+- `src/ui/runtime-theme.ts` — live widget color updates without replacing editors, and the theme catalog, selection, and repaint.
 - `src/ui/themes/` — bundled OpenCode V2 theme definitions and attribution.
 - `src/ui/graph-viewport.ts` — horizontal graph window sizing, clamping, and edge markers for wide graphs.
 - `src/ui/graph-menu.ts` — pure model, placement, and hit testing for the graph context menu.

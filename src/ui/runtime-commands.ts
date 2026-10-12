@@ -9,7 +9,7 @@ import type {
   Worktree,
 } from "../git/types.js";
 import { splitPatchHunks } from "../git/hunks.js";
-import { displayBranchName, shortSha } from "./history.js";
+import { displayBranchName, resolveHeadSha, shortSha } from "./history.js";
 import { branchDeletionCopies } from "./branch-deletion.js";
 import {
   menuWidth,
@@ -686,7 +686,31 @@ export async function commit(context: RuntimeCommandsContext) {
   }
 }
 
-function restoreEditReturnState(context: RuntimeCommandsContext) {
+/** Composer state shared by commit, amend, and message editing. */
+export type RuntimeComposerState = Pick<
+  RuntimeCommandsContext,
+  | "composerSummary"
+  | "composerBody"
+  | "amend"
+  | "amendDraft"
+  | "editReturnState"
+  | "editingCommitSha"
+  | "snapshot"
+  | "notify"
+  | "paintComposer"
+>;
+
+export interface RuntimeComposerContext extends RuntimeComposerState {
+  commitIndex: number;
+  /** Commit details hide while a message is edited in the composer. */
+  commitInfoBox: { visible: boolean };
+  commitBodyBox: { visible: boolean };
+  layout(): void;
+  paintHints(): void;
+  showCommitMeta(commit: RepositorySnapshot["commits"][number]): void;
+}
+
+function restoreEditReturnState(context: RuntimeComposerState) {
   const state = context.editReturnState;
   context.editReturnState = undefined;
   if (!state) return;
@@ -694,6 +718,66 @@ function restoreEditReturnState(context: RuntimeCommandsContext) {
   context.composerBody.setText(state.body);
   context.amend = state.amend;
   context.amendDraft = state.amendDraft;
+}
+
+/** Fill the composer from the last commit, or restore the draft it replaced. */
+export function toggleAmend(context: RuntimeComposerContext) {
+  if (context.amend) {
+    context.amend = false;
+    if (context.amendDraft) {
+      context.composerSummary.value = context.amendDraft.summary;
+      context.composerBody.setText(context.amendDraft.body);
+    }
+    context.amendDraft = undefined;
+  } else {
+    const snapshot = context.snapshot;
+    const headSha = snapshot
+      ? resolveHeadSha(snapshot.branches, snapshot.commits)
+      : undefined;
+    const head = headSha
+      ? snapshot?.commits.find((commit) => commit.sha === headSha)
+      : undefined;
+    if (!head) return context.notify("No previous commit to amend", "error");
+    context.amendDraft = {
+      summary: context.composerSummary.value,
+      body: context.composerBody.plainText,
+    };
+    context.amend = true;
+    context.composerSummary.value = head.subject;
+    context.composerBody.setText(head.body ?? "");
+  }
+  context.paintComposer();
+}
+
+/** Edit the selected commit's message in the composer, keeping the draft. */
+export function editMessage(context: RuntimeComposerContext) {
+  const commit = context.snapshot?.commits[context.commitIndex];
+  if (!commit) return;
+  context.editReturnState = {
+    summary: context.composerSummary.value,
+    body: context.composerBody.plainText,
+    amend: context.amend,
+    amendDraft: context.amendDraft && { ...context.amendDraft },
+  };
+  context.editingCommitSha = commit.sha;
+  context.composerSummary.value = commit.subject;
+  context.composerBody.setText(commit.body ?? "");
+  context.commitInfoBox.visible = false;
+  context.commitBodyBox.visible = false;
+  context.layout();
+  context.paintComposer();
+  setTimeout(() => context.composerSummary.focus(), 0);
+}
+
+export function cancelEditMessage(context: RuntimeComposerContext) {
+  context.composerSummary.blur();
+  context.composerBody.blur();
+  context.editingCommitSha = undefined;
+  restoreEditReturnState(context);
+  const commit = context.snapshot?.commits[context.commitIndex];
+  if (commit) context.showCommitMeta(commit);
+  context.paintComposer();
+  context.paintHints();
 }
 
 export async function stageAll(context: RuntimeCommandsContext) {
