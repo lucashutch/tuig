@@ -191,7 +191,7 @@ Icons use a [Nerd Font](https://www.nerdfonts.com/), like the rest of Tuig:
 
 A failed check wins over a running one, so `✗` appears as soon as any check fails.
 
-Tuig reads the pull request list when it starts and when you switch to a tab. It reads the list again every minute while a pull request has running, queued, or not-started checks, and every 3 minutes otherwise. A fetch, pull, or push from Tuig reads the list again 3 seconds later. The automatic background fetch does not. The command palette has **Refresh pull requests** and **Open pull request for current branch**.
+Tuig reads the pull request list when it starts, with one GitHub API request through `gh`. When you switch back to a tab, Tuig shows that tab's last list at once and reads it again only when the next read is due. It reads the list again every minute while a pull request has running, queued, or not-started checks, and every 3 minutes otherwise. A fetch, pull, or push from Tuig reads the list again 3 seconds later. The automatic background fetch does not. The command palette has **Refresh pull requests** and **Open pull request for current branch**.
 
 ## Themes
 
