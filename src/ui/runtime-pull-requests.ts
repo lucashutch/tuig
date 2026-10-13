@@ -46,6 +46,8 @@ export interface RuntimePullRequestsOptions {
   openUrl?: UrlOpener;
   timers?: PullRequestTimers;
   spinnerScheduler?: BrailleSpinnerScheduler;
+  /** Milliseconds clock. Defaults to `Date.now`. */
+  now?: () => number;
 }
 
 export interface RuntimePullRequestsContext {
@@ -66,6 +68,8 @@ type SpinnerArea = "sidebar" | "history";
  *
  * A tab switch aborts the previous request and bumps a request number, so a
  * slow answer for an earlier tab can never replace the newer tab's list.
+ * Each repository keeps its last list, so switching back shows it at once and
+ * asks `gh` again only when its refresh is due.
  */
 export class RuntimePullRequestsController {
   private result?: PullRequestList;
@@ -74,6 +78,11 @@ export class RuntimePullRequestsController {
   private timer?: unknown;
   private disposed = false;
   private readonly services = new Map<string, PullRequestService>();
+  private readonly cache = new Map<
+    string,
+    { result: PullRequestList; at: number }
+  >();
+  private readonly now: () => number;
   private readonly timers: PullRequestTimers;
   private readonly openUrl: UrlOpener;
   private frame: string = BRAILLE_SPINNER_FRAMES[0];
@@ -94,6 +103,7 @@ export class RuntimePullRequestsController {
   ) {
     this.timers = options.timers ?? defaultTimers;
     this.openUrl = options.openUrl ?? openUrlInBrowser;
+    this.now = options.now ?? Date.now;
     this.spinner = createBrailleSpinner((frame) => {
       // start() renders the first frame at once, often from inside a paint.
       // Only later frames need a repaint.
@@ -160,13 +170,17 @@ export class RuntimePullRequestsController {
     }
   }
 
-  /** Start over for the active tab's repository. */
+  /** Show the active tab's repository, from its last list when there is one. */
   activate() {
     this.cancel();
-    this.result = undefined;
+    const cached = this.cache.get(this.context.repository.root);
+    this.result = cached?.result;
     this.index = undefined;
     if (!this.enabled || this.disposed) return;
-    void this.load();
+    if (!cached) return void this.load();
+    this.schedule(
+      Math.max(0, refreshDelay(cached.result) - (this.now() - cached.at)),
+    );
   }
 
   /** Re-list now, keeping the current list on screen until the answer. */
@@ -272,11 +286,11 @@ export class RuntimePullRequestsController {
     if (request !== this.request || this.disposed) return;
     this.abort = undefined;
     this.result = result;
-    this.schedule(
-      this.pullRequests.some((pr) => UNSETTLED_CHECKS.has(pr.checks))
-        ? PULL_REQUEST_ACTIVE_REFRESH_MS
-        : PULL_REQUEST_IDLE_REFRESH_MS,
-    );
+    // Only a good list is kept. A failure, such as a missing login, is asked
+    // again on the next switch to this tab.
+    if (result.available) this.cache.set(root, { result, at: this.now() });
+    else this.cache.delete(root);
+    this.schedule(refreshDelay(result));
     this.context.paintSidebar();
     this.context.paintHistory();
   }
@@ -289,4 +303,11 @@ export class RuntimePullRequestsController {
     }
     return service;
   }
+}
+
+function refreshDelay(result: PullRequestList) {
+  return result.available &&
+    result.pullRequests.some((pr) => UNSETTLED_CHECKS.has(pr.checks))
+    ? PULL_REQUEST_ACTIVE_REFRESH_MS
+    : PULL_REQUEST_IDLE_REFRESH_MS;
 }

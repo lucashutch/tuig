@@ -97,7 +97,7 @@ function snapshot(
 
 function makeController(
   services: Record<string, PullRequestService>,
-  options: { snapshot?: RepositorySnapshot } = {},
+  options: { snapshot?: RepositorySnapshot; now?: () => number } = {},
 ) {
   const clock = fakeTimers();
   const events = {
@@ -121,6 +121,7 @@ function makeController(
   const controller = new RuntimePullRequestsController(context, {
     factory: (root) => services[root]!,
     timers: clock.timers,
+    now: options.now,
     openUrl: async (url) => {
       events.opened.push(url);
     },
@@ -198,6 +199,36 @@ describe("pull request refresh", () => {
     await flush();
     const panel = controller.panel;
     expect(panel.kind === "list" && panel.pullRequests[0]!.number).toBe(2);
+  });
+
+  test("switching back to a tab shows its last list and re-lists only when due", async () => {
+    const first = controlledService();
+    const second = controlledService();
+    let now = 0;
+    const { controller, context, clock } = makeController(
+      { "/a": first.service, "/b": second.service },
+      { now: () => now },
+    );
+    const switchTo = (root: string) => {
+      (context as { repository: { root: string } }).repository = { root };
+      controller.activate();
+    };
+    controller.activate();
+    first.calls[0]!.resolve({
+      available: true,
+      pullRequests: [pullRequest(1, { mine: true })],
+    });
+    await flush();
+    switchTo("/b");
+    now = 60_000;
+    switchTo("/a");
+
+    const panel = controller.panel;
+    expect(panel.kind === "list" && panel.pullRequests[0]!.number).toBe(1);
+    expect(first.calls).toHaveLength(1);
+    expect(clock.delays()).toEqual([PULL_REQUEST_IDLE_REFRESH_MS - 60_000]);
+    clock.fire();
+    expect(first.calls).toHaveLength(2);
   });
 
   test("a failed list shows its message", async () => {
