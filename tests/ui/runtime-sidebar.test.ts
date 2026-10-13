@@ -2,6 +2,9 @@ import { describe, expect, test } from "bun:test";
 import type { BranchRef, RepositorySnapshot } from "../../src/git/types.js";
 import {
   cancelSidebarScroll,
+  dragSidebarScrollbar,
+  pressSidebarScrollbar,
+  releaseSidebarScrollbar,
   sidebarClick,
   sidebarScroll,
   toggleSidebarSection,
@@ -252,5 +255,55 @@ describe("sidebar scrolling", () => {
     expect(context.sidebarCollapsed.stashes).toBe(true);
     expect(counts.paintSidebar).toBe(1);
     expect(counts.paint).toBe(0);
+  });
+});
+
+describe("sidebar scrollbar dragging", () => {
+  const localRect = (context: RuntimeSidebarContext) =>
+    layoutSidebarSections(
+      context.contentHeight,
+      context.sidebarPreferred,
+      context.sidebarCollapsed,
+      sidebarHiddenSections(),
+    ).local;
+
+  test("drags one section's thumb to its last row", () => {
+    const { context, counts } = makeContext();
+    const rect = localRect(context);
+    const x = context.sidebarPaneWidth - 1;
+    expect(pressSidebarScrollbar(context, x, rect.contentTop, 0)).toBe(true);
+    // Past the bottom of the pane: the drag keeps following the pointer.
+    dragSidebarScrollbar(context, context.contentHeight + 10);
+    expect(context.sidebarStart.local).toBe(40 - rect.contentHeight);
+    expect(context.sidebarStart.remote).toBe(0);
+    expect(counts.paintSidebar).toBe(1);
+    expect(counts.paint).toBe(0);
+    releaseSidebarScrollbar(context);
+    expect(dragSidebarScrollbar(context, rect.contentTop)).toBe(false);
+  });
+
+  test("drops queued wheel rows for the dragged section", async () => {
+    const { context } = makeContext();
+    const rect = localRect(context);
+    sidebarScroll(context, rect.contentTop, 9);
+    pressSidebarScrollbar(
+      context,
+      context.sidebarPaneWidth - 1,
+      rect.contentTop,
+      0,
+    );
+    await settle();
+    expect(context.sidebarStart.local).toBe(0);
+  });
+
+  test("leaves presses away from the scrollbar to row clicks", () => {
+    const { context } = makeContext();
+    const y = localRect(context).contentTop;
+    expect(pressSidebarScrollbar(context, 2, y, 0)).toBe(false);
+    // A section whose rows fit has no scrollbar.
+    const { context: short } = makeContext(2);
+    expect(pressSidebarScrollbar(short, short.sidebarPaneWidth - 1, y, 0)).toBe(
+      false,
+    );
   });
 });

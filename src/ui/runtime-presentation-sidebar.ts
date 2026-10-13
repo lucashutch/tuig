@@ -25,6 +25,11 @@ import {
 } from "./pull-requests.js";
 import { clipColumns, fitColumns } from "./runtime-presentation-text.js";
 import { activeTheme as oneDarkTheme } from "./theme.js";
+import {
+  scrollbarCell,
+  scrollbarThumb,
+  type ScrollbarCell,
+} from "./scrollbar.js";
 
 /**
  * Row of the LOCAL BRANCHES header inside the repository pane.
@@ -207,26 +212,22 @@ export function sidebarHeader(
           : section.toUpperCase();
   return `${collapsed ? "▶" : "▼"} ${label} ${count}`;
 }
+const SIDEBAR_TRACK: Record<ScrollbarCell, string> = {
+  full: "█",
+  upper: "▀",
+  lower: "▄",
+  none: "│",
+};
+
+/** Track glyphs for one viewport, blank when every row fits. */
 export function sidebarScrollbar(
   total: number,
   start: number,
   viewport: number,
-) {
-  const size =
-    total > viewport
-      ? Math.max(1, Math.floor((viewport * viewport) / total))
-      : viewport;
-  return {
-    thumbSize: Math.max(0, size),
-    thumbTop:
-      total > viewport
-        ? Math.floor(
-            (Math.max(0, Math.min(total - viewport, start)) /
-              (total - viewport)) *
-              (viewport - size),
-          )
-        : 0,
-  };
+): (row: number) => string {
+  if (total <= viewport) return () => " ";
+  const thumb = scrollbarThumb(total, start, viewport);
+  return (row) => SIDEBAR_TRACK[scrollbarCell(thumb, row)];
 }
 
 /** Render a fixed-height sidebar viewport, including its final scrollbar cell. */
@@ -259,19 +260,13 @@ export function renderSidebarViewportRows(
     0,
     Math.min(Math.max(0, total - safeViewport), start),
   );
-  const thumb = sidebarScrollbar(total, clamped, safeViewport);
-  const scrollable = total > safeViewport;
+  const track = sidebarScrollbar(total, clamped, safeViewport);
   return Array.from({ length: safeViewport }, (_, index) => {
     const row =
       rowAt(clamped + index) ?? (total === 0 && index === 0 ? "  (none)" : "");
-    const track = scrollable
-      ? index >= thumb.thumbTop && index < thumb.thumbTop + thumb.thumbSize
-        ? "█"
-        : "│"
-      : " ";
     return safeWidth === 1
-      ? track
-      : `${fitColumns(row, safeWidth - 1)}${track}`;
+      ? track(index)
+      : `${fitColumns(row, safeWidth - 1)}${track(index)}`;
   });
 }
 
@@ -389,17 +384,11 @@ export function renderSubmoduleSidebarViewport(
       : `   ${submodule.path}`;
   });
   const safeWidth = Math.max(1, width);
-  const thumb = sidebarScrollbar(rowCount, clamped, safeViewport);
+  const track = sidebarScrollbar(rowCount, clamped, safeViewport);
   const rendered = rows.map((row, index) => {
-    const track =
-      rowCount > safeViewport
-        ? index >= thumb.thumbTop && index < thumb.thumbTop + thumb.thumbSize
-          ? "█"
-          : "│"
-        : " ";
     return safeWidth === 1
-      ? track
-      : `${fitColumns(row, safeWidth - 1)}${track}`;
+      ? track(index)
+      : `${fitColumns(row, safeWidth - 1)}${track(index)}`;
   });
   return styleSidebarRows(
     rendered,
@@ -487,7 +476,7 @@ export function renderPullRequestSidebarViewport(
     0,
     Math.min(Math.max(0, total - safeViewport), start),
   );
-  const thumb = sidebarScrollbar(total, clamped, safeViewport);
+  const track = sidebarScrollbar(total, clamped, safeViewport);
   const bodyWidth = safeWidth - 1;
   let running = false;
   const chunks = Array.from({ length: safeViewport }, (_, index) => {
@@ -517,15 +506,11 @@ export function renderPullRequestSidebarViewport(
               bodyWidth,
               oneDarkTheme.muted,
             );
-    const track =
-      total > safeViewport
-        ? index >= thumb.thumbTop && index < thumb.thumbTop + thumb.thumbSize
-          ? "█"
-          : "│"
-        : " ";
     return [
       ...body.map((segment) => fg(segment.color)(segment.text)),
-      fg(oneDarkTheme.text)(`${track}${index + 1 < safeViewport ? "\n" : ""}`),
+      fg(oneDarkTheme.text)(
+        `${track(index)}${index + 1 < safeViewport ? "\n" : ""}`,
+      ),
     ];
   });
   return { content: new StyledText(chunks.flat()), running };

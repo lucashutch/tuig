@@ -1,6 +1,11 @@
 import { MouseButton, type CliRenderer } from "@opentui/core";
 import type { BranchRef, RepositorySnapshot, Stash } from "../git/types.js";
 import { primaryDecorationTag, shortSha } from "./history.js";
+import {
+  scrollbarDrag,
+  scrollbarGrab,
+  type ScrollbarGrab,
+} from "./scrollbar.js";
 
 export interface RuntimeHistoryContext {
   snapshot?: RepositorySnapshot;
@@ -10,6 +15,9 @@ export interface RuntimeHistoryContext {
   historyStart: number;
   historyViewportDetached: boolean;
   historyContentLeft: number;
+  historyContentWidth: number;
+  /** Thumb row the pointer holds while the history scrollbar is dragged. */
+  historyScrollbarGrab?: ScrollbarGrab;
   contentHeight: number;
   pendingScroll: number;
   scrollTimer?: ReturnType<typeof setTimeout>;
@@ -81,21 +89,31 @@ export function moveCommit(context: RuntimeHistoryContext, delta: number) {
   context.paintHistory();
 }
 
-export function queueHistoryScroll(
-  context: RuntimeHistoryContext,
-  delta: number,
-) {
-  context.pendingScroll += delta;
+/**
+ * Hide graph avatars until scrolling has been still for a moment. A scrollbar
+ * drag keeps them hidden until release, so a pause mid-drag does not reload
+ * every image.
+ */
+function markHistoryScrolling(context: RuntimeHistoryContext) {
   context.historyScrolling = true;
   if (context.scrollSettleTimer) clearTimeout(context.scrollSettleTimer);
   context.scrollSettleTimer = setTimeout(() => {
     context.scrollSettleTimer = undefined;
+    if (context.historyScrollbarGrab) return;
     context.historyScrolling = false;
     // Restore graph avatars once the wheel burst has stopped. Replacing an
     // image in every visible row on every frame can saturate terminals that
     // implement the Kitty graphics protocol, including Ghostty.
     context.paintHistory();
   }, 80);
+}
+
+export function queueHistoryScroll(
+  context: RuntimeHistoryContext,
+  delta: number,
+) {
+  context.pendingScroll += delta;
+  markHistoryScrolling(context);
   if (context.scrollTimer) return;
   context.scrollTimer = setTimeout(() => {
     const movement = context.pendingScroll;
@@ -122,6 +140,76 @@ export function scrollHistoryViewport(
     Math.min(Math.max(0, total - visible), context.historyStart + delta),
   );
   context.paintHistory();
+}
+
+/** Rows the history scrollbar covers, using the same counts as painting. */
+function historyScrollbarRows(context: RuntimeHistoryContext) {
+  const hasWorking = (context.snapshot?.files.length ?? 0) > 0;
+  return {
+    total: context.graphRowCount + (hasWorking ? 1 : 0),
+    viewport: Math.max(1, context.contentHeight - 2),
+  };
+}
+
+/**
+ * Start a scrollbar drag when a left press lands on the scrollbar column.
+ * `y` is pane-relative; the header takes line 0. Returns whether the press was
+ * taken.
+ */
+export function pressHistoryScrollbar(
+  context: RuntimeHistoryContext,
+  x: number,
+  y: number,
+  button: number,
+): boolean {
+  if (button !== MouseButton.LEFT || !context.snapshot) return false;
+  if (x !== context.historyContentLeft + context.historyContentWidth - 1)
+    return false;
+  const { total, viewport } = historyScrollbarRows(context);
+  const pointer = y - 1;
+  if (total <= viewport || pointer < 0 || pointer >= viewport) return false;
+  if (context.scrollTimer) clearTimeout(context.scrollTimer);
+  context.scrollTimer = undefined;
+  context.pendingScroll = 0;
+  context.historyScrollbarGrab = scrollbarGrab(
+    total,
+    context.historyStart,
+    viewport,
+    pointer,
+  );
+  markHistoryScrolling(context);
+  dragHistoryScrollbar(context, y);
+  return true;
+}
+
+/** Move the history viewport with the pointer. Returns whether a drag is active. */
+export function dragHistoryScrollbar(
+  context: RuntimeHistoryContext,
+  y: number,
+): boolean {
+  const grab = context.historyScrollbarGrab;
+  if (!grab) return false;
+  const { total, viewport } = historyScrollbarRows(context);
+  const next = scrollbarDrag(
+    grab,
+    total,
+    context.historyStart,
+    viewport,
+    y - 1,
+  );
+  context.historyScrollbarGrab = next.grab;
+  context.historyViewportDetached = true;
+  if (next.start === context.historyStart) return true;
+  context.historyStart = next.start;
+  context.paintHistory();
+  return true;
+}
+
+export function releaseHistoryScrollbar(context: RuntimeHistoryContext) {
+  if (!context.historyScrollbarGrab) return;
+  context.historyScrollbarGrab = undefined;
+  // Start the settle delay that restores avatars.
+  markHistoryScrolling(context);
 }
 
 /**
