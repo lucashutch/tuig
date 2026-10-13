@@ -20,10 +20,15 @@ import {
   layoutSidebarSections,
   resizeSidebarBoundary,
   sidebarHiddenSections,
-  sidebarRows,
+  sidebarRowSource,
   SIDEBAR_SECTIONS,
   type SidebarSection,
 } from "./runtime-presentation.js";
+import {
+  scrollbarDrag,
+  scrollbarGrab,
+  type ScrollbarGrab,
+} from "./scrollbar.js";
 
 /** One frame at 60fps: long enough to batch a wheel burst, short enough to feel instant. */
 export const SIDEBAR_SCROLL_INTERVAL_MS = 16;
@@ -48,6 +53,8 @@ export interface RuntimeSidebarContext {
     ReturnType<typeof setTimeout> | undefined
   >;
   branchSelection: Record<"local" | "remote", number>;
+  /** The section whose scrollbar is being dragged, and the thumb row held. */
+  sidebarScrollbarDrag?: { section: SidebarSection; grab: ScrollbarGrab };
   /** The last left-clicked submodule or worktree row, for double clicks. */
   lastSidebarClick?: { key: string; at: number };
   doubleClickMs: number;
@@ -249,27 +256,103 @@ export function toggleSidebarSection(
   context.paintSidebar();
 }
 
+/** Rows in a section, including rows scrolled out of view. */
+function sidebarRowTotal(
+  context: RuntimeSidebarContext,
+  section: SidebarSection,
+): number {
+  const snapshot = context.snapshot;
+  if (!snapshot) return 0;
+  if (section === "pullRequests")
+    return pullRequestPanelRows(
+      context.pullRequests?.panel ?? { kind: "hidden" },
+    );
+  // Counts rows without formatting them, since drags call this per event.
+  return sidebarRowSource(
+    snapshot,
+    section,
+    context.sidebarPaneWidth,
+    context.branchFilter,
+  ).total;
+}
+
 /** Rows a section can scroll past before its last row reaches the top. */
 function sidebarScrollLimit(
   context: RuntimeSidebarContext,
   section: SidebarSection,
   contentHeight: number,
 ): number {
-  const snapshot = context.snapshot;
-  if (!snapshot) return 0;
-  if (section === "pullRequests")
-    return Math.max(
-      0,
-      pullRequestPanelRows(context.pullRequests?.panel ?? { kind: "hidden" }) -
-        contentHeight,
+  return Math.max(0, sidebarRowTotal(context, section) - contentHeight);
+}
+
+/**
+ * Start a scrollbar drag when a left press lands on a section's scrollbar,
+ * which is the pane's final column. Returns whether the press was taken.
+ */
+export function pressSidebarScrollbar(
+  context: RuntimeSidebarContext,
+  x: number,
+  y: number,
+  button: number,
+): boolean {
+  if (button !== MouseButton.LEFT || !context.snapshot) return false;
+  if (x !== context.sidebarPaneWidth - 1) return false;
+  const rects = sidebarLayout(context);
+  const section = SIDEBAR_SECTIONS.find((candidate) => {
+    const rect = rects[candidate];
+    return (
+      !rect.hidden &&
+      !context.sidebarCollapsed[candidate] &&
+      y >= rect.contentTop &&
+      y < rect.contentTop + rect.contentHeight
     );
-  const rows = sidebarRows(
-    snapshot,
+  });
+  if (!section) return false;
+  const { contentTop, contentHeight } = rects[section];
+  const total = sidebarRowTotal(context, section);
+  if (total <= contentHeight) return false;
+  const timer = context.sidebarScrollTimers[section];
+  if (timer) clearTimeout(timer);
+  context.sidebarScrollTimers[section] = undefined;
+  context.sidebarPendingScroll[section] = 0;
+  context.sidebarScrollbarDrag = {
     section,
-    context.sidebarPaneWidth,
-    context.branchFilter,
+    grab: scrollbarGrab(
+      total,
+      context.sidebarStart[section],
+      contentHeight,
+      y - contentTop,
+    ),
+  };
+  dragSidebarScrollbar(context, y);
+  return true;
+}
+
+/** Move the dragged section with the pointer. Returns whether a drag is active. */
+export function dragSidebarScrollbar(
+  context: RuntimeSidebarContext,
+  y: number,
+): boolean {
+  const drag = context.sidebarScrollbarDrag;
+  if (!drag) return false;
+  // Measure each time, since the section can resize or reload mid-drag.
+  const { contentTop, contentHeight } = sidebarLayout(context)[drag.section];
+  const next = scrollbarDrag(
+    drag.grab,
+    sidebarRowTotal(context, drag.section),
+    context.sidebarStart[drag.section],
+    contentHeight,
+    y - contentTop,
   );
-  return Math.max(0, rows.length - contentHeight);
+  drag.grab = next.grab;
+  if (next.start === context.sidebarStart[drag.section]) return true;
+  context.sidebarStart[drag.section] = next.start;
+  context.paintSidebar();
+  return true;
+}
+
+export function releaseSidebarScrollbar(context: RuntimeSidebarContext) {
+  context.sidebarScrollbarDrag = undefined;
 }
 
 /**

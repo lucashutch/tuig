@@ -40,16 +40,20 @@ export interface RuntimeActionsContext extends RuntimePaneResizeContext {
   >;
   readonly historyHeader: Pick<
     RuntimeHistoryColumnsController,
-    "dragTo" | "dragEnd" | "hover" | "hoverEnd"
+    "hover" | "hoverEnd"
   >;
   toggleAvatars(): void;
   toggleDiffView(): void;
   /** Sidebar, history, and file methods take pane-relative rows. */
   sidebarClick(x: number, y: number, button: number): void;
+  sidebarDrag(y: number): void;
+  sidebarDragEnd(): void;
   toggleSidebarSection(section: SidebarSection): void;
   sidebarScroll(y: number, delta: number): void;
   resizeSidebar(section: SidebarSection, y: number): void;
   historyClick(x: number, y: number, button: number): void;
+  historyDrag(x: number, y: number): void;
+  historyDragEnd(): void;
   queueHistoryScroll(delta: number): void;
   scrollGraphColumns(delta: number): boolean;
   filesScroll(section: ChangeSection, delta: number): void;
@@ -99,6 +103,8 @@ export function createRuntimeActions(
     tabDragEnd: () => runtime.repositoryTabs.dragEnd(),
     sidebarClick: (x, y, button) =>
       runtime.sidebarClick(x, y - PANE_TOP, button),
+    sidebarDrag: (y) => runtime.sidebarDrag(y - PANE_TOP),
+    sidebarDragEnd: () => runtime.sidebarDragEnd(),
     sidebarToggle: (section) => runtime.toggleSidebarSection(section),
     sidebarScroll: (y, delta) => runtime.sidebarScroll(y - PANE_TOP, delta),
     sidebarResize: (section, y) => runtime.resizeSidebar(section, y),
@@ -108,8 +114,8 @@ export function createRuntimeActions(
     },
     historyClick: (x, y, button) =>
       runtime.historyClick(x, y - PANE_TOP, button),
-    historyDrag: (x) => runtime.historyHeader.dragTo(x),
-    historyDragEnd: () => runtime.historyHeader.dragEnd(),
+    historyDrag: (x, y) => runtime.historyDrag(x, y - PANE_TOP),
+    historyDragEnd: () => runtime.historyDragEnd(),
     historyHover: (x, y) => runtime.historyHeader.hover(x, y),
     historyHoverEnd: () => runtime.historyHeader.hoverEnd(),
     filesScroll: (section, delta) => runtime.filesScroll(section, delta),

@@ -27,6 +27,8 @@ import {
   COMMIT_COMPOSER_HEIGHT,
   layoutSidebarSections,
   sidebarHeader,
+  SIDEBAR_SECTIONS,
+  sidebarRowSource,
   sidebarRows,
   sidebarScrollbar,
   renderSidebarViewport,
@@ -411,7 +413,7 @@ test("worktree scrollbar keeps one colour across differently coloured rows", () 
     detached: false,
   }));
   const text = renderWorktreeSidebarViewport(worktrees, "/repos/lib", 20, 0, 4);
-  const track = text.chunks.filter((chunk) => /^[█│]/.test(chunk.text));
+  const track = text.chunks.filter((chunk) => /^[█▀▄│]/.test(chunk.text));
   expect(track).toHaveLength(4);
   expect(new Set(track.map((chunk) => String(chunk.fg))).size).toBe(1);
 });
@@ -650,8 +652,9 @@ test("sidebar viewports hide unnecessary scrollbars and paint needed ones", () =
     "      ",
   ]);
   expect(renderSidebarViewport(["a", "b", "c", "d"], 4, 1, 2)).toEqual([
-    "b  █",
-    "c  │",
+    // Halfway through: the thumb straddles both rows.
+    "b  ▄",
+    "c  ▀",
   ]);
 });
 
@@ -687,7 +690,11 @@ test("sidebar sections allocate all rows, retain headers, and expose count-only 
       layout.worktrees.contentHeight,
   ).toBe(11);
   expect(sidebarHeader("remote", 136, false)).toBe("▼ REMOTES 136");
-  expect(sidebarScrollbar(100, 50, 10)).toEqual({ thumbSize: 1, thumbTop: 5 });
+  const track = sidebarScrollbar(100, 50, 10);
+  expect(Array.from({ length: 10 }, (_, row) => track(row)).join("")).toBe(
+    "│││││█││││",
+  );
+  expect(sidebarScrollbar(10, 0, 10)(0)).toBe(" ");
   const tiny = layoutSidebarSections(
     3,
     {
@@ -793,4 +800,46 @@ test("submodule sidebar rows use path names and status colours", () => {
   expect(submoduleStatusColor(different)).not.toBe(
     submoduleStatusColor(missing),
   );
+});
+
+test("sidebar row counts match the formatted rows for every section", () => {
+  const branch = (name: string, remote: boolean) => ({
+    name,
+    fullName: name,
+    sha: "abc",
+    current: false,
+    remote,
+  });
+  const snapshot = {
+    root: "/repo",
+    branches: [
+      branch("main", false),
+      branch("feature", false),
+      branch("origin/main", true),
+    ],
+    files: [],
+    commits: [],
+    stashes: [{ ref: "stash@{0}", sha: "s", createdAt: "now", subject: "wip" }],
+    worktrees: [
+      { path: "/repo", sha: "abc", bare: false, detached: false },
+      { path: "/other", sha: "def", bare: false, detached: true },
+    ],
+    submodules: [{ path: "vendor/lib", state: "clean" }],
+  } as unknown as RepositorySnapshot;
+  const empty = {
+    ...snapshot,
+    branches: [],
+    stashes: [],
+    worktrees: [],
+    submodules: [],
+  } as RepositorySnapshot;
+  // The empty placeholder row never scrolls, so it is not counted.
+  for (const source of [snapshot, empty])
+    for (const section of SIDEBAR_SECTIONS.filter((s) => s !== "pullRequests"))
+      for (const filter of ["", "fea"])
+        expect(sidebarRowSource(source, section, 30, filter).total).toBe(
+          sidebarRows(source, section, 30, filter).filter(
+            (row) => row !== "  (none)",
+          ).length,
+        );
 });

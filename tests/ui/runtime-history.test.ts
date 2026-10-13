@@ -2,8 +2,11 @@ import { MouseButton } from "@opentui/core";
 import { describe, expect, test } from "bun:test";
 import {
   commitRowAtLine,
+  dragHistoryScrollbar,
   historyStartForCommit,
   historyClick,
+  pressHistoryScrollbar,
+  releaseHistoryScrollbar,
   queueHistoryScroll,
   type RuntimeHistoryContext,
 } from "../../src/ui/runtime-history.js";
@@ -32,6 +35,78 @@ describe("history wheel scrolling", () => {
     await Bun.sleep(70);
     expect(context.historyScrolling).toBe(false);
     expect(paints).toBe(2);
+  });
+});
+
+describe("history scrollbar dragging", () => {
+  // 102 rows in a 20-row body. The scrollbar is the last content column.
+  const makeContext = () => {
+    let paints = 0;
+    const context = {
+      snapshot: { files: [], commits: Array.from({ length: 102 }, () => ({})) },
+      graphRowCount: 102,
+      historyStart: 0,
+      historyViewportDetached: false,
+      historyContentLeft: 31,
+      historyContentWidth: 80,
+      contentHeight: 22,
+      pendingScroll: 0,
+      historyScrolling: false,
+      paintHistory: () => paints++,
+    } as unknown as RuntimeHistoryContext;
+    return { context, paints: () => paints };
+  };
+  const scrollbarX = 31 + 80 - 1;
+
+  test("drags the thumb to the bottom and keeps the viewport there", () => {
+    const { context, paints } = makeContext();
+    // Line 1 is the first body row, which holds the thumb at the top.
+    expect(
+      pressHistoryScrollbar(context, scrollbarX, 1, MouseButton.LEFT),
+    ).toBe(true);
+    expect(dragHistoryScrollbar(context, 40)).toBe(true);
+    expect(context.historyStart).toBe(82);
+    expect(context.historyViewportDetached).toBe(true);
+    expect(paints()).toBe(1);
+    releaseHistoryScrollbar(context);
+    expect(dragHistoryScrollbar(context, 1)).toBe(false);
+    expect(context.historyStart).toBe(82);
+  });
+
+  test("keeps avatars hidden until the drag is released", async () => {
+    const { context } = makeContext();
+    pressHistoryScrollbar(context, scrollbarX, 1, MouseButton.LEFT);
+    dragHistoryScrollbar(context, 5);
+    await Bun.sleep(120);
+    expect(context.historyScrolling).toBe(true);
+    releaseHistoryScrollbar(context);
+    await Bun.sleep(120);
+    expect(context.historyScrolling).toBe(false);
+  });
+
+  test("keeps the view still when more history loads mid-drag", () => {
+    const { context } = makeContext();
+    pressHistoryScrollbar(context, scrollbarX, 1, MouseButton.LEFT);
+    dragHistoryScrollbar(context, 10);
+    const start = context.historyStart;
+    context.graphRowCount = 352;
+    dragHistoryScrollbar(context, 10);
+    expect(context.historyStart).toBe(start);
+    releaseHistoryScrollbar(context);
+  });
+
+  test("leaves presses off the scrollbar to the row click", () => {
+    const { context } = makeContext();
+    expect(
+      pressHistoryScrollbar(context, scrollbarX - 1, 5, MouseButton.LEFT),
+    ).toBe(false);
+    expect(
+      pressHistoryScrollbar(context, scrollbarX, 0, MouseButton.LEFT),
+    ).toBe(false);
+    expect(
+      pressHistoryScrollbar(context, scrollbarX, 5, MouseButton.RIGHT),
+    ).toBe(false);
+    expect(dragHistoryScrollbar(context, 10)).toBe(false);
   });
 });
 

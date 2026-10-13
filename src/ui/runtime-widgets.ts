@@ -92,6 +92,12 @@ export const COMMIT_DIFF_TOP = 2;
 /** First row the panes may use: tabs and the two compact toolbar rows. */
 export const PANE_TOP = 3;
 
+/**
+ * Rows one wheel event scrolls. Trackpads and smooth-scrolling mice send many
+ * events per gesture, so one row each keeps motion even.
+ */
+export const WHEEL_ROWS = 1;
+
 export type RuntimeWidgets = {
   tabBar: TextRenderable;
   header: TextRenderable;
@@ -168,12 +174,14 @@ export type RuntimeWidgetActions = {
   tabDragEnd(): void;
   tabHover(x?: number): void;
   sidebarClick(x: number, y: number, button: number): void;
+  sidebarDrag(y: number): void;
+  sidebarDragEnd(): void;
   sidebarToggle(section: SidebarSection): void;
   sidebarScroll(y: number, delta: number): void;
   sidebarResize(section: SidebarSection, y: number): void;
   historyScroll(delta: number, axis?: "vertical" | "horizontal"): void;
   historyClick(x: number, y: number, button: number): void;
-  historyDrag(x: number): void;
+  historyDrag(x: number, y: number): void;
   historyHover(x: number, y: number): void;
   historyHoverEnd(): void;
   historyDragEnd(): void;
@@ -233,8 +241,16 @@ export function createRuntimeWidgets(
     top: PANE_TOP,
     backgroundColor: oneDarkTheme.panel,
     onMouseDown: (e) => actions.sidebarClick(e.x, e.y, e.button),
+    // Section content bubbles here, so a scrollbar drag keeps working when the
+    // pointer leaves the section it started in.
+    onMouseDrag: (e) => actions.sidebarDrag(e.y),
+    onMouseUp: () => actions.sidebarDragEnd(),
+    onMouseDragEnd: () => actions.sidebarDragEnd(),
     onMouseScroll: (e) =>
-      actions.sidebarScroll(e.y, e.scroll?.direction === "up" ? -3 : 3),
+      actions.sidebarScroll(
+        e.y,
+        e.scroll?.direction === "up" ? -WHEEL_ROWS : WHEEL_ROWS,
+      ),
   });
   const history = new BoxRenderable(renderer, {
     ...absolute,
@@ -252,7 +268,7 @@ export function createRuntimeWidgets(
         );
       if (e.modifiers.shift)
         return actions.historyScroll(direction === "up" ? -1 : 1, "horizontal");
-      actions.historyScroll(direction === "up" ? -3 : 3);
+      actions.historyScroll(direction === "up" ? -WHEEL_ROWS : WHEEL_ROWS);
     },
   });
   const details = new BoxRenderable(renderer, {
@@ -384,7 +400,7 @@ export function createRuntimeWidgets(
       onMouseScroll: (e) =>
         actions.sidebarScroll(
           Number(box.top) + 1 + PANE_TOP,
-          e.scroll?.direction === "up" ? -3 : 3,
+          e.scroll?.direction === "up" ? -WHEEL_ROWS : WHEEL_ROWS,
         ),
     });
     let hovered = false;
@@ -463,7 +479,7 @@ export function createRuntimeWidgets(
     onMouseMove: (e) => actions.historyHover(e.x, e.y),
     onMouseOver: (e) => actions.historyHover(e.x, e.y),
     onMouseOut: () => actions.historyHoverEnd(),
-    onMouseDrag: (e) => actions.historyDrag(e.x),
+    onMouseDrag: (e) => actions.historyDrag(e.x, e.y),
     onMouseUp: () => actions.historyDragEnd(),
     onMouseDragEnd: () => actions.historyDragEnd(),
   });
@@ -480,7 +496,10 @@ export function createRuntimeWidgets(
       fg: oneDarkTheme.text,
       content: "",
       onMouseScroll: (e) =>
-        actions.filesScroll(section, e.scroll?.direction === "up" ? -3 : 3),
+        actions.filesScroll(
+          section,
+          e.scroll?.direction === "up" ? -WHEEL_ROWS : WHEEL_ROWS,
+        ),
       onMouseDown: (e) => actions.filesClick(section, e.y, e.button, e.x),
       onMouseMove: (e) => actions.filesHover(section, e.y),
       onMouseOut: () => actions.filesHover(section),
@@ -1352,7 +1371,9 @@ export function createOverlayWidgets(
     onMouseMove: (event) => actions.paletteHover(event.y),
     onMouseDown: (event) => actions.paletteActivate(event.y, event.button),
     onMouseScroll: (event) =>
-      actions.paletteScroll(event.scroll?.direction === "up" ? -3 : 3),
+      actions.paletteScroll(
+        event.scroll?.direction === "up" ? -WHEEL_ROWS : WHEEL_ROWS,
+      ),
   });
   commandPaletteBox.add(commandPaletteInput);
   commandPaletteBox.add(commandPaletteText);

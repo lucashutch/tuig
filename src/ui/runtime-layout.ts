@@ -198,7 +198,10 @@ export function layoutRuntime(context: RuntimeLayoutContext) {
   const rightBoundary = context.detailsCollapsed
     ? Math.max(leftBoundary + 2, total - 1)
     : left + center + 1;
-  context.leftDivider.left = Math.max(0, Math.min(total - 1, leftBoundary - 1));
+  // The sidebar's last column is its scrollbar, so the divider's hit box
+  // starts at the bar instead of one cell to its left.
+  context.leftDivider.left = Math.max(0, Math.min(total - 1, leftBoundary));
+  context.leftDivider.width = context.leftCollapsed ? 3 : 2;
   context.leftDividerBar.left = Math.max(0, Math.min(total - 1, leftBoundary));
   // Positions and sizes are computed as plain numbers, because reading them
   // back off a renderable returns the previous frame's value.

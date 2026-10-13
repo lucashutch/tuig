@@ -100,14 +100,21 @@ import {
 } from "./runtime-data.js";
 import { cancelAvatarWork, terminalGraphicsSupported } from "./avatars.js";
 import {
+  dragHistoryScrollbar,
   historyClick as handleHistoryClick,
+  pressHistoryScrollbar,
+  releaseHistoryScrollbar,
   moveCommit as moveHistoryCommit,
   queueHistoryScroll as queueRuntimeHistoryScroll,
 } from "./runtime-history.js";
+import type { ScrollbarGrab } from "./scrollbar.js";
 import {
   acceptBranchFilter as acceptRuntimeBranchFilter,
   activateFilteredBranch as activateRuntimeFilteredBranch,
   cancelBranchFilter as cancelRuntimeBranchFilter,
+  dragSidebarScrollbar,
+  pressSidebarScrollbar,
+  releaseSidebarScrollbar,
   finishBranchFilter as finishRuntimeBranchFilter,
   resizeSidebar as resizeRuntimeSidebar,
   sidebarClick as handleSidebarClick,
@@ -282,6 +289,7 @@ export class Runtime {
   historyStart = 0;
   historyViewportDetached = false;
   historyContentWidth = 1;
+  historyScrollbarGrab?: ScrollbarGrab;
   historyColumns: HistoryColumns = {
     showCommitter: true,
     showSha: true,
@@ -1138,8 +1146,18 @@ export class Runtime {
     return true;
   }
   historyClick(x: number, y: number, button: number) {
+    // A lost mouse-up must not leave a drag that captures later presses.
+    releaseHistoryScrollbar(this);
     if (this.historyHeader.click(x, y, button)) return;
+    if (pressHistoryScrollbar(this, x, y, button)) return;
     handleHistoryClick(this, x, y, button);
+  }
+  historyDrag(x: number, y: number) {
+    if (!dragHistoryScrollbar(this, y)) this.historyHeader.dragTo(x);
+  }
+  historyDragEnd() {
+    releaseHistoryScrollbar(this);
+    this.historyHeader.dragEnd();
   }
 
   openGraphMenu(x: number, y: number, target: GraphMenuTarget) {
@@ -1201,7 +1219,15 @@ export class Runtime {
     cancelRuntimeEditMessage(this);
   }
   sidebarClick(x: number, y: number, button: number) {
+    releaseSidebarScrollbar(this);
+    if (pressSidebarScrollbar(this, x, y, button)) return;
     handleSidebarClick(this, x, y, button);
+  }
+  sidebarDrag(y: number) {
+    dragSidebarScrollbar(this, y);
+  }
+  sidebarDragEnd() {
+    releaseSidebarScrollbar(this);
   }
   startBranchFilter() {
     startRuntimeBranchFilter(this);

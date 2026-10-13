@@ -68,6 +68,11 @@ import {
   type PullRequestPanel,
 } from "./pull-requests.js";
 import { createRuntimeWidgets, type ChangeSection } from "./runtime-widgets.js";
+import {
+  scrollbarCell,
+  scrollbarThumb,
+  type ScrollbarCell,
+} from "./scrollbar.js";
 
 type SidebarWidgets = ReturnType<
   typeof createRuntimeWidgets
@@ -425,16 +430,9 @@ export function paintHistory(ctx: RuntimePaintContext) {
   ctx.historyShaHits.clear();
   ctx.historyLabelHits.clear();
   const backgrounds = [oneDarkTheme.bg, oneDarkTheme.panelRaised];
-  const maxStart = Math.max(0, total - visible),
-    thumbSize = Math.max(
-      1,
-      Math.floor((visible * visible) / Math.max(1, total)),
-    ),
-    thumbStart = maxStart
-      ? Math.floor((start / maxStart) * Math.max(0, visible - thumbSize))
-      : 0;
-  const thumb = (o: number) => o >= thumbStart && o < thumbStart + thumbSize,
-    scroll = (o: number) => (thumb(o) ? "▐" : " ");
+  const scrollbar = scrollbarThumb(total, start, visible);
+  const thumb = (o: number) => scrollbarCell(scrollbar, o) !== "none",
+    scroll = (o: number) => HISTORY_TRACK[scrollbarCell(scrollbar, o)];
   const avatarRequests: GraphAvatarRequest[] = [];
   const decorationIndex = decorationRefIndexFor(s.branches);
   let line = 0;
@@ -652,6 +650,14 @@ export function paintHistory(ctx: RuntimePaintContext) {
 }
 
 /** Commit rows that fit in the history viewport from a given scroll offset. */
+/** Right-half glyphs, so the thumb stays thin beside the SHA column. */
+const HISTORY_TRACK: Record<ScrollbarCell, string> = {
+  full: "▐",
+  upper: "▝",
+  lower: "▗",
+  none: " ",
+};
+
 function visibleUnits(ctx: RuntimePaintContext): number {
   const lines = Math.max(1, ctx.contentHeight - 2);
   return lines;
