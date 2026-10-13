@@ -2,6 +2,8 @@ import {
   StyledText,
   bg,
   fg,
+  link,
+  underline,
   type InputRenderable,
   type TextRenderable,
 } from "@opentui/core";
@@ -539,6 +541,14 @@ export function paintHistory(ctx: RuntimePaintContext) {
       author = fitColumns(row.commit.committer, authorWidth, true),
       rowPullRequests = columns.showPr
         ? pullRequests!.forCommit(row.commit)
+        : [],
+      pullRequestCell = columns.showPr
+        ? pullRequestHistoryCell(
+            rowPullRequests,
+            geometry.prWidth,
+            oneDarkTheme,
+            ctx.pullRequests?.spinnerFrame,
+          )
         : [];
     if (rowPullRequests[0]?.checks === "running") pullRequestsRunning = true;
     chunks.push(
@@ -566,12 +576,14 @@ export function paintHistory(ctx: RuntimePaintContext) {
       ...(columns.showPr
         ? [
             bg(rowBg)(fg(oneDarkTheme.border)("   ")),
-            ...pullRequestHistoryCell(
-              rowPullRequests,
-              geometry.prWidth,
-              oneDarkTheme,
-              ctx.pullRequests?.spinnerFrame,
-            ).map((segment) => bg(rowBg)(fg(segment.color)(segment.text))),
+            // The first segment is `#N` when the row has a PR. A terminal
+            // hyperlink opens it, since Tuig owns plain clicks in the pane.
+            ...pullRequestCell.map((segment, index) => {
+              const chunk = bg(rowBg)(fg(segment.color)(segment.text));
+              return index === 0 && rowPullRequests[0]
+                ? link(rowPullRequests[0].url)(underline(chunk))
+                : chunk;
+            }),
           ]
         : []),
       bg(rowBg)(fg(oneDarkTheme.border)(columns.showSha ? "   " : "")),

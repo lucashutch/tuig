@@ -15,7 +15,9 @@ import {
   paintSection,
   type RuntimePaintContext,
 } from "../../src/ui/runtime-paint.js";
+import { pullRequestCommitIndex } from "../../src/ui/pull-requests.js";
 import { oneDarkTheme } from "../../src/ui/theme.js";
+import { pullRequest } from "./pull-request-fixtures.js";
 
 function history(length: number): Commit[] {
   return Array.from({ length }, (_, index) => ({
@@ -41,6 +43,7 @@ type Painted = RuntimePaintContext & {
     text: string;
     fg?: { equals(other: unknown): boolean };
     bg?: { equals(other: unknown): boolean };
+    link?: { url: string };
   }>;
   historyText: { visible: boolean };
 };
@@ -193,6 +196,26 @@ describe("history prefetch", () => {
     context.historyColumns.showSha = true;
     paintHistory(context);
     expect(context.historyShaHits.size).toBe(1);
+  });
+
+  test("links the PR number only on rows with a pull request", () => {
+    const pr = pullRequest(42, { headSha: "c1" });
+    const context = paintContext(history(2), {
+      complete: true,
+      historyStart: 0,
+      viewport: 10,
+    });
+    context.pullRequests = {
+      panel: { kind: "hidden" },
+      columnIndex: pullRequestCommitIndex([pr], []),
+      spinnerFrame: "",
+      spinnerShown() {},
+    };
+    paintHistory(context);
+    const linked = context.chunks.filter((chunk) => chunk.link);
+    expect(linked.map((chunk) => [chunk.text, chunk.link?.url])).toEqual([
+      ["#42", pr.url],
+    ]);
   });
 
   test("themes the header separators and highlights the one under the pointer", () => {
