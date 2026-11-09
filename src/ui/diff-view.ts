@@ -130,26 +130,23 @@ export class DiffView extends BoxRenderable {
       wrapMode,
     });
     this.add(this.document);
-    // Diff rows use mouse gestures for line staging. Disable OpenTUI's own
-    // character-range selection in the nested code view so Alt-drag does not
-    // paint a second, unrelated selection over the row highlights.
-    const disableTextSelection = (root: { getChildren(): unknown[] }) => {
+    // Allow OpenTUI's character selection on code text only, so drag and
+    // double-click copy code without line numbers or diff signs. The runtime
+    // cancels it for Alt and Ctrl clicks, which select lines for staging.
+    const setTextSelection = (root: { getChildren(): unknown[] }) => {
       for (const child of root.getChildren()) {
+        if (typeof child !== "object" || child === null) continue;
+        if ("selectable" in child) {
+          const id = (child as { id?: string }).id ?? "";
+          (child as { selectable: boolean }).selectable = id.endsWith("-code");
+        }
         if (
-          typeof child === "object" &&
-          child !== null &&
-          "selectable" in child
-        )
-          (child as { selectable: boolean }).selectable = false;
-        if (
-          typeof child === "object" &&
-          child !== null &&
           typeof (child as { getChildren?: unknown }).getChildren === "function"
         )
-          disableTextSelection(child as { getChildren(): unknown[] });
+          setTextSelection(child as { getChildren(): unknown[] });
       }
     };
-    disableTextSelection(this.document);
+    setTextSelection(this.document);
   }
 
   clear() {

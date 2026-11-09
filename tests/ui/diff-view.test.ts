@@ -122,13 +122,6 @@ test("diff wrapper preserves wheel scrolling and resize-driven painting", async 
       undefined,
       "none",
     );
-    const descendants = view
-      .getChildren()[0]!
-      .getChildren()
-      .flatMap((child) => [child, ...child.getChildren()]);
-    expect(
-      descendants.filter((child) => child.id?.endsWith("-left-code")),
-    ).toMatchObject([{ selectable: false }]);
     await renderOnce();
     const before = captureCharFrame();
     expect(before).toContain("line-000");
@@ -178,6 +171,40 @@ test("selected diff rows use a persistent selection background", async () => {
       rawRow: 3,
     });
     expect(view.lineTargetAt(0, 1)).toMatchObject({ kind: "added", rawRow: 4 });
+  } finally {
+    renderer.destroy();
+    syntaxStyle.destroy();
+  }
+});
+
+test("drag and double-click select code text without gutter", async () => {
+  const { renderer, renderOnce, mockMouse, captureCharFrame } =
+    await createTestRenderer({ width: 80, height: 10 });
+  const syntaxStyle = createDiffSyntaxStyle();
+  const view = new DiffView(renderer, {
+    id: "select-diff",
+    width: "100%",
+    height: "100%",
+    syntaxStyle,
+  });
+  renderer.root.add(view);
+  try {
+    view.setDiff(
+      "--- a/a.ts\n+++ b/a.ts\n@@ -1 +1 @@\n-old_name()\n+callHandler(value)\n",
+      undefined,
+      "none",
+    );
+    await renderOnce();
+    const rows = captureCharFrame().split("\n");
+    const y = rows.findIndex((row) => row.includes("callHandler"));
+    const x = rows[y]!.indexOf("callHandler");
+    await mockMouse.doubleClick(x + 2, y);
+    expect(renderer.getSelection()?.getSelectedText()).toBe("callHandler");
+    await mockMouse.drag(x, y - 1, x + 20, y);
+    const text = renderer.getSelection()?.getSelectedText() ?? "";
+    expect(text).toContain("old_name()");
+    expect(text).toContain("callHandler(value)");
+    expect(text).not.toMatch(/^\s*\d/m);
   } finally {
     renderer.destroy();
     syntaxStyle.destroy();
