@@ -796,7 +796,11 @@ export function createRuntimeWidgets(
     contextBg: oneDarkTheme.bg,
   });
   commitDiff.onMouseDown = (event) => {
-    if (event.modifiers.ctrl || event.modifiers.alt) event.preventDefault();
+    if (event.modifiers.ctrl || event.modifiers.alt) {
+      // Modified clicks select diff lines, not text.
+      renderer.clearSelection();
+      event.preventDefault();
+    }
     actions.diffClick(
       event.x,
       event.y,
