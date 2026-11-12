@@ -11,13 +11,17 @@ export type CliAction =
 export const HELP = `Usage: tuig [options] [path]
        tuig update
 
-Open a Git repository in the terminal UI.
+Open Git repositories in the terminal UI.
+
+Without a path, Tuig restores the repositories from the last session. It
+opens the current directory only when no saved repository is available.
+With a path, Tuig adds that repository to the restored session.
 
 Options:
   -h, --help       Show this help
   -v, --version    Show the installed version
   -C, --directory  Open a repository at this path
-  --clean           Open only the requested repository
+  --clean           Open only the requested repository, not the saved session
 
 Commands:
   update           Install the latest Tuig release from Git

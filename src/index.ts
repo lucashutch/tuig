@@ -18,32 +18,29 @@ try {
   } else if (action.kind === "update") {
     await updateTuig(VERSION);
   } else {
-    const saved = await loadSessionPreferences();
-    const requested = await createGitRepository(action.path);
-    const paths = action.clean
-      ? [requested.root]
-      : action.pathProvided
-        ? [requested.root, ...saved.repositories]
-        : saved.repositories.length
-          ? [...saved.repositories, requested.root]
-          : [requested.root];
+    const saved = action.clean
+      ? { repositories: [] as string[] }
+      : await loadSessionPreferences();
+    // An explicit path must be a repository. Without one, restore the saved
+    // tabs and only fall back to the current directory when none remain.
+    const requested = action.pathProvided
+      ? await createGitRepository(action.path)
+      : undefined;
     const repositories = [];
-    for (const path of [...new Set(paths)]) {
-      if (path === requested.root) {
-        repositories.push(requested);
-        continue;
-      }
+    for (const path of new Set(saved.repositories)) {
+      if (path === requested?.root) continue;
       try {
         repositories.push(await createGitRepository(path));
       } catch {
         // Missing or moved repositories are dropped when the session is saved.
       }
     }
+    if (requested) repositories.push(requested);
+    if (repositories.length === 0)
+      repositories.push(await createGitRepository(action.path));
     await runTuig(
       repositories,
-      action.clean || action.pathProvided
-        ? requested.root
-        : saved.activeRepository,
+      requested?.root ?? saved.activeRepository,
       action.clean ? undefined : saved.submodules,
       { pullRequests: (root) => createPullRequestService(root) },
       saved.recentRepositories ?? [],

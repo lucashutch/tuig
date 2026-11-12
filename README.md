@@ -134,7 +134,7 @@ The command palette provides searchable access to common repository, change, nav
 
 The repository picker starts in the directory where Tuig was launched. It lists non-hidden folders and filters them as you type. Use the arrow keys to select a folder and `Tab` to complete it, or click a folder. Press `Enter` to open the path as a repository and `Esc` to cancel. Closing the final tab exits Tuig.
 
-Tuig saves the open repositories, their tab order, and the active tab in `~/.config/tuig/session.json` and restores them on the next normal launch. An explicit path becomes the active tab alongside the restored tabs. Use `--clean` to start with only the supplied path, or the current directory when no path is supplied. The clean session replaces the previously saved tab list.
+Tuig saves the open repositories, their tab order, and the active tab in `~/.config/tuig/session.json` and restores them on the next normal launch. Without a path, `tuig` opens the restored tabs and does not need to run inside a repository. It opens the current directory only when no saved repository is available. An explicit path is added after the restored tabs and becomes the active tab. Use `--clean` to start with only the supplied path, or the current directory when no path is supplied. The clean session replaces the previously saved tab list.
 
 Double-clicking a worktree or submodule in the repository pane opens it in a new repository tab. Tuig shows the branch of each worktree beside its name.
 
