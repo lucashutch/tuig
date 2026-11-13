@@ -11,6 +11,8 @@ license.workspace = true
 thiserror = "2"
 # Host extraction and auth classification of git/ssh stderr (case-insensitive patterns).
 regex = "1"
+# Reflog token for undo previews. The token is the SHA-256 of the HEAD reflog.
+sha2 = "0.10"
 
 [target.'cfg(unix)'.dependencies]
 # Signal a whole process group (kill(-pid)) so cancelled helpers do not hold pipes open.
