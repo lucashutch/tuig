@@ -384,6 +384,10 @@ export function createRuntimeWidgets(
       fg: oneDarkTheme.muted,
       zIndex: 10,
       content: "",
+      // Selectable text turns a drag that starts here into a text selection.
+      // The selection sends drag events to whatever is under the pointer, so
+      // crossing the pane divider would resize the sidebar.
+      selectable: false,
       onMouseDown: () => actions.sidebarToggle(section),
     });
     const text = new TextRenderable(renderer, {
@@ -515,6 +519,7 @@ export function createRuntimeWidgets(
       wrapMode: "none",
       fg: oneDarkTheme.muted,
       content: "",
+      selectable: false,
       onMouseDown: () => actions.toggleSection(section),
     });
   const unstagedText = makeFileList("unstaged");

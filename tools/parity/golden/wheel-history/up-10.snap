@@ -1,0 +1,136 @@
+parity-snapshot 1 160x48 cursor=hidden
+
+[text]
+   history   ×    +                                                                                                                                             |
+ history  main  no upstream  clean                  Fetch    Pull    Push    Undo    Stash    Pop    Refresh                                          ■ Avatars |
+                                                      󰇚       ↓       ↑       ↶        󰆓       󰄼        󰑓                                                       |
+ ▼ LOCAL BRANCHES 59        │  Branch / tag         │ Graph  │ Message (307 commits)     │ Committer   │ SHA     │ │  ✖  Discard all             ✚  Stage all   |
+◉ 󰌢 main                   █│   v0.5                  ●─╯      merge: topic/g05-b          Ada Tester    0431aac2  │  ▼ Unstaged files (0)                      |
+○ 󰌢 topic/g01-a            ││                         ● │ │    merge: topic/g05-a          Ada Tester    d5384f5b  │   Nothing to stage                         |
+○ 󰌢 topic/g01-b            ││                         ● │ │    chore: mainline work 05b    Ada Tester    dfb1575b  │                                            |
+○ 󰌢 topic/g02-a            ││  󰌢 topic/g05-b          │ │ ●    feat: topic/g05-b step 4    Ada Tester    1934d555  │                                            |
+○ 󰌢 topic/g02-b            ││                         │ │ ●    feat: topic/g05-b step 3    Ada Tester    4ca312ac  │                                            |
+○ 󰌢 topic/g03-a            ││                         │ │ ●    feat: topic/g05-b step 2    Ada Tester    7ff4a42e  │                                            |
+○ 󰌢 topic/g03-b            ││                         │ │ ●    feat: topic/g05-b step 1    Ada Tester    dfb0999b  │                                            |
+○ 󰌢 topic/g04-a            ││                         ●─┼─╯    chore: mainline work 05a    Ada Tester    78ab7417  │                                            |
+───────────━━━━━────────────│  󰌢 topic/g05-a          │ ●      feat: topic/g05-a step 4    Ada Tester    29e69aa2  │                                            |
+ ▼ REMOTES 0                │                         │ ●      feat: topic/g05-a step 3    Ada Tester    13cb9923  │                                            |
+  (none)                    │                         │ ●      feat: topic/g05-a step 2    Ada Tester    39dad5db  │                                            |
+                            │                         │ ●      feat: topic/g05-a step 1    Ada Tester    993e5658  │                                            |
+                            │                         ●─╯      merge: topic/g04-b          Ada Tester    0b346817  │                                            |
+                            │                         ● │ │    merge: topic/g04-a          Ada Tester    794ab4e3  │───────────────────━━━━━────────────────────|
+                            │                         ● │ │    chore: mainline work 04b    Ada Tester    b6a5a587  │                                            |
+                            │  󰌢 topic/g04-b          │ │ ●    feat: topic/g04-b step 3    Ada Tester    9aa07892  │  ▼ Staged files (0)                        |
+                            │                         │ │ ●    feat: topic/g04-b step 2    Ada Tester    9e323c18  │   Nothing staged                           |
+───────────━━━━━────────────│                         │ │ ●    feat: topic/g04-b step 1    Ada Tester    095bc10e  │                                            |
+ ▼ SUBMODULES 0             ┃                         ●─┼─╯    chore: mainline work 04a    Ada Tester    c8a5ea3e  ┃                                            |
+  (none)                    ┃  󰌢 topic/g04-a          │ ●      feat: topic/g04-a step 3    Ada Tester    7e7d8411  ┃                                            |
+                            ┃                         │ ●      feat: topic/g04-a step 2    Ada Tester    bf26c12a  ┃                                            |
+                            ┃                         │ ●      feat: topic/g04-a step 1    Ada Tester    0dfd8d1e  ┃                                            |
+                            ┃                         ●─╯      merge: topic/g03-b          Ada Tester    ba21c722  ┃                                            |
+                            │                         ● │ │    merge: topic/g03-a          Ada Tester    f9cea1d7  │                                            |
+                            │                         ● │ │    chore: mainline work 03b    Ada Tester    a9401cb3  │                                            |
+                            │  󰌢 topic/g03-b          │ │ ●    feat: topic/g03-b step 2    Ada Tester    0380b0a3  │                                            |
+───────────━━━━━────────────│                         │ │ ●    feat: topic/g03-b step 1    Ada Tester    a2515930  │                                            |
+ ▼ STASHES 0                │                         ●─┼─╯    chore: mainline work 03a    Ada Tester    0cbc3791  │                                            |
+  (none)                    │  󰌢 topic/g03-a          │ ●      feat: topic/g03-a step 2    Ada Tester    b891dbd1  │                                            |
+                            │                         │ ●      feat: topic/g03-a step 1    Ada Tester    e935d8b1  │───────────────────━━━━━────────────────────|
+                            │                         ●─╯      merge: topic/g02-b          Ada Tester    2f14f721  │                                            |
+                            │                         ● │ │    merge: topic/g02-a          Ada Tester    e6f85333  │  COMMIT MESSAGE                            |
+                            │                         ● │ │    chore: mainline work 02b    Ada Tester    70c5df1d  │  Summary                                   |
+                            │  󰌢 topic/g02-b          │ │ ●    feat: topic/g02-b step 4    Ada Tester    43122726  │  Description                               |
+                            │                         │ │ ●    feat: topic/g02-b step 3    Ada Tester    a98a7e71  │                                            |
+───────────━━━━━────────────│                         │ │ ●    feat: topic/g02-b step 2    Ada Tester    5d41322c▗ │                                            |
+ ▼ WORKTREES 1              │                         │ │ ●    feat: topic/g02-b step 1    Ada Tester    f6c6018e▐ │                                            |
+ ◉ history                  │                         ●─┼─╯    chore: mainline work 02a    Ada Tester    77563fcd▐ │                                            |
+  on main                   │  󰌢 topic/g02-a          │ ●      feat: topic/g02-a step 4    Ada Tester    411bb7ed▐ │                                            |
+                            │                         │ ●      feat: topic/g02-a step 3    Ada Tester    2b14f01f▐ │                                            |
+                            │                         │ ●      feat: topic/g02-a step 2    Ada Tester    2e429456▐ │  [ ] Amend previous commit                 |
+                            │                         │ ●      feat: topic/g02-a step 1    Ada Tester    5b5f4468▝ │           Stage files to commit            |
+                            │                         ●─╯      merge: topic/g01-b          Ada Tester    7c368329  │                                            |
+ j/k move  ·  ←/→ pan graph  ·  ↵ open commit  ·  / filter branches  ·  ⇥ pane  ·  [ ] collapse  ·  r refresh  ·  q quit                                        |
+
+[styles]
+a fg=61afef bg=3e4451 attrs=-
+b fg=abb2bf bg=2c313a attrs=-
+c fg=61afef bg=2c313a attrs=-
+d fg=e5c07b bg=2c313a attrs=-
+e fg=5c6370 bg=2c313a attrs=-
+f fg=ffffff bg=21252b attrs=-
+g fg=5c6370 bg=21252b attrs=-
+h fg=2b5b61 bg=282c34 attrs=-
+i fg=ffffff bg=282c34 attrs=-
+j fg=61afef bg=282c34 attrs=-
+k fg=e06c75 bg=2c313a attrs=-
+l fg=98c379 bg=2c313a attrs=-
+m fg=abb2bf bg=21252b attrs=-
+n fg=5c6370 bg=282c34 attrs=-
+o fg=abb2bf bg=282c34 attrs=-
+p fg=c678dd bg=282c34 attrs=-
+q fg=c678dd bg=2c313a attrs=-
+r fg=888888 bg=2c313a attrs=-
+s fg=e5c07b bg=282c34 attrs=-
+t fg=2b5b61 bg=21252b attrs=-
+u fg=e06c75 bg=282c34 attrs=-
+v fg=98c379 bg=282c34 attrs=-
+w fg=5c6370 bg=353b45 attrs=-
+x fg=61afef bg=353b45 attrs=-
+y fg=e06c75 bg=353b45 attrs=-
+z fg=98c379 bg=353b45 attrs=-
+A fg=abb2bf bg=353b45 attrs=-
+B fg=c678dd bg=353b45 attrs=-
+C fg=56b6c2 bg=2c313a attrs=-
+D fg=56b6c2 bg=282c34 attrs=-
+E fg=61afef bg=21252b attrs=-
+F fg=ffffff bg=2c313a attrs=-
+G fg=e5c07b bg=21252b attrs=-
+
+[grid]
+aaaaaaaaaaaaaaaabcccbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb|
+ccccccccddddddeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeebbbbbbbbbbeeeeeeeeeeeeeeeebbbbbbbbeeeeeeeeeeeeeeeebbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbeeeeeeeeeb|
+bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbccccccccceeeeeeeeeeeeeeeecccccccceeeeeeeeeeeeeeeecccccccccccbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb|
+fgggggggggggggggggggffffffffhijjjjjjjjjjjjjjjjjjjjjjhhjjjjjjhhhjjjjjjjjjjjjjjjjjjjjjjjjjhhhjjjjjjjjjjjhhhjjjjjjjjhihfkkkkkkkkkkkkkkkkfffffffffffllllllllllllllff|
+mmmmmmmmmmmmmmmmmmmmmmmmmmmmhijjjjjjjjjjjjjjjjjjjjjjjjjjjjnnnnnooooooooooooooooooooooooonnnpppppppppppnnnjjjjjjjjnihfgggggggggggggggggggggffffffffffffffffffffff|
+mmmmmmmmmmmmmmmmmmmmmmmmmmmmhieeeeeeeeeeeeeeeeeeeeeeccccqqrreeebbbbbbbbbbbbbbbbbbbbbbbbbeeeqqqqqqqqqqqeeecccccccceihfggggggggggggggggggfffffffffffffffffffffffff|
+mmmmmmmmmmmmmmmmmmmmmmmmmmmmhinnnnnnnnnnnnnnnnnnnnnnjjjjssppnnnooooooooooooooooooooooooonnnpppppppppppnnnjjjjjjjjnihffffffffffffffffffffffffffffffffffffffffffff|
+mmmmmmmmmmmmmmmmmmmmmmmmmmmmhiqqqqqqqqqqqqqqqqqqqqqqccccddqqeeebbbbbbbbbbbbbbbbbbbbbbbbbeeeqqqqqqqqqqqeeecccccccceihffffffffffffffffffffffffffffffffffffffffffff|
+mmmmmmmmmmmmmmmmmmmmmmmmmmmmhinnnnnnnnnnnnnnnnnnnnnnjjjjssppnnnooooooooooooooooooooooooonnnpppppppppppnnnjjjjjjjjnihffffffffffffffffffffffffffffffffffffffffffff|
+mmmmmmmmmmmmmmmmmmmmmmmmmmmmhieeeeeeeeeeeeeeeeeeeeeeccccddqqeeebbbbbbbbbbbbbbbbbbbbbbbbbeeeqqqqqqqqqqqeeecccccccceihffffffffffffffffffffffffffffffffffffffffffff|
+mmmmmmmmmmmmmmmmmmmmmmmmmmmmhinnnnnnnnnnnnnnnnnnnnnnjjjjssppnnnooooooooooooooooooooooooonnnpppppppppppnnnjjjjjjjjnihffffffffffffffffffffffffffffffffffffffffffff|
+mmmmmmmmmmmmmmmmmmmmmmmmmmmmhieeeeeeeeeeeeeeeeeeeeeeccccddqqeeebbbbbbbbbbbbbbbbbbbbbbbbbeeeqqqqqqqqqqqeeecccccccceihffffffffffffffffffffffffffffffffffffffffffff|
+tttttttttttttttttttttttttttthissssssssssssssssssssssjjjjssnnnnnooooooooooooooooooooooooonnnpppppppppppnnnjjjjjjjjnihffffffffffffffffffffffffffffffffffffffffffff|
+fgggggggggggffffffffffffffffhieeeeeeeeeeeeeeeeeeeeeeccccddeeeeebbbbbbbbbbbbbbbbbbbbbbbbbeeeqqqqqqqqqqqeeecccccccceihffffffffffffffffffffffffffffffffffffffffffff|
+mmmmmmmmmmmmmmmmmmmmmmmmmmmmhinnnnnnnnnnnnnnnnnnnnnnjjjjssnnnnnooooooooooooooooooooooooonnnpppppppppppnnnjjjjjjjjnihffffffffffffffffffffffffffffffffffffffffffff|
+mmmmmmmmmmmmmmmmmmmmmmmmmmmmhieeeeeeeeeeeeeeeeeeeeeeccccddeeeeebbbbbbbbbbbbbbbbbbbbbbbbbeeeqqqqqqqqqqqeeecccccccceihffffffffffffffffffffffffffffffffffffffffffff|
+mmmmmmmmmmmmmmmmmmmmmmmmmmmmhinnnnnnnnnnnnnnnnnnnnnnjjjjssnnnnnooooooooooooooooooooooooonnnpppppppppppnnnjjjjjjjjnihffffffffffffffffffffffffffffffffffffffffffff|
+mmmmmmmmmmmmmmmmmmmmmmmmmmmmhieeeeeeeeeeeeeeeeeeeeeeccccllrreeebbbbbbbbbbbbbbbbbbbbbbbbbeeeqqqqqqqqqqqeeecccccccceihtttttttttttttttttttttttttttttttttttttttttttt|
+mmmmmmmmmmmmmmmmmmmmmmmmmmmmhinnnnnnnnnnnnnnnnnnnnnnjjjjuuvvnnnooooooooooooooooooooooooonnnpppppppppppnnnjjjjjjjjnihffffffffffffffffffffffffffffffffffffffffffff|
+mmmmmmmmmmmmmmmmmmmmmmmmmmmmhillllllllllllllllllllllcccckklleeebbbbbbbbbbbbbbbbbbbbbbbbbeeeqqqqqqqqqqqeeecccccccceihfgggggggggggggggggggffffffffffffffffffffffff|
+mmmmmmmmmmmmmmmmmmmmmmmmmmmmhiwwwwwwwwwwwwwwwwwwwwwwxxxxyyzzwwwAAAAAAAAAAAAAAAAAAAAAAAAAwwwBBBBBBBBBBBwwwxxxxxxxxwihfggggggggggggggggfffffffffffffffffffffffffff|
+tttttttttttttttttttttttttttthieeeeeeeeeeeeeeeeeeeeeecccckklleeebbbbbbbbbbbbbbbbbbbbbbbbbeeeqqqqqqqqqqqeeecccccccceihffffffffffffffffffffffffffffffffffffffffffff|
+fggggggggggggggfffffffffffffhinnnnnnnnnnnnnnnnnnnnnnjjjjuuvvnnnooooooooooooooooooooooooonnnpppppppppppnnnjjjjjjjjnihffffffffffffffffffffffffffffffffffffffffffff|
+mmmmmmmmmmmmmmmmmmmmmmmmmmmmhikkkkkkkkkkkkkkkkkkkkkkcccckkeeeeebbbbbbbbbbbbbbbbbbbbbbbbbeeeqqqqqqqqqqqeeecccccccceihffffffffffffffffffffffffffffffffffffffffffff|
+mmmmmmmmmmmmmmmmmmmmmmmmmmmmhinnnnnnnnnnnnnnnnnnnnnnjjjjuunnnnnooooooooooooooooooooooooonnnpppppppppppnnnjjjjjjjjnihffffffffffffffffffffffffffffffffffffffffffff|
+mmmmmmmmmmmmmmmmmmmmmmmmmmmmhieeeeeeeeeeeeeeeeeeeeeecccckkeeeeebbbbbbbbbbbbbbbbbbbbbbbbbeeeqqqqqqqqqqqeeecccccccceihffffffffffffffffffffffffffffffffffffffffffff|
+mmmmmmmmmmmmmmmmmmmmmmmmmmmmhinnnnnnnnnnnnnnnnnnnnnnjjjjuunnnnnooooooooooooooooooooooooonnnpppppppppppnnnjjjjjjjjnihffffffffffffffffffffffffffffffffffffffffffff|
+mmmmmmmmmmmmmmmmmmmmmmmmmmmmhieeeeeeeeeeeeeeeeeeeeeeccccCCrreeebbbbbbbbbbbbbbbbbbbbbbbbbeeeqqqqqqqqqqqeeecccccccceihffffffffffffffffffffffffffffffffffffffffffff|
+mmmmmmmmmmmmmmmmmmmmmmmmmmmmhinnnnnnnnnnnnnnnnnnnnnnjjjjjjDDnnnooooooooooooooooooooooooonnnpppppppppppnnnjjjjjjjjnihffffffffffffffffffffffffffffffffffffffffffff|
+mmmmmmmmmmmmmmmmmmmmmmmmmmmmhiCCCCCCCCCCCCCCCCCCCCCCccccccCCeeebbbbbbbbbbbbbbbbbbbbbbbbbeeeqqqqqqqqqqqeeecccccccceihffffffffffffffffffffffffffffffffffffffffffff|
+tttttttttttttttttttttttttttthinnnnnnnnnnnnnnnnnnnnnnjjjjjjDDnnnooooooooooooooooooooooooonnnpppppppppppnnnjjjjjjjjnihffffffffffffffffffffffffffffffffffffffffffff|
+fgggggggggggffffffffffffffffhieeeeeeeeeeeeeeeeeeeeeeccccccCCeeebbbbbbbbbbbbbbbbbbbbbbbbbeeeqqqqqqqqqqqeeecccccccceihffffffffffffffffffffffffffffffffffffffffffff|
+mmmmmmmmmmmmmmmmmmmmmmmmmmmmhijjjjjjjjjjjjjjjjjjjjjjjjjjjjnnnnnooooooooooooooooooooooooonnnpppppppppppnnnjjjjjjjjnihffffffffffffffffffffffffffffffffffffffffffff|
+mmmmmmmmmmmmmmmmmmmmmmmmmmmmhieeeeeeeeeeeeeeeeeeeeeecccccceeeeebbbbbbbbbbbbbbbbbbbbbbbbbeeeqqqqqqqqqqqeeecccccccceihtttttttttttttttttttttttttttttttttttttttttttt|
+mmmmmmmmmmmmmmmmmmmmmmmmmmmmhinnnnnnnnnnnnnnnnnnnnnnjjjjjjnnnnnooooooooooooooooooooooooonnnpppppppppppnnnjjjjjjjjnihffffffffffffffffffffffffffffffffffffffffffff|
+mmmmmmmmmmmmmmmmmmmmmmmmmmmmhieeeeeeeeeeeeeeeeeeeeeeccccqqrreeebbbbbbbbbbbbbbbbbbbbbbbbbeeeqqqqqqqqqqqeeecccccccceihfEEEEEEEEEEEEEEEffffffffffffffffffffffffffff|
+mmmmmmmmmmmmmmmmmmmmmmmmmmmmhinnnnnnnnnnnnnnnnnnnnnnjjjjssppnnnooooooooooooooooooooooooonnnpppppppppppnnnjjjjjjjjnihffeeeeeeeFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFf|
+mmmmmmmmmmmmmmmmmmmmmmmmmmmmhiqqqqqqqqqqqqqqqqqqqqqqccccddqqeeebbbbbbbbbbbbbbbbbbbbbbbbbeeeqqqqqqqqqqqeeecccccccceihffeeeeeeeeeeeFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFf|
+mmmmmmmmmmmmmmmmmmmmmmmmmmmmhinnnnnnnnnnnnnnnnnnnnnnjjjjssppnnnooooooooooooooooooooooooonnnpppppppppppnnnjjjjjjjjnihffFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFf|
+tttttttttttttttttttttttttttthieeeeeeeeeeeeeeeeeeeeeeccccddqqeeebbbbbbbbbbbbbbbbbbbbbbbbbeeeqqqqqqqqqqqeeecccccccccihffFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFf|
+fgggggggggggggffffffffffffffhinnnnnnnnnnnnnnnnnnnnnnjjjjssppnnnooooooooooooooooooooooooonnnpppppppppppnnnjjjjjjjjjihffFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFf|
+GGGGGGGGGGGGGGGGGGGGGGGGGGGmhieeeeeeeeeeeeeeeeeeeeeeccccddqqeeebbbbbbbbbbbbbbbbbbbbbbbbbeeeqqqqqqqqqqqeeecccccccccihffFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFf|
+gggggggggggggggggggggggggggmhissssssssssssssssssssssjjjjssnnnnnooooooooooooooooooooooooonnnpppppppppppnnnjjjjjjjjjihffFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFf|
+mmmmmmmmmmmmmmmmmmmmmmmmmmmmhieeeeeeeeeeeeeeeeeeeeeeccccddeeeeebbbbbbbbbbbbbbbbbbbbbbbbbeeeqqqqqqqqqqqeeecccccccccihffffffffffffffffffffffffffffffffffffffffffff|
+gggggggggggggggggggggggggggmhinnnnnnnnnnnnnnnnnnnnnnjjjjssnnnnnooooooooooooooooooooooooonnnpppppppppppnnnjjjjjjjjjihffgggggggggggggggggggggggggfffffffffffffffff|
+mmmmmmmmmmmmmmmmmmmmmmmmmmmmhieeeeeeeeeeeeeeeeeeeeeeccccddeeeeebbbbbbbbbbbbbbbbbbbbbbbbbeeeqqqqqqqqqqqeeecccccccccihffeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeff|
+gggggggggggggggggggggggggggmhinnnnnnnnnnnnnnnnnnnnnnjjjjssnnnnnooooooooooooooooooooooooonnnpppppppppppnnnjjjjjjjjnihffffffffffffffffffffffffffffffffffffffffffff|
+mgggggggggggggggggggggggggggnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnggggffffffffffffffffffffffffffffffffffffffff|

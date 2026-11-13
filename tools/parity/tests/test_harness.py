@@ -35,6 +35,17 @@ class SessionTest(unittest.TestCase):
         self.assertIn(r"\x10", line)
 
 
+class EmulatorTest(unittest.TestCase):
+    def test_key_mode_sequence_does_not_leak_sgr_attributes_even_when_split(self):
+        s = Session(FAKE_APP, 40, 10, HERE)
+        self.addCleanup(s.close)
+        s.wait_text("hello", 5)
+        s.feed(b"\x1b[H\x1b[>4")
+        s.feed(b";1mX\x1b[Hok")
+        cell = s.cells()[0][1]
+        self.assertEqual((cell.char, cell.attrs), ("k", ""))
+
+
 class FixtureTest(unittest.TestCase):
     def build(self):
         d = Path(tempfile.mkdtemp())
@@ -53,6 +64,38 @@ class FixtureTest(unittest.TestCase):
         self.assertEqual(len(ra.git("log", "--all", "--merges", "--format=%H").split()), 2)
         hunks = re.findall(r"^@@", ra.git("diff", "src/server.py"), re.M)
         self.assertEqual(len(hunks), 3)
+
+
+class HistoryFixtureTest(unittest.TestCase):
+    # Pinned: a change here means SHAs moved and every golden for this fixture is stale.
+    HEAD = "4afea2ad2629eaa2c8697afe718f6eb932a0cd6a"
+
+    def test_long_history_is_stable_and_has_lanes_and_languages(self):
+        d = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, d, ignore_errors=True)
+        repo = fixtures.Repo(fixtures.build("history", d))
+        self.assertEqual(repo.git("rev-parse", "HEAD").strip(), self.HEAD)
+        self.assertGreaterEqual(int(repo.git("rev-list", "--count", "HEAD")), 300)
+        self.assertGreaterEqual(len(repo.git("log", "--merges", "--format=%H").split()), 50)
+        exts = {Path(f).suffix for f in repo.git("ls-files", "showcase").split()}
+        self.assertEqual(exts, {f".{e}" for e in fixtures.EXT_ORDER})
+
+
+class WheelStepTest(unittest.TestCase):
+    def test_wheel_reaches_the_app_as_sgr_reports_at_the_cell(self):
+        from parity import scenario
+
+        sc = scenario.Scenario(name="t", quiet_ms=100, timeout=5)
+        sc.steps = [scenario.Step("wheel", ["down", "11", "6", "3"], 1), scenario.Step("snapshot", ["down"], 2)]
+        sc.steps += [scenario.Step("wheel", ["up", "2", "3"], 3), scenario.Step("snapshot", ["up"], 4)]
+        s = Session(FAKE_APP, 60, 10, HERE)
+        self.addCleanup(s.close)
+        s.wait_text("hello", 5)
+        snaps = scenario._steps(sc, s)
+        top = "".join(c.char for c in snaps["down"].cells[0])
+        self.assertIn(r"\x1b[<65;12;7M", top)
+        up = "".join(c.char for c in snaps["up"].cells[0])
+        self.assertIn(r"\x1b[<64;3;4M", up)
 
 
 class SnapshotTest(unittest.TestCase):

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import fcntl
 import os
+import re
 import pty
 import select
 import shutil
@@ -98,6 +99,7 @@ class Session:
         self.screen = pyte.Screen(cols, rows)
         self.stream = pyte.ByteStream(self.screen)
         self.raw = bytearray()
+        self._held = b""
         self.last_output = time.monotonic()
         self.last_change = time.monotonic()
         self.last_send = self.last_change
@@ -118,6 +120,21 @@ class Session:
 
     # -- output -----------------------------------------------------------
 
+    # pyte skips the ">" in "CSI > Pm m" (xterm modifyOtherKeys) and runs it as
+    # SGR. The app sends "CSI > 4 ; 1 m" at startup, which would set bold and
+    # underline on whatever the app draws before its first "CSI 0 m".
+    _KEY_MODE = re.compile(rb"\x1b\[>[0-9;]*m")
+    _PARTIAL = re.compile(rb"\x1b(?:\[(?:>[0-9;]*)?)?$")
+
+    def feed(self, data: bytes) -> None:
+        buf = self._held + data
+        buf = self._KEY_MODE.sub(b"", buf)
+        tail = self._PARTIAL.search(buf)
+        self._held = b""
+        if tail:
+            self._held, buf = buf[tail.start():], buf[: tail.start()]
+        self.stream.feed(buf)
+
     def pump(self, timeout: float = 0.02) -> bool:
         """Read pending output into the emulator. True if bytes arrived."""
         got = False
@@ -135,7 +152,7 @@ class Session:
             self.raw += data
             self.last_output = time.monotonic()
             self._answer_queries(data)
-            self.stream.feed(data)
+            self.feed(data)
             self._track_changes()
             timeout = 0
 
