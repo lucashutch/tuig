@@ -767,7 +767,7 @@ export function createRuntimeWidgets(
   commitBodyBox.add(commitHeader);
   commitBodyBox.add(commitBody);
   registerDiffParsers();
-  const diffSyntaxStyle = createDiffSyntaxStyle();
+  const diffSyntaxStyle = createDiffSyntaxStyle(renderer);
   renderer.once(CliRenderEvents.DESTROY, () => diffSyntaxStyle.destroy());
   const diffOptions = {
     syntaxStyle: diffSyntaxStyle,

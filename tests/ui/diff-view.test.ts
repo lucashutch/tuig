@@ -41,7 +41,7 @@ test("clearing or replacing a diff destroys its document and native children", a
     width: 80,
     height: 20,
   });
-  const syntaxStyle = createDiffSyntaxStyle();
+  const syntaxStyle = createDiffSyntaxStyle(renderer);
   const view = new DiffView(renderer, {
     id: "test-diff",
     width: 80,
@@ -104,7 +104,7 @@ test("changing layout rebuilds the current diff as a split view", async () => {
 test("diff wrapper preserves wheel scrolling and resize-driven painting", async () => {
   const { renderer, renderOnce, mockMouse, resize, captureCharFrame } =
     await createTestRenderer({ width: 80, height: 12 });
-  const syntaxStyle = createDiffSyntaxStyle();
+  const syntaxStyle = createDiffSyntaxStyle(renderer);
   const view = new DiffView(renderer, {
     id: "scroll-diff",
     width: "100%",
@@ -144,7 +144,7 @@ test("selected diff rows use a persistent selection background", async () => {
       width: 40,
       height: 8,
     });
-  const syntaxStyle = createDiffSyntaxStyle();
+  const syntaxStyle = createDiffSyntaxStyle(renderer);
   const view = new DiffView(renderer, {
     id: "selected-diff",
     width: 40,
@@ -180,7 +180,7 @@ test("selected diff rows use a persistent selection background", async () => {
 test("drag and double-click select code text without gutter", async () => {
   const { renderer, renderOnce, mockMouse, captureCharFrame } =
     await createTestRenderer({ width: 80, height: 10 });
-  const syntaxStyle = createDiffSyntaxStyle();
+  const syntaxStyle = createDiffSyntaxStyle(renderer);
   const view = new DiffView(renderer, {
     id: "select-diff",
     width: "100%",
