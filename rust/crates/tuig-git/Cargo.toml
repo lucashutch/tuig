@@ -14,6 +14,11 @@ regex = "1"
 # Reflog token for undo previews. The token is the SHA-256 of the HEAD reflog.
 sha2 = "0.10"
 
+# JSON parsing of `gh api graphql` output.
+serde_json = "1"
+# Filesystem events (inotify, FSEvents, ReadDirectoryChangesW) for the repository watcher.
+notify = "8"
+
 [target.'cfg(unix)'.dependencies]
 # Signal a whole process group (kill(-pid)) so cancelled helpers do not hold pipes open.
 libc = "0.2"
