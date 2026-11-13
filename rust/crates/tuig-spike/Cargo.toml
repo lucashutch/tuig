@@ -1,0 +1,24 @@
+[package]
+name = "tuig-spike"
+description = "Throwaway spike: can tuig's UI run on the OpenTUI Rust crate?"
+edition.workspace = true
+version.workspace = true
+publish = false
+license.workspace = true
+
+[dependencies]
+tuig-git = { path = "../tuig-git" }
+# Local checkout of anomalyco/opentui at d5c7fca0c916e0be34578fcb6ea85f172356b045 (core 0.8.3 + 111 commits).
+# Run `bun run build` in packages/native there first: the crate links the native library but does not build it.
+opentui = { path = "/home/lucas/9999-personal/opentui-src/packages/rust/crates/opentui", features = ["tokio", "tree-sitter"] }
+tree-sitter-python = "0.25.0"
+tree-sitter-go = "0.25.0"
+tree-sitter-html = "0.23.2"
+tree-sitter-css = "0.25.0"
+tree-sitter-json = "0.24.8"
+tree-sitter-bash = "0.25.1"
+tree-sitter-c = "0.24.2"
+tree-sitter-cpp = "0.23.4"
+
+[lints]
+workspace = true
