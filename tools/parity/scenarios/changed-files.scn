@@ -1,0 +1,15 @@
+# Working changes: open the multi-hunk file, step to the untracked file, then
+# open a staged rename.
+fixture demo
+wait text "Working Changes"
+click 60 4
+wait text "Unstaged files"
+click 118 6
+wait text "handler_00"
+snapshot server-diff
+key right
+wait text "scratch notes"
+snapshot untracked-file
+click 118 21
+wait text "auth.py"
+snapshot staged-rename

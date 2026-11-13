@@ -1,0 +1,12 @@
+# Open the command palette, filter it, and move the selection.
+fixture demo
+wait text "Working Changes"
+key ctrl+p
+wait stable
+snapshot open
+text "branch"
+snapshot filtered
+key down
+snapshot moved
+key esc
+snapshot closed
