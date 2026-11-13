@@ -1,0 +1,4 @@
+# opentui-sys links a native library that Cargo does not build. scripts/build-opentui-native.sh puts it here.
+# The path is relative to this rust/ directory. An OPENTUI_LIB_DIR in the environment wins over this entry.
+[env]
+OPENTUI_LIB_DIR = { value = ".opentui-native/lib", relative = true }
