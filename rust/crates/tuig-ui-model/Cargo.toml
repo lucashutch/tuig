@@ -1,0 +1,13 @@
+[package]
+name = "tuig-ui-model"
+description = "Pure UI state and layout logic for tuig, with no rendering"
+edition.workspace = true
+version.workspace = true
+publish = false
+license.workspace = true
+
+[dependencies]
+tuig-git = { path = "../tuig-git" }
+
+[lints]
+workspace = true
