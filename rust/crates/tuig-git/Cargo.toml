@@ -1,0 +1,20 @@
+[package]
+name = "tuig-git"
+description = "Git process boundary, parsers, and domain types for tuig"
+edition.workspace = true
+version.workspace = true
+publish = false
+license.workspace = true
+
+[dependencies]
+# Error types with Display messages that match the TypeScript messages.
+thiserror = "2"
+# Host extraction and auth classification of git/ssh stderr (case-insensitive patterns).
+regex = "1"
+
+[target.'cfg(unix)'.dependencies]
+# Signal a whole process group (kill(-pid)) so cancelled helpers do not hold pipes open.
+libc = "0.2"
+
+[lints]
+workspace = true
