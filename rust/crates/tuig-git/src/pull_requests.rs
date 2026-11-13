@@ -9,27 +9,34 @@
 //!   a zone counts as UTC, where JavaScript would use local time.
 
 use std::collections::HashSet;
-use std::io::Read;
-use std::path::Path;
-use std::process::{Command, Stdio};
+use std::future::Future;
+use std::path::{Path, PathBuf};
+use std::pin::Pin;
+use std::process::{ExitStatus, Stdio};
 use std::sync::Mutex;
 use std::sync::PoisonError;
-use std::thread;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
+use async_trait::async_trait;
 use serde_json::{Map, Value};
+use tokio::io::{AsyncRead, AsyncReadExt};
+use tokio::process::Command;
 
-use crate::process::CancelToken;
+use crate::process::{CancelToken, GroupGuard, Killer, Sig};
 use crate::pull_request_types::{
     CheckRollup, PullRequest, PullRequestList, PullRequestService, PullRequestState,
     PullRequestUnavailableReason,
 };
 use crate::types::CommandResult;
 
-pub struct GhRunOptions<'a> {
-    pub cwd: &'a Path,
-    pub cancel: Option<&'a CancelToken>,
+#[derive(Debug, Clone)]
+pub struct GhRunOptions {
+    pub cwd: PathBuf,
+    pub cancel: Option<CancelToken>,
 }
+
+/// A boxed future that can move between tasks.
+pub type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
 
 /// Why `gh` produced no exit code.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
@@ -48,8 +55,13 @@ pub enum GhError {
 
 /// Runs `gh` with the given arguments. It returns the exit code for any exit,
 /// and fails when `gh` cannot start, times out, or is cancelled.
-pub type GhRunner =
-    Box<dyn Fn(&[String], &GhRunOptions) -> Result<CommandResult, GhError> + Send + Sync>;
+///
+/// The runner owns its arguments so the future it returns borrows nothing.
+pub type GhRunner = Box<
+    dyn Fn(Vec<String>, GhRunOptions) -> BoxFuture<'static, Result<CommandResult, GhError>>
+        + Send
+        + Sync,
+>;
 
 pub const GH_TIMEOUT: Duration = Duration::from_secs(15);
 
@@ -106,7 +118,7 @@ fn list_args() -> Vec<String> {
 }
 
 #[cfg(unix)]
-fn exit_code(status: std::process::ExitStatus) -> i32 {
+fn exit_code(status: ExitStatus) -> i32 {
     use std::os::unix::process::ExitStatusExt;
     status
         .code()
@@ -114,53 +126,40 @@ fn exit_code(status: std::process::ExitStatus) -> i32 {
 }
 
 #[cfg(not(unix))]
-fn exit_code(status: std::process::ExitStatus) -> i32 {
+fn exit_code(status: ExitStatus) -> i32 {
     status.code().unwrap_or(-1)
 }
 
-fn kill_tree(child: &mut std::process::Child) {
-    #[cfg(unix)]
-    // SAFETY: signals the process group this function's caller created with
-    // `process_group(0)`, so it cannot reach an unrelated process.
-    unsafe {
-        libc::kill(-(child.id() as i32), libc::SIGKILL);
-    }
-    let _ = child.kill();
-}
-
-fn drain(mut pipe: impl Read + Send + 'static) -> thread::JoinHandle<Vec<u8>> {
-    thread::spawn(move || {
-        let mut bytes = Vec::new();
-        let _ = pipe.read_to_end(&mut bytes);
-        bytes
-    })
+async fn drain(mut pipe: impl AsyncRead + Unpin) -> Vec<u8> {
+    let mut bytes = Vec::new();
+    let _ = pipe.read_to_end(&mut bytes).await;
+    bytes
 }
 
 /// Run `program` without a terminal. Kills its whole process group on timeout
-/// or cancel so a helper cannot keep the output pipes open.
-pub fn run_program(
+/// or cancel so a helper cannot keep the output pipes open. Dropping the
+/// future kills the group too.
+pub async fn run_program(
     program: &str,
     args: &[String],
     options: &GhRunOptions,
     timeout: Duration,
 ) -> Result<CommandResult, GhError> {
-    let cancelled = || options.cancel.is_some_and(CancelToken::is_cancelled);
-    if cancelled() {
+    let cancel = options.cancel.as_ref();
+    if cancel.is_some_and(CancelToken::is_cancelled) {
         return Err(GhError::Cancelled);
     }
     let mut command = Command::new(program);
     command
         .args(args)
-        .current_dir(options.cwd)
+        .current_dir(&options.cwd)
         .envs(GH_NON_INTERACTIVE_ENV)
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
-        .stderr(Stdio::piped());
+        .stderr(Stdio::piped())
+        .kill_on_drop(true);
     #[cfg(unix)]
-    {
-        use std::os::unix::process::CommandExt;
-        command.process_group(0);
-    }
+    command.process_group(0);
     let mut child = command.spawn().map_err(|error| {
         if error.kind() == std::io::ErrorKind::NotFound {
             GhError::NotFound
@@ -168,27 +167,39 @@ pub fn run_program(
             GhError::Io(error.to_string())
         }
     })?;
-    let stdout = drain(child.stdout.take().expect("stdout is piped"));
-    let stderr = drain(child.stderr.take().expect("stderr is piped"));
-    let deadline = Instant::now() + timeout;
-    let mut timed_out = false;
-    let status = loop {
-        match child.try_wait() {
-            Ok(Some(status)) => break status,
-            Ok(None) => {}
-            Err(error) => return Err(GhError::Io(error.to_string())),
-        }
-        if cancelled() {
-            kill_tree(&mut child);
-        } else if Instant::now() >= deadline {
-            timed_out = true;
-            kill_tree(&mut child);
-        }
-        thread::sleep(Duration::from_millis(5));
+    let killer = Killer {
+        isolated: cfg!(unix),
+        pid: child.id(),
     };
-    let stdout = stdout.join().unwrap_or_default();
-    let stderr = stderr.join().unwrap_or_default();
-    if cancelled() {
+    let mut guard = GroupGuard(Some(killer));
+    let stdout = child.stdout.take().expect("stdout is piped");
+    let stderr = child.stderr.take().expect("stderr is piped");
+    let finished = async {
+        let (stdout, stderr) = tokio::join!(drain(stdout), drain(stderr));
+        (stdout, stderr, child.wait().await)
+    };
+    let mut finished = std::pin::pin!(finished);
+    let mut timed_out = false;
+    let (stdout, stderr, status) = tokio::select! {
+        done = &mut finished => done,
+        () = async {
+            match cancel {
+                Some(cancel) => cancel.cancelled().await,
+                None => std::future::pending().await,
+            }
+        } => {
+            killer.send(Sig::Kill);
+            finished.await
+        }
+        () = tokio::time::sleep(timeout) => {
+            timed_out = true;
+            killer.send(Sig::Kill);
+            finished.await
+        }
+    };
+    guard.disarm();
+    let status = status.map_err(|error| GhError::Io(error.to_string()))?;
+    if cancel.is_some_and(CancelToken::is_cancelled) {
         return Err(GhError::Cancelled);
     }
     if timed_out {
@@ -202,8 +213,8 @@ pub fn run_program(
 }
 
 /// The default runner: the real `gh` with a 15 s timeout.
-pub fn run_gh(args: &[String], options: &GhRunOptions) -> Result<CommandResult, GhError> {
-    run_program("gh", args, options, GH_TIMEOUT)
+pub async fn run_gh(args: Vec<String>, options: GhRunOptions) -> Result<CommandResult, GhError> {
+    run_program("gh", &args, &options, GH_TIMEOUT).await
 }
 
 /// The caller cancelled the request.
@@ -288,7 +299,10 @@ pub struct GhPullRequestService {
 
 impl GhPullRequestService {
     pub fn new(root: impl AsRef<Path>) -> Self {
-        Self::with_runner(root, Box::new(run_gh))
+        Self::with_runner(
+            root,
+            Box::new(|args, options| Box::pin(run_gh(args, options))),
+        )
     }
 
     pub fn with_runner(root: impl AsRef<Path>, runner: GhRunner) -> Self {
@@ -300,15 +314,15 @@ impl GhPullRequestService {
     }
 
     /// Runs the query and returns its `data`, or the failure.
-    fn query(
+    async fn query(
         &self,
         cancel: Option<&CancelToken>,
     ) -> Result<Result<Map<String, Value>, Failure>, PullRequestCancelled> {
         let options = GhRunOptions {
-            cwd: &self.root,
-            cancel,
+            cwd: self.root.clone(),
+            cancel: cancel.cloned(),
         };
-        let result = match (self.runner)(&list_args(), &options) {
+        let result = match (self.runner)(list_args(), options).await {
             Ok(result) => result,
             Err(error) => {
                 if cancel.is_some_and(CancelToken::is_cancelled) {
@@ -333,19 +347,19 @@ impl GhPullRequestService {
     }
 
     /// Like [`PullRequestService::list`], but reports a cancel as an error.
-    pub fn try_list(
+    pub async fn try_list(
         &self,
         cancel: Option<&CancelToken>,
     ) -> Result<PullRequestList, PullRequestCancelled> {
-        if let Some(failure) = self
+        let known = self
             .permanent
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
-            .clone()
-        {
+            .clone();
+        if let Some(failure) = known {
             return Ok(failure.into_list());
         }
-        let data = match self.query(cancel)? {
+        let data = match self.query(cancel).await? {
             Ok(data) => data,
             Err(failure) => {
                 if matches!(
@@ -384,9 +398,11 @@ impl GhPullRequestService {
     }
 }
 
+#[async_trait]
 impl PullRequestService for GhPullRequestService {
-    fn list(&self, cancel: Option<&CancelToken>) -> PullRequestList {
+    async fn list(&self, cancel: Option<&CancelToken>) -> PullRequestList {
         self.try_list(cancel)
+            .await
             .unwrap_or_else(|cancelled| Failure::error(cancelled.to_string()).into_list())
     }
 }
@@ -813,9 +829,10 @@ mod tests {
         let calls: Calls = Arc::default();
         let recorded = calls.clone();
         let runner: GhRunner = Box::new(move |args, options| {
-            recorded.lock().unwrap().push(args.to_vec());
+            recorded.lock().unwrap().push(args);
             assert_eq!(options.cwd, Path::new("/repo"));
-            answer()
+            let result = answer();
+            Box::pin(async move { result })
         });
         (GhPullRequestService::with_runner("/repo", runner), calls)
     }
@@ -827,8 +844,8 @@ mod tests {
         }
     }
 
-    #[test]
-    fn lists_open_pull_requests_newest_first_with_mine_review_and_fork_flags() {
+    #[tokio::test]
+    async fn lists_open_pull_requests_newest_first_with_mine_review_and_fork_flags() {
         let (service, calls) = fake_gh(|| ok(&list_json()));
         let expected = PullRequestList::Available {
             pull_requests: vec![
@@ -862,7 +879,7 @@ mod tests {
                 },
             ],
         };
-        assert_eq!(service.list(None), expected);
+        assert_eq!(service.list(None).await, expected);
         // One request lists pull requests, the login, and review requests.
         let calls = calls.lock().unwrap();
         assert_eq!(calls.len(), 1);
@@ -870,8 +887,8 @@ mod tests {
         assert!(calls[0].iter().any(|a| a.starts_with("query=query(")));
     }
 
-    #[test]
-    fn keeps_the_list_when_the_review_requested_search_fails() {
+    #[tokio::test]
+    async fn keeps_the_list_when_the_review_requested_search_fails() {
         let mut data = list_data();
         data["review"] = Value::Null;
         let stdout = json!({"data": data}).to_string();
@@ -882,24 +899,24 @@ mod tests {
                 &stdout,
             )
         });
-        let PullRequestList::Available { pull_requests } = service.list(None) else {
+        let PullRequestList::Available { pull_requests } = service.list(None).await else {
             panic!("expected an available list");
         };
         let flags: Vec<bool> = pull_requests.iter().map(|pr| pr.review_requested).collect();
         assert_eq!(flags, [false, false]);
     }
 
-    #[test]
-    fn reports_gh_missing_and_does_not_run_gh_again() {
+    #[tokio::test]
+    async fn reports_gh_missing_and_does_not_run_gh_again() {
         let (service, calls) = fake_gh(|| Err(GhError::NotFound));
         let expected = unavailable(PullRequestUnavailableReason::GhMissing);
-        assert_eq!(service.list(None), expected);
-        assert_eq!(service.list(None), expected);
+        assert_eq!(service.list(None).await, expected);
+        assert_eq!(service.list(None).await, expected);
         assert_eq!(calls.lock().unwrap().len(), 1);
     }
 
-    #[test]
-    fn reports_not_authenticated_and_retries_on_the_next_list() {
+    #[tokio::test]
+    async fn reports_not_authenticated_and_retries_on_the_next_list() {
         let logged_in = Arc::new(std::sync::atomic::AtomicBool::new(false));
         let flag = logged_in.clone();
         let (service, _) = fake_gh(move || {
@@ -910,45 +927,48 @@ mod tests {
             }
         });
         assert_eq!(
-            service.list(None),
+            service.list(None).await,
             unavailable(PullRequestUnavailableReason::NotAuthenticated)
         );
         logged_in.store(true, std::sync::atomic::Ordering::SeqCst);
         assert!(matches!(
-            service.list(None),
+            service.list(None).await,
             PullRequestList::Available { .. }
         ));
     }
 
-    #[test]
-    fn reports_not_github_even_though_gh_suggests_logging_in() {
+    #[tokio::test]
+    async fn reports_not_github_even_though_gh_suggests_logging_in() {
         let stderr = "error parsing \"owner\" value: none of the git remotes configured for this repository point to a known GitHub host. To tell gh about a new GitHub host, please use `gh auth login`\n";
         let (service, calls) = fake_gh(move || fail(stderr, 1, ""));
         let expected = unavailable(PullRequestUnavailableReason::NotGithub);
-        assert_eq!(service.list(None), expected);
-        assert_eq!(service.list(None), expected);
+        assert_eq!(service.list(None).await, expected);
+        assert_eq!(service.list(None).await, expected);
         assert_eq!(calls.lock().unwrap().len(), 1);
     }
 
-    #[test]
-    fn a_cancelled_request_is_an_error_not_an_empty_list() {
+    #[tokio::test]
+    async fn a_cancelled_request_is_an_error_not_an_empty_list() {
         let token = CancelToken::new();
         let inner = token.clone();
         let (service, _) = fake_gh(move || {
             inner.cancel();
             Err(GhError::Io("killed".into()))
         });
-        assert_eq!(service.try_list(Some(&token)), Err(PullRequestCancelled));
+        assert_eq!(
+            service.try_list(Some(&token)).await,
+            Err(PullRequestCancelled)
+        );
     }
 
-    #[test]
-    fn run_program_kills_a_run_that_exceeds_the_timeout() {
+    #[tokio::test]
+    async fn run_program_kills_a_run_that_exceeds_the_timeout() {
         let options = GhRunOptions {
-            cwd: Path::new("/"),
+            cwd: PathBuf::from("/"),
             cancel: None,
         };
         let args = ["30".to_string()];
-        let result = run_program("sleep", &args, &options, Duration::from_millis(100));
+        let result = run_program("sleep", &args, &options, Duration::from_millis(100)).await;
         assert_eq!(result, Err(GhError::Timeout(Duration::from_millis(100))));
     }
 }

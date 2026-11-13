@@ -2,8 +2,10 @@
 //! as a trait, and the concrete service from `src/git/repository.ts`.
 //!
 //! Differences from the TypeScript version:
-//! - Calls block. `snapshot`, `working_status`, and `open` run their
-//!   independent Git commands on scoped threads, like the `Promise.all` calls.
+//! - Calls are async on tokio. `snapshot`, `working_status`, and `open` run
+//!   their independent Git commands with `tokio::join!`, like the
+//!   `Promise.all` calls. The traits use `async_trait`, so
+//!   `Arc<dyn GitRepository>` works and every future is `Send`.
 //! - Optional interface members have trait defaults. `commit_page` has no
 //!   fallback and fails with `ErrorKind::Unsupported`. `watch_paths` returns
 //!   `None` when a repository cannot be watched.
@@ -27,6 +29,7 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{LazyLock, Mutex, PoisonError};
 
+use async_trait::async_trait;
 use regex::Regex;
 
 use crate::commit_walk::{CommitWalk, HISTORY_MUTATING, LOG_FORMAT};
@@ -54,15 +57,16 @@ pub const DEFAULT_HISTORY_PAGE: usize = 250;
 
 /// The operations the UI needs from a repository. Port of the `GitRepository`
 /// interface in `src/git/types.ts`.
+#[async_trait]
 pub trait GitRepository: Send + Sync {
     /// Cancel repository-specific background work when no tab owns this service.
-    fn dispose(&self) {}
+    async fn dispose(&self) {}
     fn root(&self) -> &str;
     /// The main checkout's root, when this repository is a linked worktree.
     fn main_worktree(&self) -> Option<&str> {
         None
     }
-    fn remote_url(&self) -> Option<String> {
+    async fn remote_url(&self) -> Option<String> {
         None
     }
     /// Set while remote commands fail for missing credentials. Background fetch pauses.
@@ -70,22 +74,22 @@ pub trait GitRepository: Send + Sync {
         false
     }
     /// Directories to watch for changes. `None` means callers fall back to polling.
-    fn watch_paths(&self) -> Result<Option<RepositoryWatchPaths>> {
+    async fn watch_paths(&self) -> Result<Option<RepositoryWatchPaths>> {
         Ok(None)
     }
-    fn snapshot(&self, limit: usize) -> Result<RepositorySnapshot>;
+    async fn snapshot(&self, limit: usize) -> Result<RepositorySnapshot>;
     /// Defaults to a full snapshot.
-    fn refresh_snapshot(
+    async fn refresh_snapshot(
         &self,
         previous: &RepositorySnapshot,
         limit: usize,
     ) -> Result<RepositorySnapshot> {
         let _ = previous;
-        self.snapshot(limit)
+        self.snapshot(limit).await
     }
     /// History-only read, used to extend the loaded page without paying for
     /// the rest of a snapshot. Fails with `ErrorKind::Unsupported` by default.
-    fn commit_page(&self, limit: usize, skip: usize) -> Result<CommitPage> {
+    async fn commit_page(&self, limit: usize, skip: usize) -> Result<CommitPage> {
         let _ = (limit, skip);
         Err(GitError::Io(std::io::Error::new(
             ErrorKind::Unsupported,
@@ -94,8 +98,8 @@ pub trait GitRepository: Send + Sync {
     }
     /// Fast path for refreshes that cannot have changed history. Defaults to a
     /// full snapshot of one commit.
-    fn working_status(&self) -> Result<WorkingStatus> {
-        let snapshot = self.snapshot(1)?;
+    async fn working_status(&self) -> Result<WorkingStatus> {
+        let snapshot = self.snapshot(1).await?;
         Ok(WorkingStatus {
             upstream: snapshot.upstream,
             ahead: snapshot.ahead,
@@ -104,62 +108,77 @@ pub trait GitRepository: Send + Sync {
         })
     }
     /// Commits that changed one path, newest first, following renames.
-    fn file_history(&self, path: &str, start: Option<&str>) -> Result<Vec<Commit>>;
+    async fn file_history(&self, path: &str, start: Option<&str>) -> Result<Vec<Commit>>;
     /// Commits that changed one line's ancestry, newest first. `start` defaults to HEAD.
-    fn line_history(&self, path: &str, line: usize, start: Option<&str>) -> Result<Vec<Commit>>;
+    async fn line_history(
+        &self,
+        path: &str,
+        line: usize,
+        start: Option<&str>,
+    ) -> Result<Vec<Commit>>;
     /// Finds the commit responsible for one 1-based line at a commit or HEAD.
-    fn blame_line(&self, path: &str, line: usize, commit: Option<&str>) -> Result<LineBlame>;
-    fn diff(&self, request: &DiffRequest) -> Result<String>;
-    fn commit_files(&self, sha: &str, base: Option<&str>) -> Result<Vec<ChangedFile>>;
-    fn stage(&self, paths: &[String]) -> Result<()>;
-    fn unstage(&self, paths: &[String]) -> Result<()>;
-    fn apply_patch(&self, patch: &str, reverse: bool) -> Result<()>;
+    async fn blame_line(&self, path: &str, line: usize, commit: Option<&str>) -> Result<LineBlame>;
+    async fn diff(&self, request: &DiffRequest) -> Result<String>;
+    async fn commit_files(&self, sha: &str, base: Option<&str>) -> Result<Vec<ChangedFile>>;
+    async fn stage(&self, paths: &[String]) -> Result<()>;
+    async fn unstage(&self, paths: &[String]) -> Result<()>;
+    async fn apply_patch(&self, patch: &str, reverse: bool) -> Result<()>;
     /// Reverses a partial working-tree patch without changing the index.
-    fn discard_patch(&self, patch: &str) -> Result<()>;
-    fn discard_all(&self) -> Result<()>;
+    async fn discard_patch(&self, patch: &str) -> Result<()>;
+    async fn discard_all(&self) -> Result<()>;
     /// Restores the given paths in the working tree, dropping unstaged edits.
-    fn discard(&self, paths: &[String]) -> Result<()>;
-    fn commit(&self, message: &str) -> Result<()>;
-    fn amend_commit(&self, message: &str) -> Result<()>;
-    fn reword_commit(&self, sha: &str, message: &str) -> Result<()>;
-    fn switch_branch(&self, name: &str) -> Result<()>;
-    fn checkout_commit(&self, sha: &str) -> Result<()>;
-    fn checkout_remote_branch(&self, local: &str, remote: &str, reset: bool) -> Result<()>;
-    fn get_undo_preview(&self) -> Result<UndoPreview>;
-    fn undo(&self, preview: &UndoPreview) -> Result<()>;
-    fn reset_to(&self, sha: &str, mode: ResetMode) -> Result<()>;
-    fn rebase_onto(&self, reference: &str) -> Result<()>;
-    fn cherry_pick(&self, sha: &str) -> Result<()>;
+    async fn discard(&self, paths: &[String]) -> Result<()>;
+    async fn commit(&self, message: &str) -> Result<()>;
+    async fn amend_commit(&self, message: &str) -> Result<()>;
+    async fn reword_commit(&self, sha: &str, message: &str) -> Result<()>;
+    async fn switch_branch(&self, name: &str) -> Result<()>;
+    async fn checkout_commit(&self, sha: &str) -> Result<()>;
+    async fn checkout_remote_branch(&self, local: &str, remote: &str, reset: bool) -> Result<()>;
+    async fn get_undo_preview(&self) -> Result<UndoPreview>;
+    async fn undo(&self, preview: &UndoPreview) -> Result<()>;
+    async fn reset_to(&self, sha: &str, mode: ResetMode) -> Result<()>;
+    async fn rebase_onto(&self, reference: &str) -> Result<()>;
+    async fn cherry_pick(&self, sha: &str) -> Result<()>;
     /// Creates a lightweight tag at `target` (or HEAD when omitted).
-    fn create_tag(&self, name: &str, target: Option<&str>) -> Result<()>;
-    fn push_tag(
+    async fn create_tag(&self, name: &str, target: Option<&str>) -> Result<()>;
+    async fn push_tag(
         &self,
         name: &str,
         remote: Option<&str>,
         cancel: Option<&CancelToken>,
     ) -> Result<()>;
-    fn delete_tag(&self, name: &str) -> Result<()>;
-    fn create_branch(&self, name: &str, start_point: Option<&str>, checkout: bool) -> Result<()>;
-    fn delete_branch(&self, name: &str, force: bool, remote: bool) -> Result<()>;
-    fn delete_remote_branch(&self, name: &str, cancel: Option<&CancelToken>) -> Result<()>;
-    fn fetch(&self, remote: Option<&str>, cancel: Option<&CancelToken>) -> Result<()>;
-    fn pull(&self, rebase: bool, cancel: Option<&CancelToken>) -> Result<()>;
-    fn push(
+    async fn delete_tag(&self, name: &str) -> Result<()>;
+    async fn create_branch(
+        &self,
+        name: &str,
+        start_point: Option<&str>,
+        checkout: bool,
+    ) -> Result<()>;
+    async fn delete_branch(&self, name: &str, force: bool, remote: bool) -> Result<()>;
+    async fn delete_remote_branch(&self, name: &str, cancel: Option<&CancelToken>) -> Result<()>;
+    async fn fetch(&self, remote: Option<&str>, cancel: Option<&CancelToken>) -> Result<()>;
+    async fn pull(&self, rebase: bool, cancel: Option<&CancelToken>) -> Result<()>;
+    async fn push(
         &self,
         remote: Option<&str>,
         set_upstream: bool,
         cancel: Option<&CancelToken>,
     ) -> Result<()>;
-    fn stash(&self, message: Option<&str>, include_untracked: bool) -> Result<()>;
-    fn apply_stash(&self, reference: &str, pop: bool) -> Result<()>;
-    fn pop_stash(&self, reference: &str) -> Result<()>;
-    fn drop_stash(&self, reference: &str) -> Result<()>;
-    fn rename_stash(&self, reference: &str, message: &str) -> Result<()>;
-    fn update_submodule(&self, path: &str, init: bool) -> Result<()>;
-    fn sync_submodule(&self, path: &str) -> Result<()>;
-    fn add_worktree(&self, path: &str, branch: Option<&str>, create_branch: bool) -> Result<()>;
-    fn remove_worktree(&self, path: &str, force: bool) -> Result<()>;
-    fn lock_worktree(&self, path: &str, lock: bool, reason: Option<&str>) -> Result<()>;
+    async fn stash(&self, message: Option<&str>, include_untracked: bool) -> Result<()>;
+    async fn apply_stash(&self, reference: &str, pop: bool) -> Result<()>;
+    async fn pop_stash(&self, reference: &str) -> Result<()>;
+    async fn drop_stash(&self, reference: &str) -> Result<()>;
+    async fn rename_stash(&self, reference: &str, message: &str) -> Result<()>;
+    async fn update_submodule(&self, path: &str, init: bool) -> Result<()>;
+    async fn sync_submodule(&self, path: &str) -> Result<()>;
+    async fn add_worktree(
+        &self,
+        path: &str,
+        branch: Option<&str>,
+        create_branch: bool,
+    ) -> Result<()>;
+    async fn remove_worktree(&self, path: &str, force: bool) -> Result<()>;
+    async fn lock_worktree(&self, path: &str, lock: bool, reason: Option<&str>) -> Result<()>;
 }
 
 /// An error for a rejected argument (the TypeScript `Error` or `RangeError`).
@@ -300,7 +319,7 @@ static BLAME_HEADER: LazyLock<Regex> =
 
 impl GitRepositoryService {
     /// Opens the repository that contains `path`.
-    pub fn open(path: impl AsRef<Path>) -> Result<Self> {
+    pub async fn open(path: impl AsRef<Path>) -> Result<Self> {
         let path = path.as_ref();
         let shown = path.to_string_lossy().into_owned();
         let metadata = match std::fs::metadata(path) {
@@ -308,7 +327,7 @@ impl GitRepositoryService {
             Err(error) if error.kind() == ErrorKind::NotFound => {
                 return Err(NotGitRepositoryError::new(
                     &shown,
-                    suggestions(path, false),
+                    suggestions(path, false).await,
                     NotRepositoryProblem::Missing,
                 )
                 .into());
@@ -323,7 +342,9 @@ impl GitRepositoryService {
             )
             .into());
         }
-        let top = match run_git_with(&["rev-parse", "--show-toplevel"], &RunOptions::in_dir(path)) {
+        let top = match run_git_with(&["rev-parse", "--show-toplevel"], &RunOptions::in_dir(path))
+            .await
+        {
             Ok(result) => result,
             Err(GitError::Command(error))
                 if error
@@ -334,7 +355,7 @@ impl GitRepositoryService {
             {
                 return Err(NotGitRepositoryError::new(
                     &shown,
-                    suggestions(path, true),
+                    suggestions(path, true).await,
                     NotRepositoryProblem::NotRepository,
                 )
                 .into());
@@ -343,23 +364,20 @@ impl GitRepositoryService {
         };
         let root = top.stdout.trim().to_string();
         let options = RunOptions::in_dir(&root);
-        let (metadata, worktrees) = std::thread::scope(|scope| {
-            let metadata = scope.spawn(|| {
-                run_git_with(
-                    &[
-                        "rev-parse",
-                        "--path-format=absolute",
-                        "--git-path",
-                        "shallow",
-                        "--git-path",
-                        "info/grafts",
-                    ],
-                    &options,
-                )
-            });
-            let worktrees = run_git_with(&["worktree", "list", "--porcelain"], &options);
-            (join(metadata), worktrees)
-        });
+        let (metadata, worktrees) = tokio::join!(
+            run_git_with(
+                &[
+                    "rev-parse",
+                    "--path-format=absolute",
+                    "--git-path",
+                    "shallow",
+                    "--git-path",
+                    "info/grafts",
+                ],
+                &options,
+            ),
+            run_git_with(&["worktree", "list", "--porcelain"], &options),
+        );
         let metadata = metadata?;
         let worktrees = worktrees?;
         // Git always lists the main worktree first.
@@ -389,31 +407,39 @@ impl GitRepositoryService {
 
     /// Runs Git in the root. Subcommands that can move history first drop the
     /// open walk.
-    fn git<S: AsRef<str>>(&self, args: &[S]) -> Result<CommandResult> {
-        self.git_with(args, self.options())
+    pub(crate) async fn git<S: AsRef<str>>(&self, args: &[S]) -> Result<CommandResult> {
+        self.git_with(args, self.options()).await
     }
 
-    fn git_with<S: AsRef<str>>(&self, args: &[S], options: RunOptions) -> Result<CommandResult> {
+    async fn git_with<S: AsRef<str>>(
+        &self,
+        args: &[S],
+        options: RunOptions,
+    ) -> Result<CommandResult> {
         let subcommand = args
             .iter()
             .map(AsRef::as_ref)
             .find(|arg| !arg.starts_with('-'));
         if subcommand.is_some_and(|s| HISTORY_MUTATING.contains(&s)) {
-            self.invalidate_history();
+            self.invalidate_history().await;
         }
-        run_git_with(args, &options)
+        run_git_with(args, &options).await
     }
 
-    fn git_env<S: AsRef<str>>(&self, args: &[S], env: &[(&str, &str)]) -> Result<CommandResult> {
+    pub(crate) async fn git_env<S: AsRef<str>>(
+        &self,
+        args: &[S],
+        env: &[(&str, &str)],
+    ) -> Result<CommandResult> {
         let mut options = self.options();
         options.env = env
             .iter()
             .map(|(k, v)| (k.to_string(), Some(v.to_string())))
             .collect();
-        self.git_with(args, options)
+        self.git_with(args, options).await
     }
 
-    fn git_limited<S: AsRef<str>>(
+    async fn git_limited<S: AsRef<str>>(
         &self,
         args: &[S],
         cancel: Option<&CancelToken>,
@@ -422,21 +448,21 @@ impl GitRepositoryService {
         let mut options = self.options();
         options.cancel = cancel.cloned();
         options.max_bytes = max_bytes;
-        self.git_with(args, options)
+        self.git_with(args, options).await
     }
 
     /// Runs Git without the history invalidation of [`Self::git`].
-    fn git_read<S: AsRef<str>>(&self, args: &[S]) -> Result<CommandResult> {
-        run_git_with(args, &self.options())
+    async fn git_read<S: AsRef<str>>(&self, args: &[S]) -> Result<CommandResult> {
+        run_git_with(args, &self.options()).await
     }
 
-    fn invalidate_history(&self) {
-        self.walk.invalidate();
+    async fn invalidate_history(&self) {
+        self.walk.invalidate().await;
     }
 
     #[cfg(test)]
-    pub(crate) fn walk_starts(&self) -> usize {
-        self.walk.starts()
+    pub(crate) async fn walk_starts(&self) -> usize {
+        self.walk.starts().await
     }
 
     fn signatures(&self) -> std::sync::MutexGuard<'_, HashMap<u64, Vec<u8>>> {
@@ -453,7 +479,7 @@ impl GitRepositoryService {
         signatures.insert(tip_key(commits), signature);
     }
 
-    fn read_snapshot_metadata(&self) -> Result<SnapshotMetadata> {
+    async fn read_snapshot_metadata(&self) -> Result<SnapshotMetadata> {
         let submodule_config = self
             .git(&[
                 "config",
@@ -463,58 +489,48 @@ impl GitRepositoryService {
                 "--get-regexp",
                 "^submodule\\..*\\.path$",
             ])
+            .await
             .unwrap_or_else(|_| empty_result());
         let submodule_names = parse_submodule_names(&submodule_config.stdout);
+        // Polling must not take the index lock: the auto-refresh would
+        // otherwise collide with a Git command the user is running elsewhere.
+        let status = self.git(&[
+            "--no-optional-locks",
+            "status",
+            "--porcelain=v2",
+            // List each untracked file. The default collapses a
+            // directory into a single "dir/" entry that has no
+            // name or diff in the UI.
+            "--untracked-files=all",
+            "--branch",
+            "-z",
+        ]);
+        let all_refs = self.git(&[
+            "for-each-ref",
+            // %(HEAD) marks the checked-out local branch. Emit the
+            // record terminator explicitly: for-each-ref otherwise
+            // separates records with newlines, which makes the
+            // tabular parser see all refs as one row.
+            "--format=%(refname)\t%(objectname)\t%(HEAD)%00",
+        ]);
+        let stash = async {
+            self.git(&["stash", "list", "--format=%gd%x09%H%x09%cr%x09%s%x00"])
+                .await
+                .unwrap_or_else(|_| empty_result())
+        };
+        let worktrees = self.git(&["worktree", "list", "--porcelain"]);
+        let submodules = async {
+            if submodule_names.is_empty() {
+                empty_result()
+            } else {
+                self.git(&["submodule", "status", "--recursive"])
+                    .await
+                    .unwrap_or_else(|_| empty_result())
+            }
+        };
+        let shallow = async { self.read_shallow_metadata() };
         let (status, all_refs, stash, worktrees, submodules, shallow) =
-            std::thread::scope(|scope| {
-                // Polling must not take the index lock: the auto-refresh would
-                // otherwise collide with a Git command the user is running elsewhere.
-                let status = scope.spawn(|| {
-                    self.git(&[
-                        "--no-optional-locks",
-                        "status",
-                        "--porcelain=v2",
-                        // List each untracked file. The default collapses a
-                        // directory into a single "dir/" entry that has no
-                        // name or diff in the UI.
-                        "--untracked-files=all",
-                        "--branch",
-                        "-z",
-                    ])
-                });
-                let all_refs = scope.spawn(|| {
-                    self.git(&[
-                        "for-each-ref",
-                        // %(HEAD) marks the checked-out local branch. Emit the
-                        // record terminator explicitly: for-each-ref otherwise
-                        // separates records with newlines, which makes the
-                        // tabular parser see all refs as one row.
-                        "--format=%(refname)\t%(objectname)\t%(HEAD)%00",
-                    ])
-                });
-                let stash = scope.spawn(|| {
-                    self.git(&["stash", "list", "--format=%gd%x09%H%x09%cr%x09%s%x00"])
-                        .unwrap_or_else(|_| empty_result())
-                });
-                let worktrees = scope.spawn(|| self.git(&["worktree", "list", "--porcelain"]));
-                let submodules = scope.spawn(|| {
-                    if submodule_names.is_empty() {
-                        empty_result()
-                    } else {
-                        self.git(&["submodule", "status", "--recursive"])
-                            .unwrap_or_else(|_| empty_result())
-                    }
-                });
-                let shallow = self.read_shallow_metadata();
-                (
-                    join(status),
-                    join(all_refs),
-                    join(stash),
-                    join(worktrees),
-                    join(submodules),
-                    shallow,
-                )
-            });
+            tokio::join!(status, all_refs, stash, worktrees, submodules, shallow);
         let status = status?.stdout;
         let all_refs = all_refs?.stdout;
         let worktrees = worktrees?.stdout;
@@ -617,8 +633,8 @@ impl GitRepositoryService {
     ///
     /// Read-only: uses `git_read` so the `stash` subcommand does not trip the
     /// history-mutating invalidation that would drop the held-open walk.
-    fn stash_tip_commits(&self) -> Vec<Commit> {
-        let Ok(list) = self.git_read(&["stash", "list", "--format=%H"]) else {
+    async fn stash_tip_commits(&self) -> Vec<Commit> {
+        let Ok(list) = self.git_read(&["stash", "list", "--format=%H"]).await else {
             return Vec::new();
         };
         let shas: Vec<String> = list
@@ -632,7 +648,7 @@ impl GitRepositoryService {
         }
         let mut args: Vec<&str> = vec!["log", "--no-walk", "--decorate", "-z", LOG_FORMAT];
         args.extend(shas.iter().map(String::as_str));
-        let Ok(out) = self.git_read(&args) else {
+        let Ok(out) = self.git_read(&args).await else {
             return Vec::new();
         };
         let mut tips: Vec<Commit> = parse_log(&out.stdout)
@@ -668,7 +684,7 @@ impl GitRepositoryService {
         Ok(())
     }
 
-    fn validate_tag_name(&self, name: &str) -> Result<()> {
+    async fn validate_tag_name(&self, name: &str) -> Result<()> {
         if name.trim().is_empty() || name.contains('\0') {
             return Err(invalid("A tag name is required"));
         }
@@ -676,7 +692,8 @@ impl GitRepositoryService {
             "check-ref-format",
             "--allow-onelevel",
             &format!("refs/tags/{name}"),
-        ])?;
+        ])
+        .await?;
         Ok(())
     }
 
@@ -687,30 +704,33 @@ impl GitRepositoryService {
         Ok(())
     }
 
-    fn sync_submodules(&self) -> Result<()> {
-        self.git(&["submodule", "sync", "--recursive"])?;
-        self.git(&["submodule", "update", "--init", "--recursive"])?;
+    async fn sync_submodules(&self) -> Result<()> {
+        self.git(&["submodule", "sync", "--recursive"]).await?;
+        self.git(&["submodule", "update", "--init", "--recursive"])
+            .await?;
         Ok(())
     }
 
     /// Returns the resolved commit, its parents, and a stash's untracked-files parent.
-    fn commit_details(
+    async fn commit_details(
         &self,
         sha: &str,
         cancel: Option<&CancelToken>,
     ) -> Result<(String, Vec<String>, Option<String>)> {
         Self::validate_commit_ref(sha)?;
-        let shown = self.git_limited(
-            &[
-                "show",
-                "-s",
-                "--format=%H%x00%P",
-                "--end-of-options",
-                &format!("{sha}^{{commit}}"),
-            ],
-            cancel,
-            None,
-        )?;
+        let shown = self
+            .git_limited(
+                &[
+                    "show",
+                    "-s",
+                    "--format=%H%x00%P",
+                    "--end-of-options",
+                    &format!("{sha}^{{commit}}"),
+                ],
+                cancel,
+                None,
+            )
+            .await?;
         let text = shown.stdout.trim();
         let mut fields = text.split('\0');
         let resolved = fields.next().unwrap_or("").to_string();
@@ -728,10 +748,12 @@ impl GitRepositoryService {
                     cancel,
                     None,
                 )
+                .await
                 .map(|r| r.stdout)
                 .unwrap_or_default();
             let third_parents = self
-                .git_limited(&["show", "-s", "--format=%P", &parents[2]], cancel, None)?
+                .git_limited(&["show", "-s", "--format=%P", &parents[2]], cancel, None)
+                .await?
                 .stdout
                 .trim()
                 .to_string();
@@ -746,7 +768,7 @@ impl GitRepositoryService {
         Ok((resolved, parents, untracked_parent))
     }
 
-    fn comparison_diff(&self, r: &DiffRequest) -> Result<String> {
+    async fn comparison_diff(&self, r: &DiffRequest) -> Result<String> {
         let (Some(base), Some(target)) = (present(r.base.as_deref()), present(r.target.as_deref()))
         else {
             return Err(invalid("Both comparison commits are required"));
@@ -758,13 +780,14 @@ impl GitRepositoryService {
         args.extend(["--end-of-options", base, target, "--"].map(String::from));
         args.extend(diff_paths(r));
         Ok(self
-            .git_limited(&args, r.cancel.as_ref(), r.max_bytes)?
+            .git_limited(&args, r.cancel.as_ref(), r.max_bytes)
+            .await?
             .stdout)
     }
 
-    fn commit_diff(&self, r: &DiffRequest, commit: &str) -> Result<String> {
+    async fn commit_diff(&self, r: &DiffRequest, commit: &str) -> Result<String> {
         let (resolved, parents, untracked_parent) =
-            self.commit_details(commit, r.cancel.as_ref())?;
+            self.commit_details(commit, r.cancel.as_ref()).await?;
         let path = present(r.path.as_deref());
         let mut args: Vec<String> = Vec::new();
         if let Some(parent) = parents.first() {
@@ -780,7 +803,8 @@ impl GitRepositoryService {
         args.push("--".into());
         args.extend(path.map(String::from));
         let tracked = self
-            .git_limited(&args, r.cancel.as_ref(), r.max_bytes)?
+            .git_limited(&args, r.cancel.as_ref(), r.max_bytes)
+            .await?
             .stdout;
         let Some(untracked_parent) = untracked_parent else {
             return Ok(tracked);
@@ -792,23 +816,24 @@ impl GitRepositoryService {
         args.extend(path.map(String::from));
         let remaining = r.max_bytes.map(|max| max.saturating_sub(tracked.len()));
         let untracked = self
-            .git_limited(&args, r.cancel.as_ref(), remaining)?
+            .git_limited(&args, r.cancel.as_ref(), remaining)
+            .await?
             .stdout;
         Ok(tracked + &untracked)
     }
 
-    fn remote_git(
+    async fn remote_git(
         &self,
         operation: RemoteOperation,
         args: &[&str],
         remote: Option<&str>,
         cancel: Option<&CancelToken>,
     ) -> Result<()> {
-        self.invalidate_history();
+        self.invalidate_history().await;
         let mut options = self.options();
-        options.env = self.ssh_env();
+        options.env = self.ssh_env().await;
         options.cancel = cancel.cloned();
-        match run_git_with(args, &options) {
+        match run_git_with(args, &options).await {
             Ok(_) => {
                 self.auth_blocked.store(false, Ordering::SeqCst);
                 Ok(())
@@ -832,12 +857,12 @@ impl GitRepositoryService {
     /// SSH reads passphrases and host key answers from /dev/tty, which Tuig
     /// owns. GIT_TERMINAL_PROMPT=0 does not stop that. BatchMode=yes makes ssh
     /// fail at once instead. Any SSH command the user configured is left alone.
-    fn ssh_env(&self) -> Vec<(String, Option<String>)> {
+    async fn ssh_env(&self) -> Vec<(String, Option<String>)> {
         let set = |name: &str| std::env::var_os(name).is_some_and(|v| !v.is_empty());
         if set("GIT_SSH_COMMAND") || set("GIT_SSH") {
             return Vec::new();
         }
-        if let Ok(configured) = self.git_read(&["config", "--get", "core.sshCommand"])
+        if let Ok(configured) = self.git_read(&["config", "--get", "core.sshCommand"]).await
             && !configured.stdout.trim().is_empty()
         {
             return Vec::new();
@@ -848,14 +873,26 @@ impl GitRepositoryService {
         )]
     }
 
-    fn apply(&self, args: &[&str], patch: &str) -> Result<()> {
+    async fn apply(&self, args: &[&str], patch: &str) -> Result<()> {
         let mut options = self.options();
         options.stdin = Some(patch.as_bytes().to_vec());
-        self.git_with(args, options)?;
+        self.git_with(args, options).await?;
         Ok(())
     }
 
-    fn rename_stash_inner(&self, reference: &str, message: &str) -> Result<()> {
+    /// Recreates `refs/stash` with `stack`, newest entry first.
+    async fn rebuild_stashes(&self, stack: &[(String, String)]) -> Result<()> {
+        let _ = self
+            .git(&["reflog", "expire", "--expire=all", "refs/stash"])
+            .await;
+        self.git(&["update-ref", "-d", "refs/stash"]).await?;
+        for (sha, message) in stack.iter().rev() {
+            self.git(&["stash", "store", "-m", message, sha]).await?;
+        }
+        Ok(())
+    }
+
+    async fn rename_stash_inner(&self, reference: &str, message: &str) -> Result<()> {
         let index = reference
             .strip_prefix("stash@{")
             .and_then(|rest| rest.strip_suffix('}'))
@@ -865,7 +902,8 @@ impl GitRepositoryService {
             return Err(invalid("A stash name is required"));
         }
         let output = self
-            .git(&["stash", "list", "--format=%H%x00%gs%x00"])?
+            .git(&["stash", "list", "--format=%H%x00%gs%x00"])
+            .await?
             .stdout;
         let fields: Vec<&str> = output.split('\0').collect();
         let mut entries: Vec<(String, String)> = Vec::new();
@@ -885,12 +923,14 @@ impl GitRepositoryService {
         let original = entries[target].0.clone();
         let original_message = entries[target].1.clone();
         let tree = self
-            .git(&["rev-parse", "--verify", &format!("{original}^{{tree}}")])?
+            .git(&["rev-parse", "--verify", &format!("{original}^{{tree}}")])
+            .await?
             .stdout
             .trim()
             .to_string();
         let parents: Vec<String> = self
-            .git(&["rev-list", "--parents", "-n", "1", &original])?
+            .git(&["rev-list", "--parents", "-n", "1", &original])
+            .await?
             .stdout
             .trim()
             .split(' ')
@@ -903,7 +943,8 @@ impl GitRepositoryService {
                 "-s",
                 "--format=%an%x00%ae%x00%aI%x00%cn%x00%ce%x00%cI",
                 &original,
-            ])?
+            ])
+            .await?
             .stdout;
         let identity: Vec<&str> = identity_out.split('\0').collect();
         let id = |i: usize| identity.get(i).copied().unwrap_or("");
@@ -930,7 +971,8 @@ impl GitRepositoryService {
                     ("GIT_COMMITTER_EMAIL", id(4)),
                     ("GIT_COMMITTER_DATE", committer_date),
                 ],
-            )?
+            )
+            .await?
             .stdout
             .trim()
             .to_string();
@@ -942,41 +984,30 @@ impl GitRepositoryService {
             .map_or(0, |d| d.as_millis());
         let backup_prefix = format!("refs/tuig/stash-rename-{}-{millis}", std::process::id());
         for (i, entry) in entries.iter().enumerate() {
-            self.git(&["update-ref", &format!("{backup_prefix}/{i}"), &entry.0])?;
+            self.git(&["update-ref", &format!("{backup_prefix}/{i}"), &entry.0])
+                .await?;
         }
-        let rebuild = |stack: &[(String, String)]| -> Result<()> {
-            let _ = self.git(&["reflog", "expire", "--expire=all", "refs/stash"]);
-            self.git(&["update-ref", "-d", "refs/stash"])?;
-            for (sha, message) in stack.iter().rev() {
-                self.git(&["stash", "store", "-m", message, sha])?;
-            }
-            Ok(())
-        };
         // Rebuild oldest first because Git provides no reflog-message edit.
         // The temporary refs keep every stash reachable while refs/stash is absent.
-        let (result, cleanup) = match rebuild(&entries) {
+        let (result, cleanup) = match self.rebuild_stashes(&entries).await {
             Ok(()) => (Ok(()), true),
-            Err(error) => (Err(error), rebuild(&originals).is_ok()),
+            Err(error) => (Err(error), self.rebuild_stashes(&originals).await.is_ok()),
             // When restoration fails, keep the backup refs so no stash is lost.
         };
         if cleanup {
             for i in 0..entries.len() {
-                let _ = self.git(&["update-ref", "-d", &format!("{backup_prefix}/{i}")]);
+                let _ = self
+                    .git(&["update-ref", "-d", &format!("{backup_prefix}/{i}")])
+                    .await;
             }
         }
         result
     }
 }
 
-/// Runs inside `thread::scope`: waits for a worker, passing a worker panic on.
-fn join<T>(handle: std::thread::ScopedJoinHandle<'_, T>) -> T {
-    handle
-        .join()
-        .unwrap_or_else(|panic| std::panic::resume_unwind(panic))
-}
-
-fn suggestions(path: &Path, exists: bool) -> Vec<String> {
+async fn suggestions(path: &Path, exists: bool) -> Vec<String> {
     nearby_repositories(path, exists)
+        .await
         .into_iter()
         .map(|p| p.to_string_lossy().into_owned())
         .collect()
@@ -1055,13 +1086,14 @@ fn parse_git_quoted_path(path: &str) -> String {
 }
 
 /// Opens a repository. Equivalent of the TypeScript `createGitRepository`.
-pub fn create_git_repository(path: impl AsRef<Path>) -> Result<GitRepositoryService> {
-    GitRepositoryService::open(path)
+pub async fn create_git_repository(path: impl AsRef<Path>) -> Result<GitRepositoryService> {
+    GitRepositoryService::open(path).await
 }
 
+#[async_trait]
 impl GitRepository for GitRepositoryService {
-    fn dispose(&self) {
-        self.walk.invalidate();
+    async fn dispose(&self) {
+        self.walk.invalidate().await;
     }
 
     fn root(&self) -> &str {
@@ -1072,8 +1104,8 @@ impl GitRepository for GitRepositoryService {
         self.main_worktree.as_deref()
     }
 
-    fn remote_url(&self) -> Option<String> {
-        let url = self.git(&["remote", "get-url", "origin"]).ok()?;
+    async fn remote_url(&self) -> Option<String> {
+        let url = self.git(&["remote", "get-url", "origin"]).await.ok()?;
         let url = url.stdout.trim();
         (!url.is_empty()).then(|| url.to_string())
     }
@@ -1082,13 +1114,15 @@ impl GitRepository for GitRepositoryService {
         self.auth_blocked.load(Ordering::SeqCst)
     }
 
-    fn watch_paths(&self) -> Result<Option<RepositoryWatchPaths>> {
-        let dirs = self.git(&[
-            "rev-parse",
-            "--path-format=absolute",
-            "--git-dir",
-            "--git-common-dir",
-        ])?;
+    async fn watch_paths(&self) -> Result<Option<RepositoryWatchPaths>> {
+        let dirs = self
+            .git(&[
+                "rev-parse",
+                "--path-format=absolute",
+                "--git-dir",
+                "--git-common-dir",
+            ])
+            .await?;
         let text = dirs.stdout.trim();
         let mut lines = text.split('\n');
         let git_dir = lines.next().unwrap_or("");
@@ -1106,24 +1140,24 @@ impl GitRepository for GitRepositoryService {
         }))
     }
 
-    fn snapshot(&self, limit: usize) -> Result<RepositorySnapshot> {
+    async fn snapshot(&self, limit: usize) -> Result<RepositorySnapshot> {
         // A snapshot is the refresh point for new history, so the walk restarts
         // from the tip rather than continuing one taken before a fetch or commit.
-        self.invalidate_history();
-        let metadata = self.read_snapshot_metadata()?;
-        let log = self.commit_page(limit, 0)?;
+        self.invalidate_history().await;
+        let metadata = self.read_snapshot_metadata().await?;
+        let log = self.commit_page(limit, 0).await?;
         let signature = metadata.history_signature.clone();
         let snapshot = self.build_snapshot(metadata, log.commits, log.complete);
         self.remember_signature(&snapshot.commits, signature);
         Ok(snapshot)
     }
 
-    fn refresh_snapshot(
+    async fn refresh_snapshot(
         &self,
         previous: &RepositorySnapshot,
         limit: usize,
     ) -> Result<RepositorySnapshot> {
-        let metadata = self.read_snapshot_metadata()?;
+        let metadata = self.read_snapshot_metadata().await?;
         let prior = self.signatures().get(&tip_key(&previous.commits)).cloned();
         if prior.as_ref() == Some(&metadata.history_signature)
             && (previous.commits_complete || previous.commits.len() >= limit)
@@ -1137,8 +1171,8 @@ impl GitRepository for GitRepositoryService {
             self.remember_signature(&snapshot.commits, signature);
             return Ok(snapshot);
         }
-        self.invalidate_history();
-        let log = self.commit_page(limit, 0)?;
+        self.invalidate_history().await;
+        let log = self.commit_page(limit, 0).await?;
         let signature = metadata.history_signature.clone();
         let snapshot = self.build_snapshot(metadata, log.commits, log.complete);
         self.remember_signature(&snapshot.commits, signature);
@@ -1152,7 +1186,7 @@ impl GitRepository for GitRepositoryService {
     /// is served from a `CommitWalk` held open across calls, so reading pages
     /// in sequence costs only the commits each page emits. A `skip` the open
     /// walk cannot reach restarts it with `--skip`.
-    fn commit_page(&self, limit: usize, skip: usize) -> Result<CommitPage> {
+    async fn commit_page(&self, limit: usize, skip: usize) -> Result<CommitPage> {
         let wanted = limit.max(1);
         let offset = skip;
         // Git's default walk is already newest-first by commit date.
@@ -1164,13 +1198,13 @@ impl GitRepository for GitRepositoryService {
         // The walk excludes refs/stash, so each stash tip is layered back here
         // as a single row. A stash can outlive newer commits, so merge tips by
         // commit time instead of always putting them at the top.
-        let tips = self.stash_tip_commits();
+        let tips = self.stash_tip_commits().await;
         // At most every tip can occur before this page, so this is the earliest
         // ordinary commit that could occupy `offset`. Including all tips then
         // gives the merged window a known global starting position.
         let walk_offset = offset.saturating_sub(tips.len());
         let local_offset = offset - walk_offset;
-        let walked = self.walk.read(walk_offset, wanted + tips.len() + 1)?;
+        let walked = self.walk.read(walk_offset, wanted + tips.len() + 1).await?;
         let mut merged: Vec<Commit> = tips.into_iter().chain(walked).collect();
         merged
             .sort_by_key(|c| std::cmp::Reverse(parse_instant(&c.committed_at).unwrap_or(i64::MIN)));
@@ -1193,21 +1227,18 @@ impl GitRepository for GitRepositoryService {
     ///
     /// Staging a file cannot change history, so the index mutations refresh
     /// through this instead of paying for the full snapshot's history walk.
-    fn working_status(&self) -> Result<WorkingStatus> {
-        let (status, worktrees) = std::thread::scope(|scope| {
-            let status = scope.spawn(|| {
-                self.git(&[
-                    "--no-optional-locks",
-                    "status",
-                    "--porcelain=v2",
-                    "--untracked-files=all",
-                    "--branch",
-                    "-z",
-                ])
-            });
-            let worktrees = self.git(&["worktree", "list", "--porcelain"]);
-            (join(status), worktrees)
-        });
+    async fn working_status(&self) -> Result<WorkingStatus> {
+        let (status, worktrees) = tokio::join!(
+            self.git(&[
+                "--no-optional-locks",
+                "status",
+                "--porcelain=v2",
+                "--untracked-files=all",
+                "--branch",
+                "-z",
+            ]),
+            self.git(&["worktree", "list", "--porcelain"]),
+        );
         let status = status?.stdout;
         let worktrees = worktrees?.stdout;
         let tracking = parse_tracking(&status);
@@ -1224,7 +1255,7 @@ impl GitRepository for GitRepositoryService {
     }
 
     /// Reads the history of one path on the current branch or from `start`.
-    fn file_history(&self, path: &str, start: Option<&str>) -> Result<Vec<Commit>> {
+    async fn file_history(&self, path: &str, start: Option<&str>) -> Result<Vec<Commit>> {
         Self::validate_history_path(path)?;
         if let Some(start) = start {
             Self::validate_commit_ref(start)?;
@@ -1234,23 +1265,30 @@ impl GitRepository for GitRepositoryService {
             args.extend(["--end-of-options", start]);
         }
         args.extend(["--", path]);
-        Ok(parse_log(&self.git(&args)?.stdout))
+        Ok(parse_log(&self.git(&args).await?.stdout))
     }
 
     /// Reads commits that changed the ancestry of one line.
-    fn line_history(&self, path: &str, line: usize, start: Option<&str>) -> Result<Vec<Commit>> {
+    async fn line_history(
+        &self,
+        path: &str,
+        line: usize,
+        start: Option<&str>,
+    ) -> Result<Vec<Commit>> {
         let start = start.unwrap_or("HEAD");
         Self::validate_history_path(path)?;
         Self::validate_line(line)?;
         Self::validate_commit_ref(start)?;
-        let result = self.git(&[
-            "log",
-            "--decorate",
-            "-z",
-            LOG_FORMAT,
-            &format!("-L{line},{line}:{path}"),
-            start,
-        ])?;
+        let result = self
+            .git(&[
+                "log",
+                "--decorate",
+                "-z",
+                LOG_FORMAT,
+                &format!("-L{line},{line}:{path}"),
+                start,
+            ])
+            .await?;
         // -L necessarily emits patches between formatted records. Keep only the
         // machine-formatted commit portions before passing them to the log parser.
         let mut records = String::new();
@@ -1274,21 +1312,23 @@ impl GitRepository for GitRepositoryService {
     }
 
     /// Blames one line at a commit, defaulting to HEAD.
-    fn blame_line(&self, path: &str, line: usize, commit: Option<&str>) -> Result<LineBlame> {
+    async fn blame_line(&self, path: &str, line: usize, commit: Option<&str>) -> Result<LineBlame> {
         let commit = commit.unwrap_or("HEAD");
         Self::validate_history_path(path)?;
         Self::validate_line(line)?;
         Self::validate_commit_ref(commit)?;
         // Unlike log/show, blame does not accept --end-of-options. Validating
         // the ref keeps it from becoming an option, and -- disambiguates the path.
-        let blame = self.git(&[
-            "blame",
-            "--line-porcelain",
-            &format!("-L{line},{line}"),
-            commit,
-            "--",
-            path,
-        ])?;
+        let blame = self
+            .git(&[
+                "blame",
+                "--line-porcelain",
+                &format!("-L{line},{line}"),
+                commit,
+                "--",
+                path,
+            ])
+            .await?;
         let Some(header) = BLAME_HEADER.captures(&blame.stdout) else {
             return Err(refused(format!(
                 "Git returned no blame information for {path}:{line}"
@@ -1301,15 +1341,17 @@ impl GitRepository for GitRepositoryService {
             .stdout
             .split('\n')
             .find_map(|entry| entry.strip_prefix("filename "));
-        let details = self.git(&[
-            "show",
-            "-s",
-            "--decorate",
-            "-z",
-            LOG_FORMAT,
-            "--end-of-options",
-            &format!("{sha}^{{commit}}"),
-        ])?;
+        let details = self
+            .git(&[
+                "show",
+                "-s",
+                "--decorate",
+                "-z",
+                LOG_FORMAT,
+                "--end-of-options",
+                &format!("{sha}^{{commit}}"),
+            ])
+            .await?;
         let Some(blamed) = parse_log(&details.stdout).into_iter().next() else {
             return Err(refused(format!(
                 "Git returned no commit information for {sha}"
@@ -1327,12 +1369,12 @@ impl GitRepository for GitRepositoryService {
         })
     }
 
-    fn diff(&self, r: &DiffRequest) -> Result<String> {
+    async fn diff(&self, r: &DiffRequest) -> Result<String> {
         if present(r.base.as_deref()).is_some() || present(r.target.as_deref()).is_some() {
-            return self.comparison_diff(r);
+            return self.comparison_diff(r).await;
         }
         if let Some(commit) = present(r.commit.as_deref()) {
-            return self.commit_diff(r, commit);
+            return self.commit_diff(r, commit).await;
         }
         let path = present(r.path.as_deref());
         let mut args: Vec<String> = vec!["diff".into(), "--no-ext-diff".into()];
@@ -1342,7 +1384,9 @@ impl GitRepository for GitRepositoryService {
         args.extend(context_flag(r));
         args.push("--".into());
         args.extend(path.map(String::from));
-        let result = self.git_limited(&args, r.cancel.as_ref(), r.max_bytes)?;
+        let result = self
+            .git_limited(&args, r.cancel.as_ref(), r.max_bytes)
+            .await?;
         let Some(path) = path else {
             return Ok(result.stdout);
         };
@@ -1355,6 +1399,7 @@ impl GitRepository for GitRepositoryService {
                 r.cancel.as_ref(),
                 None,
             )
+            .await
             .is_ok()
         {
             return Ok(String::new());
@@ -1363,29 +1408,34 @@ impl GitRepository for GitRepositoryService {
             vec!["diff".into(), "--no-index".into(), "--no-ext-diff".into()];
         args.extend(context_flag(r));
         args.extend(["--", "/dev/null", path].map(String::from));
-        match self.git_limited(&args, r.cancel.as_ref(), r.max_bytes) {
+        match self
+            .git_limited(&args, r.cancel.as_ref(), r.max_bytes)
+            .await
+        {
             Err(GitError::Command(error)) if error.result.exit_code == 1 => Ok(error.result.stdout),
             Err(error) => Err(error),
             Ok(_) => Ok(String::new()),
         }
     }
 
-    fn commit_files(&self, sha: &str, base: Option<&str>) -> Result<Vec<ChangedFile>> {
+    async fn commit_files(&self, sha: &str, base: Option<&str>) -> Result<Vec<ChangedFile>> {
         if let Some(base) = present(base) {
             Self::validate_commit_ref(base)?;
             Self::validate_commit_ref(sha)?;
-            let out = self.git(&[
-                "diff",
-                "--name-status",
-                "-z",
-                "-M",
-                "--end-of-options",
-                base,
-                sha,
-            ])?;
+            let out = self
+                .git(&[
+                    "diff",
+                    "--name-status",
+                    "-z",
+                    "-M",
+                    "--end-of-options",
+                    base,
+                    sha,
+                ])
+                .await?;
             return Ok(parse_name_status(&out.stdout));
         }
-        let (resolved, parents, untracked_parent) = self.commit_details(sha, None)?;
+        let (resolved, parents, untracked_parent) = self.commit_details(sha, None).await?;
         let mut args = vec![
             "diff-tree",
             "--root",
@@ -1399,7 +1449,7 @@ impl GitRepository for GitRepositoryService {
             Some(parent) => args.extend([parent.as_str(), resolved.as_str()]),
             None => args.push(&resolved),
         }
-        let mut files = parse_name_status(&self.git(&args)?.stdout);
+        let mut files = parse_name_status(&self.git(&args).await?.stdout);
         if let Some(untracked) = untracked_parent {
             let mut args = vec![
                 "diff-tree",
@@ -1411,7 +1461,7 @@ impl GitRepository for GitRepositoryService {
                 "-M",
             ];
             args.push(&untracked);
-            files.extend(parse_name_status(&self.git(&args)?.stdout));
+            files.extend(parse_name_status(&self.git(&args).await?.stdout));
         }
         let mut seen: Vec<String> = Vec::new();
         files.retain(|file| {
@@ -1425,38 +1475,38 @@ impl GitRepository for GitRepositoryService {
         Ok(files)
     }
 
-    fn stage(&self, paths: &[String]) -> Result<()> {
+    async fn stage(&self, paths: &[String]) -> Result<()> {
         let mut args = vec!["add", "--"];
         args.extend(paths.iter().map(String::as_str));
-        self.git(&args)?;
+        self.git(&args).await?;
         Ok(())
     }
 
-    fn unstage(&self, paths: &[String]) -> Result<()> {
+    async fn unstage(&self, paths: &[String]) -> Result<()> {
         let mut args = vec!["reset", "HEAD", "--"];
         args.extend(paths.iter().map(String::as_str));
-        self.git(&args)?;
+        self.git(&args).await?;
         Ok(())
     }
 
-    fn apply_patch(&self, patch: &str, reverse: bool) -> Result<()> {
+    async fn apply_patch(&self, patch: &str, reverse: bool) -> Result<()> {
         let mut args = vec!["apply", "--cached"];
         if reverse {
             args.push("--reverse");
         }
-        self.apply(&args, patch)
+        self.apply(&args, patch).await
     }
 
-    fn discard_patch(&self, patch: &str) -> Result<()> {
-        self.apply(&["apply", "--reverse"], patch)
+    async fn discard_patch(&self, patch: &str) -> Result<()> {
+        self.apply(&["apply", "--reverse"], patch).await
     }
 
-    fn discard_all(&self) -> Result<()> {
+    async fn discard_all(&self) -> Result<()> {
         // discard restores tracked files and removes untracked content.
-        self.discard(&[".".to_string()])
+        self.discard(&[".".to_string()]).await
     }
 
-    fn discard(&self, paths: &[String]) -> Result<()> {
+    async fn discard(&self, paths: &[String]) -> Result<()> {
         if paths.is_empty() {
             return Ok(());
         }
@@ -1474,7 +1524,7 @@ impl GitRepository for GitRepositoryService {
         // restore makes the whole command fail before the path can be cleaned.
         let mut args: Vec<&str> = vec!["ls-files", "-z", "--"];
         args.extend(literal.iter().map(String::as_str));
-        let listing = self.git(&args)?.stdout;
+        let listing = self.git(&args).await?.stdout;
         let tracked: Vec<String> = listing
             .split('\0')
             .filter(|p| !p.is_empty())
@@ -1483,41 +1533,47 @@ impl GitRepository for GitRepositoryService {
         if !tracked.is_empty() {
             let mut args: Vec<&str> = vec!["restore", "--worktree", "--"];
             args.extend(tracked.iter().map(String::as_str));
-            self.git(&args)?;
+            self.git(&args).await?;
         }
         // clean ignores tracked files. Restrict it to the requested pathspecs
         // and deliberately omit -x so ignored content is never deleted.
         let mut args: Vec<&str> = vec!["clean", "-fd", "--"];
         args.extend(literal.iter().map(String::as_str));
-        self.git(&args)?;
+        self.git(&args).await?;
         Ok(())
     }
 
-    fn commit(&self, message: &str) -> Result<()> {
-        self.git(&["commit", "-m", message])?;
+    async fn commit(&self, message: &str) -> Result<()> {
+        self.git(&["commit", "-m", message]).await?;
         Ok(())
     }
 
-    fn amend_commit(&self, message: &str) -> Result<()> {
-        self.git(&["commit", "--amend", "-m", message])?;
+    async fn amend_commit(&self, message: &str) -> Result<()> {
+        self.git(&["commit", "--amend", "-m", message]).await?;
         Ok(())
     }
 
-    fn reword_commit(&self, sha: &str, message: &str) -> Result<()> {
-        let status = self.git(&["status", "--porcelain"])?;
+    async fn reword_commit(&self, sha: &str, message: &str) -> Result<()> {
+        let status = self.git(&["status", "--porcelain"]).await?;
         if !status.stdout.is_empty() {
             return Err(refused("Cannot reword a commit with a dirty worktree"));
         }
-        if self.git(&["symbolic-ref", "--quiet", "HEAD"]).is_err() {
+        if self
+            .git(&["symbolic-ref", "--quiet", "HEAD"])
+            .await
+            .is_err()
+        {
             return Err(refused("Cannot reword a commit while HEAD is detached"));
         }
         let target = self
-            .git(&["rev-parse", "--verify", &format!("{sha}^{{commit}}")])?
+            .git(&["rev-parse", "--verify", &format!("{sha}^{{commit}}")])
+            .await?
             .stdout
             .trim()
             .to_string();
         if self
             .git(&["merge-base", "--is-ancestor", &target, "HEAD"])
+            .await
             .is_err()
         {
             return Err(refused(
@@ -1525,11 +1581,12 @@ impl GitRepository for GitRepositoryService {
             ));
         }
         let parents = self
-            .git(&["show", "-s", "--format=%P", &target])?
+            .git(&["show", "-s", "--format=%P", &target])
+            .await?
             .stdout
             .trim()
             .to_string();
-        self.invalidate_history();
+        self.invalidate_history().await;
         let helpers = RewordHelpers::create(message, &target)?;
         let mut options = self.options();
         options.env = vec![
@@ -1556,28 +1613,28 @@ impl GitRepository for GitRepositoryService {
                 &parent_ref,
             ]
         };
-        let result = run_git_with(&args, &options);
+        let result = run_git_with(&args, &options).await;
         if result.is_err() {
             // A failed interactive rebase leaves repository state behind unless
             // it is explicitly aborted. Keep the original error, which explains
             // why the requested reword failed, rather than the abort cleanup's.
-            let _ = self.git(&["rebase", "--abort"]);
+            let _ = self.git(&["rebase", "--abort"]).await;
         }
         drop(helpers);
         result.map(|_| ())
     }
 
-    fn switch_branch(&self, name: &str) -> Result<()> {
-        self.git(&["switch", name])?;
-        self.sync_submodules()
+    async fn switch_branch(&self, name: &str) -> Result<()> {
+        self.git(&["switch", name]).await?;
+        self.sync_submodules().await
     }
 
-    fn checkout_commit(&self, sha: &str) -> Result<()> {
-        self.git(&["checkout", "--detach", sha])?;
-        self.sync_submodules()
+    async fn checkout_commit(&self, sha: &str) -> Result<()> {
+        self.git(&["checkout", "--detach", sha]).await?;
+        self.sync_submodules().await
     }
 
-    fn checkout_remote_branch(&self, local: &str, remote: &str, reset: bool) -> Result<()> {
+    async fn checkout_remote_branch(&self, local: &str, remote: &str, reset: bool) -> Result<()> {
         // `-C` moves an existing local branch onto the remote tip, discarding
         // the local commits that are not on the remote.
         self.git(&[
@@ -1586,47 +1643,44 @@ impl GitRepository for GitRepositoryService {
             local,
             "--track",
             remote,
-        ])?;
-        self.sync_submodules()
+        ])
+        .await?;
+        self.sync_submodules().await
     }
 
-    fn get_undo_preview(&self) -> Result<UndoPreview> {
-        undo::get_undo_preview(&|args| self.git(args))
+    async fn get_undo_preview(&self) -> Result<UndoPreview> {
+        undo::get_undo_preview(self).await
     }
 
-    fn undo(&self, preview: &UndoPreview) -> Result<()> {
-        undo::undo(
-            &|args| self.git(args),
-            &|args, env| self.git_env(args, env),
-            preview,
-        )
+    async fn undo(&self, preview: &UndoPreview) -> Result<()> {
+        undo::undo(self, preview).await
     }
 
-    fn reset_to(&self, sha: &str, mode: ResetMode) -> Result<()> {
-        self.git(&["reset", mode.flag(), sha])?;
+    async fn reset_to(&self, sha: &str, mode: ResetMode) -> Result<()> {
+        self.git(&["reset", mode.flag(), sha]).await?;
         if mode == ResetMode::Hard {
-            self.sync_submodules()?;
+            self.sync_submodules().await?;
         }
         Ok(())
     }
 
-    fn rebase_onto(&self, reference: &str) -> Result<()> {
-        self.git(&["rebase", reference])?;
+    async fn rebase_onto(&self, reference: &str) -> Result<()> {
+        self.git(&["rebase", reference]).await?;
         Ok(())
     }
 
-    fn cherry_pick(&self, sha: &str) -> Result<()> {
+    async fn cherry_pick(&self, sha: &str) -> Result<()> {
         if sha.trim().is_empty() || sha.contains('\0') {
             return Err(invalid("A commit is required for cherry-pick"));
         }
         // Keep a ref supplied by a caller from being interpreted as a
         // cherry-pick option (for example, `--abort`).
-        self.git(&["cherry-pick", "--", sha])?;
+        self.git(&["cherry-pick", "--", sha]).await?;
         Ok(())
     }
 
     /// Creates a lightweight tag; annotated tags are deliberately not implied.
-    fn create_tag(&self, name: &str, target: Option<&str>) -> Result<()> {
+    async fn create_tag(&self, name: &str, target: Option<&str>) -> Result<()> {
         if name.trim().is_empty() || name.contains('\0') {
             return Err(invalid("A tag name is required"));
         }
@@ -1641,62 +1695,69 @@ impl GitRepository for GitRepositoryService {
             "check-ref-format",
             "--allow-onelevel",
             &format!("refs/tags/{name}"),
-        ])?;
+        ])
+        .await?;
         // `--` also makes otherwise valid names beginning with `-` safe.
         let mut args = vec!["tag", "--", name];
         args.extend(target);
-        self.git(&args)?;
+        self.git(&args).await?;
         Ok(())
     }
 
-    fn push_tag(
+    async fn push_tag(
         &self,
         name: &str,
         remote: Option<&str>,
         cancel: Option<&CancelToken>,
     ) -> Result<()> {
-        self.validate_tag_name(name)?;
+        self.validate_tag_name(name).await?;
         let reference = format!("refs/tags/{name}");
         let remote = present(remote);
         let mut args = vec!["push"];
         args.extend(remote);
         args.extend(["--", &reference]);
         self.remote_git(RemoteOperation::Push, &args, remote, cancel)
+            .await
     }
 
-    fn delete_tag(&self, name: &str) -> Result<()> {
-        self.validate_tag_name(name)?;
-        self.git(&["tag", "--delete", "--", name])?;
+    async fn delete_tag(&self, name: &str) -> Result<()> {
+        self.validate_tag_name(name).await?;
+        self.git(&["tag", "--delete", "--", name]).await?;
         Ok(())
     }
 
-    fn create_branch(&self, name: &str, start_point: Option<&str>, checkout: bool) -> Result<()> {
+    async fn create_branch(
+        &self,
+        name: &str,
+        start_point: Option<&str>,
+        checkout: bool,
+    ) -> Result<()> {
         let mut args = vec!["branch"];
         if checkout {
             args.push("--create-reflog");
         }
         args.push(name);
         args.extend(present(start_point));
-        self.git(&args)?;
+        self.git(&args).await?;
         if checkout {
-            self.switch_branch(name)?;
+            self.switch_branch(name).await?;
         }
         Ok(())
     }
 
-    fn delete_branch(&self, name: &str, force: bool, remote: bool) -> Result<()> {
+    async fn delete_branch(&self, name: &str, force: bool, remote: bool) -> Result<()> {
         let mut args = vec!["branch"];
         if remote {
             args.push("-r");
         }
         args.push(if force { "-D" } else { "-d" });
         args.push(name);
-        self.git(&args)?;
+        self.git(&args).await?;
         Ok(())
     }
 
-    fn delete_remote_branch(&self, name: &str, cancel: Option<&CancelToken>) -> Result<()> {
-        let listing = self.git(&["remote"])?.stdout;
+    async fn delete_remote_branch(&self, name: &str, cancel: Option<&CancelToken>) -> Result<()> {
+        let listing = self.git(&["remote"]).await?.stdout;
         let remote = listing
             .trim()
             .split('\n')
@@ -1709,7 +1770,8 @@ impl GitRepository for GitRepositoryService {
             .max_by_key(|candidate| candidate.len())
             .ok_or_else(|| refused(format!("No configured remote for {name}")))?;
         let branch = &name[remote.len() + 1..];
-        self.git(&["check-ref-format", &format!("refs/heads/{branch}")])?;
+        self.git(&["check-ref-format", &format!("refs/heads/{branch}")])
+            .await?;
         self.remote_git(
             RemoteOperation::Push,
             &[
@@ -1722,26 +1784,29 @@ impl GitRepository for GitRepositoryService {
             Some(remote),
             cancel,
         )
+        .await
     }
 
-    fn fetch(&self, remote: Option<&str>, cancel: Option<&CancelToken>) -> Result<()> {
+    async fn fetch(&self, remote: Option<&str>, cancel: Option<&CancelToken>) -> Result<()> {
         // Remove remote-tracking refs that disappeared from the remote. Without
         // pruning, the sidebar and graph keep showing branches deleted upstream.
         let remote = present(remote);
         let mut args = vec!["fetch", "--prune"];
         args.extend(remote);
         self.remote_git(RemoteOperation::Fetch, &args, remote, cancel)
+            .await
     }
 
-    fn pull(&self, rebase: bool, cancel: Option<&CancelToken>) -> Result<()> {
+    async fn pull(&self, rebase: bool, cancel: Option<&CancelToken>) -> Result<()> {
         let mut args = vec!["pull"];
         if rebase {
             args.push("--rebase");
         }
         self.remote_git(RemoteOperation::Pull, &args, None, cancel)
+            .await
     }
 
-    fn push(
+    async fn push(
         &self,
         remote: Option<&str>,
         set_upstream: bool,
@@ -1754,9 +1819,10 @@ impl GitRepository for GitRepositoryService {
         }
         args.extend(remote);
         self.remote_git(RemoteOperation::Push, &args, remote, cancel)
+            .await
     }
 
-    fn stash(&self, message: Option<&str>, include_untracked: bool) -> Result<()> {
+    async fn stash(&self, message: Option<&str>, include_untracked: bool) -> Result<()> {
         let mut args = vec!["stash", "push"];
         if include_untracked {
             args.push("--include-untracked");
@@ -1764,46 +1830,53 @@ impl GitRepository for GitRepositoryService {
         if let Some(message) = present(message) {
             args.extend(["-m", message]);
         }
-        self.git(&args)?;
+        self.git(&args).await?;
         Ok(())
     }
 
-    fn apply_stash(&self, reference: &str, pop: bool) -> Result<()> {
-        self.git(&["stash", if pop { "pop" } else { "apply" }, reference])?;
+    async fn apply_stash(&self, reference: &str, pop: bool) -> Result<()> {
+        self.git(&["stash", if pop { "pop" } else { "apply" }, reference])
+            .await?;
         Ok(())
     }
 
-    fn pop_stash(&self, reference: &str) -> Result<()> {
-        self.apply_stash(reference, true)
+    async fn pop_stash(&self, reference: &str) -> Result<()> {
+        self.apply_stash(reference, true).await
     }
 
-    fn drop_stash(&self, reference: &str) -> Result<()> {
-        self.git(&["stash", "drop", reference])?;
+    async fn drop_stash(&self, reference: &str) -> Result<()> {
+        self.git(&["stash", "drop", reference]).await?;
         Ok(())
     }
 
-    fn rename_stash(&self, reference: &str, message: &str) -> Result<()> {
-        self.rename_stash_inner(reference, message)
+    async fn rename_stash(&self, reference: &str, message: &str) -> Result<()> {
+        self.rename_stash_inner(reference, message).await
     }
 
-    fn update_submodule(&self, path: &str, init: bool) -> Result<()> {
+    async fn update_submodule(&self, path: &str, init: bool) -> Result<()> {
         Self::validate_submodule_path(path)?;
         let mut args = vec!["submodule", "update"];
         if init {
             args.push("--init");
         }
         args.extend(["--recursive", "--", path]);
-        self.git(&args)?;
+        self.git(&args).await?;
         Ok(())
     }
 
-    fn sync_submodule(&self, path: &str) -> Result<()> {
+    async fn sync_submodule(&self, path: &str) -> Result<()> {
         Self::validate_submodule_path(path)?;
-        self.git(&["submodule", "sync", "--recursive", "--", path])?;
+        self.git(&["submodule", "sync", "--recursive", "--", path])
+            .await?;
         Ok(())
     }
 
-    fn add_worktree(&self, path: &str, branch: Option<&str>, create_branch: bool) -> Result<()> {
+    async fn add_worktree(
+        &self,
+        path: &str,
+        branch: Option<&str>,
+        create_branch: bool,
+    ) -> Result<()> {
         let branch = present(branch);
         let mut args = vec!["worktree", "add"];
         if let (true, Some(branch)) = (create_branch, branch) {
@@ -1813,27 +1886,27 @@ impl GitRepository for GitRepositoryService {
         if let (false, Some(branch)) = (create_branch, branch) {
             args.push(branch);
         }
-        self.git(&args)?;
+        self.git(&args).await?;
         Ok(())
     }
 
-    fn remove_worktree(&self, path: &str, force: bool) -> Result<()> {
+    async fn remove_worktree(&self, path: &str, force: bool) -> Result<()> {
         let mut args = vec!["worktree", "remove"];
         if force {
             args.push("--force");
         }
         args.push(path);
-        self.git(&args)?;
+        self.git(&args).await?;
         Ok(())
     }
 
-    fn lock_worktree(&self, path: &str, lock: bool, reason: Option<&str>) -> Result<()> {
+    async fn lock_worktree(&self, path: &str, lock: bool, reason: Option<&str>) -> Result<()> {
         let mut args = vec!["worktree", if lock { "lock" } else { "unlock" }];
         if let (true, Some(reason)) = (lock, present(reason)) {
             args.extend(["--reason", reason]);
         }
         args.push(path);
-        self.git(&args)?;
+        self.git(&args).await?;
         Ok(())
     }
 }

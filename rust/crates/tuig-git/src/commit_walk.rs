@@ -2,21 +2,27 @@
 //! goes stale. Port of `src/git/commit-walk.ts`.
 //!
 //! Differences from the TypeScript version:
-//! - Reads are blocking. A `Mutex` serialises readers, as the promise chain did.
+//! - Reads are async. A tokio `Mutex` serialises readers, as the promise chain
+//!   did. A read that is dropped before it finishes leaves the walk in an
+//!   unknown state, so the next read restarts it.
 //! - The child's stdout is a pipe that nobody drains ahead of the reader, so
 //!   Git blocks once the pipe is full. The open walk holds no unread history
 //!   in memory, which makes the TypeScript chunk-size doubling unnecessary
 //!   for memory. The chunk sizes stay because they decide where `--skip`
 //!   restarts happen, and so how many commits Git walks.
-//! - The idle timer is a short-lived thread per read. It closes the walk when
-//!   no later read bumped the epoch within [`IDLE`].
+//! - The idle timer is one tokio task. Each read replaces it. It closes the
+//!   walk when no later read bumped the epoch within [`IDLE`].
+//! - Dropping the walk kills the `git log` child (`kill_on_drop`).
 
 use std::collections::VecDeque;
-use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
-use std::process::{Child, ChildStdout, Command, Stdio};
-use std::sync::{Arc, Mutex, MutexGuard, PoisonError, Weak};
+use std::process::Stdio;
+use std::sync::{Arc, Mutex, PoisonError, Weak};
 use std::time::Duration;
+
+use tokio::io::{AsyncBufReadExt, BufReader};
+use tokio::process::{Child, ChildStdout, Command};
+use tokio::task::JoinHandle;
 
 use crate::parsers::parse_log;
 use crate::process::{GitError, NON_INTERACTIVE_ENV};
@@ -65,6 +71,9 @@ struct Running {
 }
 
 struct Inner {
+    /// Set while a read runs. Still set at the start of a read means the last
+    /// one was dropped midway, so the stream position cannot be trusted.
+    in_flight: bool,
     root: PathBuf,
     running: Option<Running>,
     queue: VecDeque<Commit>,
@@ -90,17 +99,16 @@ struct Inner {
 /// through history is quadratic. Holding the walk open and continuing to read
 /// from it makes a page cost only what it emits.
 pub struct CommitWalk {
-    inner: Arc<Mutex<Inner>>,
-}
-
-fn lock(inner: &Mutex<Inner>) -> MutexGuard<'_, Inner> {
-    inner.lock().unwrap_or_else(PoisonError::into_inner)
+    inner: Arc<tokio::sync::Mutex<Inner>>,
+    idle: Mutex<Option<JoinHandle<()>>>,
 }
 
 impl CommitWalk {
     pub fn new(root: impl AsRef<Path>) -> Self {
         Self {
-            inner: Arc::new(Mutex::new(Inner {
+            idle: Mutex::new(None),
+            inner: Arc::new(tokio::sync::Mutex::new(Inner {
+                in_flight: false,
                 root: root.as_ref().to_path_buf(),
                 running: None,
                 queue: VecDeque::new(),
@@ -117,10 +125,12 @@ impl CommitWalk {
     }
 
     /// Reads up to `count` commits starting `offset` commits into the walk.
-    pub fn read(&self, offset: usize, count: usize) -> Result<Vec<Commit>, GitError> {
+    ///
+    /// Must run inside a Tokio runtime: it schedules the idle close.
+    pub async fn read(&self, offset: usize, count: usize) -> Result<Vec<Commit>, GitError> {
         let (result, epoch) = {
-            let mut inner = lock(&self.inner);
-            let result = inner.read_now(offset, count);
+            let mut inner = self.inner.lock().await;
+            let result = inner.read_now(offset, count).await;
             inner.epoch += 1;
             (result, inner.epoch)
         };
@@ -129,46 +139,64 @@ impl CommitWalk {
     }
 
     fn close_when_idle(&self, epoch: u64) {
-        let weak: Weak<Mutex<Inner>> = Arc::downgrade(&self.inner);
-        // Failing to spawn the timer only leaves the walk open until the next
-        // invalidation or drop.
-        let _ = std::thread::Builder::new()
-            .name("tuig-walk-idle".into())
-            .spawn(move || {
-                std::thread::sleep(IDLE);
-                if let Some(inner) = weak.upgrade() {
-                    let mut inner = lock(&inner);
-                    if inner.epoch == epoch {
-                        inner.invalidate();
-                    }
+        let weak: Weak<tokio::sync::Mutex<Inner>> = Arc::downgrade(&self.inner);
+        let task = tokio::spawn(async move {
+            tokio::time::sleep(IDLE).await;
+            if let Some(inner) = weak.upgrade() {
+                let mut inner = inner.lock().await;
+                if inner.epoch == epoch {
+                    inner.invalidate();
                 }
-            });
+            }
+        });
+        // The previous timer is stale. Stop it instead of letting it sleep on.
+        let previous = self
+            .idle
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .replace(task);
+        if let Some(previous) = previous {
+            previous.abort();
+        }
     }
 
     /// Drops the walk, so the next read starts a fresh one.
-    pub fn invalidate(&self) {
-        lock(&self.inner).invalidate();
+    pub async fn invalidate(&self) {
+        self.inner.lock().await.invalidate();
     }
 
     #[cfg(test)]
-    pub(crate) fn starts(&self) -> usize {
-        lock(&self.inner).starts
+    pub(crate) async fn starts(&self) -> usize {
+        self.inner.lock().await.starts
     }
 
     #[cfg(test)]
-    pub(crate) fn is_open(&self) -> bool {
-        lock(&self.inner).running.is_some()
+    pub(crate) async fn is_open(&self) -> bool {
+        self.inner.lock().await.running.is_some()
     }
 }
 
 impl Drop for CommitWalk {
     fn drop(&mut self) {
-        self.invalidate();
+        let idle = self.idle.get_mut().unwrap_or_else(PoisonError::into_inner);
+        if let Some(task) = idle.take() {
+            task.abort();
+        }
     }
 }
 
 impl Inner {
-    fn read_now(&mut self, offset: usize, count: usize) -> Result<Vec<Commit>, GitError> {
+    async fn read_now(&mut self, offset: usize, count: usize) -> Result<Vec<Commit>, GitError> {
+        if self.in_flight {
+            self.invalidate();
+        }
+        self.in_flight = true;
+        let result = self.read_open(offset, count).await;
+        self.in_flight = false;
+        result
+    }
+
+    async fn read_open(&mut self, offset: usize, count: usize) -> Result<Vec<Commit>, GitError> {
         if !self.valid || offset > self.position || offset + self.tail.len() < self.position {
             self.start(offset, false, count)?;
         }
@@ -180,7 +208,7 @@ impl Inner {
             Vec::new()
         };
         while out.len() < count {
-            match self.next()? {
+            match self.next().await? {
                 Some(commit) => out.push(commit),
                 None => break,
             }
@@ -219,6 +247,7 @@ impl Inner {
         args.push(LOG_FORMAT.into());
         let mut command = Command::new("git");
         command
+            .kill_on_drop(true)
             .args(&args)
             .current_dir(&self.root)
             .envs(NON_INTERACTIVE_ENV)
@@ -244,10 +273,10 @@ impl Inner {
         Ok(())
     }
 
-    fn next(&mut self) -> Result<Option<Commit>, GitError> {
+    async fn next(&mut self) -> Result<Option<Commit>, GitError> {
         while self.queue.is_empty() {
             if !self.finished {
-                self.fill();
+                self.fill().await;
                 continue;
             }
             // A chunk that stopped exactly on its limit is not the end of
@@ -271,13 +300,13 @@ impl Inner {
 
     /// Reads one record. Records end with `\x1e` and git's `-z` then separates
     /// them with NUL, which `parse_log` skips.
-    fn fill(&mut self) {
+    async fn fill(&mut self) {
         let Some(running) = self.running.as_mut() else {
             self.end();
             return;
         };
         let mut record = Vec::new();
-        match running.out.read_until(0x1e, &mut record) {
+        match running.out.read_until(0x1e, &mut record).await {
             Ok(0) | Err(_) => self.end(),
             Ok(_) => {
                 let text = String::from_utf8_lossy(&record);
@@ -296,9 +325,8 @@ impl Inner {
     fn end(&mut self) {
         self.finished = true;
         if let Some(mut running) = self.running.take() {
-            drop(running.out);
-            let _ = running.child.kill();
-            let _ = running.child.wait();
+            // Tokio reaps the killed child in the background.
+            let _ = running.child.start_kill();
         }
     }
 
@@ -317,11 +345,11 @@ mod tests {
     use crate::process::run_git;
     use crate::test_util::{TempDir, commit, temp_repo};
 
-    fn make_commits(dir: &TempDir, n: usize) {
+    async fn make_commits(dir: &TempDir, n: usize) {
         for i in 0..n {
             std::fs::write(dir.path().join(format!("f{i}.txt")), format!("{i}\n")).unwrap();
-            run_git(&["add", "."], Some(dir.path())).unwrap();
-            commit(dir.path(), &format!("c{i}"));
+            run_git(&["add", "."], Some(dir.path())).await.unwrap();
+            commit(dir.path(), &format!("c{i}")).await;
         }
     }
 
@@ -329,44 +357,44 @@ mod tests {
         commits.iter().map(|c| c.subject.as_str()).collect()
     }
 
-    #[test]
-    fn sequential_reads_continue_one_process() {
-        let dir = temp_repo();
-        make_commits(&dir, 8);
+    #[tokio::test]
+    async fn sequential_reads_continue_one_process() {
+        let dir = temp_repo().await;
+        make_commits(&dir, 8).await;
         let walk = CommitWalk::new(dir.path());
-        assert_eq!(subjects(&walk.read(0, 2).unwrap()), ["c7", "c6"]);
-        assert_eq!(subjects(&walk.read(2, 2).unwrap()), ["c5", "c4"]);
-        assert_eq!(walk.starts(), 1);
+        assert_eq!(subjects(&walk.read(0, 2).await.unwrap()), ["c7", "c6"]);
+        assert_eq!(subjects(&walk.read(2, 2).await.unwrap()), ["c5", "c4"]);
+        assert_eq!(walk.starts().await, 1);
         // A small rewind is served from the tail without a restart.
-        assert_eq!(subjects(&walk.read(3, 2).unwrap()), ["c4", "c3"]);
-        assert_eq!(walk.starts(), 1);
+        assert_eq!(subjects(&walk.read(3, 2).await.unwrap()), ["c4", "c3"]);
+        assert_eq!(walk.starts().await, 1);
         // A jump past the position restarts with --skip.
-        assert_eq!(subjects(&walk.read(7, 3).unwrap()), ["c0"]);
-        assert_eq!(walk.starts(), 2);
+        assert_eq!(subjects(&walk.read(7, 3).await.unwrap()), ["c0"]);
+        assert_eq!(walk.starts().await, 2);
     }
 
-    #[test]
-    fn rewinding_past_the_tail_restarts() {
-        let dir = temp_repo();
-        make_commits(&dir, 14);
+    #[tokio::test]
+    async fn rewinding_past_the_tail_restarts() {
+        let dir = temp_repo().await;
+        make_commits(&dir, 14).await;
         let walk = CommitWalk::new(dir.path());
-        assert_eq!(walk.read(0, 12).unwrap().len(), 12);
-        let page = walk.read(1, 2).unwrap();
+        assert_eq!(walk.read(0, 12).await.unwrap().len(), 12);
+        let page = walk.read(1, 2).await.unwrap();
         assert_eq!(subjects(&page), ["c12", "c11"]);
-        assert_eq!(walk.starts(), 2);
+        assert_eq!(walk.starts().await, 2);
     }
 
-    #[test]
-    fn invalidate_makes_the_next_read_see_new_commits() {
-        let dir = temp_repo();
-        make_commits(&dir, 2);
+    #[tokio::test]
+    async fn invalidate_makes_the_next_read_see_new_commits() {
+        let dir = temp_repo().await;
+        make_commits(&dir, 2).await;
         let walk = CommitWalk::new(dir.path());
-        assert_eq!(walk.read(0, 1).unwrap()[0].subject, "c1");
+        assert_eq!(walk.read(0, 1).await.unwrap()[0].subject, "c1");
         std::fs::write(dir.path().join("extra"), "x").unwrap();
-        run_git(&["add", "."], Some(dir.path())).unwrap();
-        commit(dir.path(), "extra");
-        walk.invalidate();
-        assert!(!walk.is_open());
-        assert_eq!(walk.read(0, 1).unwrap()[0].subject, "extra");
+        run_git(&["add", "."], Some(dir.path())).await.unwrap();
+        commit(dir.path(), "extra").await;
+        walk.invalidate().await;
+        assert!(!walk.is_open().await);
+        assert_eq!(walk.read(0, 1).await.unwrap()[0].subject, "extra");
     }
 }

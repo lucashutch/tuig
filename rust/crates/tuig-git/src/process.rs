@@ -2,29 +2,38 @@
 //! types. Port of `src/git/process.ts`.
 //!
 //! Differences from the TypeScript version:
-//! - The runner is blocking. Callers that need concurrency use threads.
-//! - `AbortSignal` becomes [`CancelToken`]. A cancel token is polled every
-//!   few milliseconds, so cancellation is not instant.
+//! - The runner is async on tokio. Independent calls run together with
+//!   `tokio::join!`.
+//! - `AbortSignal` becomes [`CancelToken`], a wrapper around a tokio
+//!   `CancellationToken`. Cancelling wakes the runner at once.
+//! - Dropping the future of a run kills the Git process. When the run has a
+//!   cancel token or output limit, Git runs in its own process group and the
+//!   whole group is killed.
 //! - `RunOptions::stdin` is new. `git apply` needs patch input on stdin.
 //! - Output is decoded like `TextDecoder`: invalid UTF-8 becomes U+FFFD and a
 //!   leading byte order mark is dropped.
 
 use std::collections::HashMap;
 use std::fmt;
-use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
-use std::process::{Child, Command, Stdio};
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex, PoisonError};
-use std::thread;
+use std::process::{ExitStatus, Stdio};
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{Mutex, PoisonError};
 use std::time::{Duration, Instant};
+
+use tokio::io::{AsyncRead, AsyncReadExt, AsyncWriteExt};
+use tokio::process::Command;
+use tokio_util::sync::CancellationToken;
 
 use crate::remote_errors::RemoteAuthFailure;
 use crate::types::CommandResult;
 
-/// Shared flag that a caller sets to cancel a running command. Clones share state.
+/// Signal a caller sets to cancel a running command. Clones share state.
+///
+/// A thin wrapper over a tokio `CancellationToken`: `await` [`Self::cancelled`]
+/// in a `select!` instead of polling [`Self::is_cancelled`].
 #[derive(Debug, Clone, Default)]
-pub struct CancelToken(Arc<AtomicBool>);
+pub struct CancelToken(CancellationToken);
 
 impl CancelToken {
     pub fn new() -> Self {
@@ -32,11 +41,16 @@ impl CancelToken {
     }
 
     pub fn cancel(&self) {
-        self.0.store(true, Ordering::SeqCst);
+        self.0.cancel();
     }
 
     pub fn is_cancelled(&self) -> bool {
-        self.0.load(Ordering::SeqCst)
+        self.0.is_cancelled()
+    }
+
+    /// Completes once the token is cancelled.
+    pub async fn cancelled(&self) {
+        self.0.cancelled().await;
     }
 }
 
@@ -143,7 +157,7 @@ fn shell_path(path: &str) -> String {
     }
 }
 
-fn repository_directories(path: &Path) -> Vec<PathBuf> {
+async fn repository_directories(path: &Path) -> Vec<PathBuf> {
     let Ok(entries) = std::fs::read_dir(path) else {
         return Vec::new();
     };
@@ -158,7 +172,7 @@ fn repository_directories(path: &Path) -> Vec<PathBuf> {
             continue;
         }
         let options = RunOptions::in_dir(&candidate);
-        let Ok(result) = run_git_with(&["rev-parse", "--show-toplevel"], &options) else {
+        let Ok(result) = run_git_with(&["rev-parse", "--show-toplevel"], &options).await else {
             continue;
         };
         let root = result.stdout.trim().to_string();
@@ -195,9 +209,9 @@ fn base_name_lower(path: &Path) -> String {
 /// repositories sorted by name. Otherwise sibling repositories with a similar name.
 ///
 /// Sorting uses byte order where the TypeScript code uses `localeCompare`.
-pub fn nearby_repositories(path: &Path, path_exists: bool) -> Vec<PathBuf> {
+pub async fn nearby_repositories(path: &Path, path_exists: bool) -> Vec<PathBuf> {
     if path_exists {
-        let mut found = repository_directories(path);
+        let mut found = repository_directories(path).await;
         found.sort();
         found.truncate(3);
         return found;
@@ -207,6 +221,7 @@ pub fn nearby_repositories(path: &Path, path_exists: bool) -> Vec<PathBuf> {
     let threshold = 2.max(wanted_len * 2 / 5);
     let parent = path.parent().unwrap_or_else(|| Path::new("."));
     let mut scored: Vec<(usize, PathBuf)> = repository_directories(parent)
+        .await
         .into_iter()
         .map(|candidate| {
             (
@@ -332,16 +347,21 @@ impl RunOptions {
 }
 
 /// Run `git` with `args` in `cwd` (or the current directory).
-pub fn run_git<S: AsRef<str>>(args: &[S], cwd: Option<&Path>) -> Result<CommandResult, GitError> {
+pub async fn run_git<S: AsRef<str>>(
+    args: &[S],
+    cwd: Option<&Path>,
+) -> Result<CommandResult, GitError> {
     let options = RunOptions {
         cwd: cwd.map(Path::to_path_buf),
         ..RunOptions::default()
     };
-    run_git_with(args, &options)
+    run_git_with(args, &options).await
 }
 
 /// Run `git` and return its output, or the classified error.
-pub fn run_git_with<S: AsRef<str>>(
+///
+/// Dropping the returned future kills the Git process.
+pub async fn run_git_with<S: AsRef<str>>(
     args: &[S],
     options: &RunOptions,
 ) -> Result<CommandResult, GitError> {
@@ -354,61 +374,80 @@ pub fn run_git_with<S: AsRef<str>>(
         return Err(GitCommandAbortedError { args: owned }.into());
     }
     let _tracked = track_own_git_process();
-    run_tracked_git(owned, options)
+    run_tracked_git(owned, options).await
 }
 
 #[derive(Clone, Copy)]
-enum Sig {
+pub(crate) enum Sig {
     Term,
     Kill,
 }
 
-struct Killer {
-    isolated: bool,
-    pid: u32,
+/// Sends signals to a child, or to its whole process group when it leads one.
+#[derive(Clone, Copy)]
+pub(crate) struct Killer {
+    pub(crate) isolated: bool,
+    pub(crate) pid: Option<u32>,
 }
 
 impl Killer {
-    fn send(&self, child: &mut Child, sig: Sig) {
+    pub(crate) fn send(self, sig: Sig) {
         #[cfg(unix)]
         {
             let signal = match sig {
                 Sig::Term => libc::SIGTERM,
                 Sig::Kill => libc::SIGKILL,
             };
-            let Ok(pid) = i32::try_from(self.pid) else {
+            let Some(Ok(pid)) = self.pid.map(i32::try_from) else {
                 return;
             };
             let target = if self.isolated { -pid } else { pid };
             // SAFETY: kill has no memory effects. A stale pid yields ESRCH, which we ignore.
             unsafe { libc::kill(target, signal) };
-            let _ = child;
         }
         #[cfg(not(unix))]
         {
             let _ = (sig, self.isolated, self.pid);
-            let _ = child.kill();
         }
     }
 }
 
-/// Reads stdout in chunks. Returns `None` when the limit was passed.
-fn read_stdout(
-    mut pipe: impl Read,
+/// Kills the process group when a run is dropped before the child is reaped.
+/// `kill_on_drop` alone would only reach Git, not a helper it started.
+pub(crate) struct GroupGuard(pub(crate) Option<Killer>);
+
+impl GroupGuard {
+    pub(crate) fn disarm(&mut self) {
+        self.0 = None;
+    }
+}
+
+impl Drop for GroupGuard {
+    fn drop(&mut self) {
+        if let Some(killer) = self.0 {
+            killer.send(Sig::Kill);
+        }
+    }
+}
+
+/// Reads stdout in chunks. Returns `None` after the limit was passed, having
+/// set `exceeded`.
+async fn read_stdout(
+    mut pipe: impl AsyncRead + Unpin,
     max_bytes: Option<usize>,
-    exceeded: &AtomicBool,
+    exceeded: &CancellationToken,
 ) -> std::io::Result<Option<Vec<u8>>> {
     let mut output = Vec::new();
-    let mut chunk = [0u8; 65536];
+    let mut chunk = vec![0u8; 65536];
     loop {
-        let n = match pipe.read(&mut chunk) {
+        let n = match pipe.read(&mut chunk).await {
             Ok(0) => break,
             Ok(n) => n,
             Err(e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
             Err(e) => return Err(e),
         };
         if max_bytes.is_some_and(|max| output.len() + n > max) {
-            exceeded.store(true, Ordering::SeqCst);
+            exceeded.cancel();
             return Ok(None);
         }
         output.extend_from_slice(&chunk[..n]);
@@ -425,7 +464,7 @@ fn decode(bytes: &[u8]) -> String {
 }
 
 #[cfg(unix)]
-fn exit_code(status: std::process::ExitStatus) -> i32 {
+fn exit_code(status: ExitStatus) -> i32 {
     use std::os::unix::process::ExitStatusExt;
     status
         .code()
@@ -433,11 +472,23 @@ fn exit_code(status: std::process::ExitStatus) -> i32 {
 }
 
 #[cfg(not(unix))]
-fn exit_code(status: std::process::ExitStatus) -> i32 {
+fn exit_code(status: ExitStatus) -> i32 {
     status.code().unwrap_or(1)
 }
 
-fn run_tracked_git(args: Vec<String>, options: &RunOptions) -> Result<CommandResult, GitError> {
+/// How long a terminated process group may take to exit before SIGKILL.
+const KILL_AFTER: Duration = Duration::from_millis(250);
+
+type Finished = (
+    std::io::Result<Option<Vec<u8>>>,
+    std::io::Result<Vec<u8>>,
+    std::io::Result<ExitStatus>,
+);
+
+async fn run_tracked_git(
+    args: Vec<String>,
+    options: &RunOptions,
+) -> Result<CommandResult, GitError> {
     let cancel = options.cancel.as_ref();
     let max_bytes = options.max_bytes;
     // A textconv/credential helper can inherit Git's pipes. Killing only Git
@@ -472,10 +523,10 @@ fn run_tracked_git(args: Vec<String>, options: &RunOptions) -> Result<CommandRes
             Stdio::null()
         })
         .stdout(Stdio::piped())
-        .stderr(Stdio::piped());
+        .stderr(Stdio::piped())
+        .kill_on_drop(true);
     #[cfg(unix)]
     if isolated {
-        use std::os::unix::process::CommandExt;
         command.process_group(0);
     }
 
@@ -487,44 +538,58 @@ fn run_tracked_git(args: Vec<String>, options: &RunOptions) -> Result<CommandRes
         isolated,
         pid: child.id(),
     };
+    let mut guard = GroupGuard(isolated.then_some(killer));
 
-    let exceeded = Arc::new(AtomicBool::new(false));
+    let exceeded = CancellationToken::new();
     let stdout_pipe = child.stdout.take().expect("stdout is piped");
-    let stderr_pipe = child.stderr.take().expect("stderr is piped");
-    let stdout_flag = Arc::clone(&exceeded);
-    let stdout_thread = thread::spawn(move || read_stdout(stdout_pipe, max_bytes, &stdout_flag));
-    let stderr_thread = thread::spawn(move || {
-        let mut bytes = Vec::new();
-        let mut pipe = stderr_pipe;
-        pipe.read_to_end(&mut bytes).map(|_| bytes)
-    });
-    let stdin_thread = options.stdin.clone().map(|input| {
-        let mut pipe = child.stdin.take().expect("stdin is piped");
-        // Git may exit before reading all input. A broken pipe is not our error.
-        thread::spawn(move || {
-            let _ = pipe.write_all(&input);
-        })
-    });
+    let mut stderr_pipe = child.stderr.take().expect("stderr is piped");
+    let stdin_pipe = child.stdin.take();
+    let input = options.stdin.as_deref().unwrap_or_default();
 
-    let status = if cancel.is_none() && max_bytes.is_none() {
-        child.wait()
-    } else {
-        wait_with_limits(&mut child, &killer, cancel, &exceeded)
+    let finished = async {
+        let stdout = read_stdout(stdout_pipe, max_bytes, &exceeded);
+        let stderr = async {
+            let mut bytes = Vec::new();
+            stderr_pipe.read_to_end(&mut bytes).await.map(|_| bytes)
+        };
+        let stdin = async {
+            if let Some(mut pipe) = stdin_pipe {
+                // Git may exit before reading all input. A broken pipe is not our error.
+                let _ = pipe.write_all(input).await;
+            }
+        };
+        let (stdout, stderr, ()) = tokio::join!(stdout, stderr, stdin);
+        let status = child.wait().await;
+        (stdout, stderr, status)
     };
-    let status = match status {
-        Ok(status) => status,
-        Err(error) => {
-            killer.send(&mut child, Sig::Kill);
-            let _ = child.wait();
-            return Err(error.into());
+    let stop = async {
+        tokio::select! {
+            () = exceeded.cancelled() => {}
+            () = async {
+                match cancel {
+                    Some(cancel) => cancel.cancelled().await,
+                    None => std::future::pending().await,
+                }
+            } => {}
         }
     };
-
-    let stdout = stdout_thread.join().expect("stdout reader does not panic");
-    let stderr = stderr_thread.join().expect("stderr reader does not panic");
-    if let Some(handle) = stdin_thread {
-        let _ = handle.join();
-    }
+    let mut finished = std::pin::pin!(finished);
+    let (stdout, stderr, status): Finished = tokio::select! {
+        done = &mut finished => done,
+        () = stop => {
+            // Ask the group to exit, and kill it if it does not.
+            killer.send(Sig::Term);
+            match tokio::time::timeout(KILL_AFTER, &mut finished).await {
+                Ok(done) => done,
+                Err(_) => {
+                    killer.send(Sig::Kill);
+                    finished.await
+                }
+            }
+        }
+    };
+    let status = status?;
+    guard.disarm();
     let stdout = stdout?;
     let stderr = stderr?;
 
@@ -536,7 +601,7 @@ fn run_tracked_git(args: Vec<String>, options: &RunOptions) -> Result<CommandRes
     if cancel.is_some_and(CancelToken::is_cancelled) {
         return Err(GitCommandAbortedError { args }.into());
     }
-    if exceeded.load(Ordering::SeqCst) {
+    if exceeded.is_cancelled() {
         return Err(GitOutputLimitError {
             args,
             limit_bytes: max_bytes.unwrap_or_default(),
@@ -549,46 +614,17 @@ fn run_tracked_git(args: Vec<String>, options: &RunOptions) -> Result<CommandRes
     Ok(result)
 }
 
-/// Waits for exit while watching for cancellation or an exceeded output limit.
-/// Sends SIGTERM first, then SIGKILL 250 ms later, to the whole process group.
-fn wait_with_limits(
-    child: &mut Child,
-    killer: &Killer,
-    cancel: Option<&CancelToken>,
-    exceeded: &AtomicBool,
-) -> std::io::Result<std::process::ExitStatus> {
-    let mut terminated_at: Option<Instant> = None;
-    let mut killed = false;
-    loop {
-        if let Some(status) = child.try_wait()? {
-            return Ok(status);
-        }
-        let abort =
-            cancel.is_some_and(CancelToken::is_cancelled) || exceeded.load(Ordering::SeqCst);
-        if abort && terminated_at.is_none() {
-            killer.send(child, Sig::Term);
-            terminated_at = Some(Instant::now());
-        }
-        if let Some(at) = terminated_at
-            && !killed
-            && at.elapsed() >= Duration::from_millis(250)
-        {
-            killer.send(child, Sig::Kill);
-            killed = true;
-        }
-        thread::sleep(Duration::from_millis(2));
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::test_util::temp_repo;
 
-    #[test]
-    fn reports_stderr_in_command_errors() {
-        let dir = temp_repo();
-        let error = run_git(&["show", "nope"], Some(dir.path())).unwrap_err();
+    #[tokio::test]
+    async fn reports_stderr_in_command_errors() {
+        let dir = temp_repo().await;
+        let error = run_git(&["show", "nope"], Some(dir.path()))
+            .await
+            .unwrap_err();
         let GitError::Command(error) = error else {
             panic!("expected a command error, got {error:?}");
         };
@@ -597,12 +633,14 @@ mod tests {
         assert!(error.to_string().starts_with("git show nope: fatal:"));
     }
 
-    #[test]
-    fn disables_credential_prompts_unless_overridden() {
-        let dir = temp_repo();
+    #[tokio::test]
+    async fn disables_credential_prompts_unless_overridden() {
+        let dir = temp_repo().await;
         let alias =
             "alias.show-env=!printf '%s|%s' \"$GIT_TERMINAL_PROMPT\" \"${GIT_ASKPASS-unset}\"";
-        let result = run_git(&["-c", alias, "show-env"], Some(dir.path())).unwrap();
+        let result = run_git(&["-c", alias, "show-env"], Some(dir.path()))
+            .await
+            .unwrap();
         assert_eq!(result.stdout, "0|");
 
         let options = RunOptions {
@@ -613,34 +651,40 @@ mod tests {
             ],
             ..RunOptions::default()
         };
-        let result = run_git_with(&["-c", alias, "show-env"], &options).unwrap();
+        let result = run_git_with(&["-c", alias, "show-env"], &options)
+            .await
+            .unwrap();
         assert_eq!(result.stdout, "1|unset");
     }
 
-    #[test]
-    fn passes_stdin_to_git() {
-        let dir = temp_repo();
+    #[tokio::test]
+    async fn passes_stdin_to_git() {
+        let dir = temp_repo().await;
         let options = RunOptions {
             cwd: Some(dir.path().to_path_buf()),
             stdin: Some(b"hello\n".to_vec()),
             ..RunOptions::default()
         };
-        let result = run_git_with(&["hash-object", "--stdin"], &options).unwrap();
+        let result = run_git_with(&["hash-object", "--stdin"], &options)
+            .await
+            .unwrap();
         assert_eq!(
             result.stdout.trim(),
             "ce013625030ba8dba906f756967f9e9ca394464a"
         );
     }
 
-    #[test]
-    fn rejects_output_over_the_limit() {
-        let dir = temp_repo();
+    #[tokio::test]
+    async fn rejects_output_over_the_limit() {
+        let dir = temp_repo().await;
         std::fs::write(dir.path().join("big.txt"), "x".repeat(100_000)).unwrap();
-        run_git(&["add", "big.txt"], Some(dir.path())).unwrap();
+        run_git(&["add", "big.txt"], Some(dir.path()))
+            .await
+            .unwrap();
         let show = ["show", ":big.txt"];
         let mut options = RunOptions::in_dir(dir.path());
         options.max_bytes = Some(1000);
-        let error = run_git_with(&show, &options).unwrap_err();
+        let error = run_git_with(&show, &options).await.unwrap_err();
         assert!(matches!(
             error,
             GitError::OutputLimit(GitOutputLimitError {
@@ -649,28 +693,33 @@ mod tests {
             })
         ));
         options.max_bytes = Some(100_000);
-        assert_eq!(run_git_with(&show, &options).unwrap().stdout.len(), 100_000);
+        assert_eq!(
+            run_git_with(&show, &options).await.unwrap().stdout.len(),
+            100_000
+        );
     }
 
-    #[test]
-    fn cancelling_kills_the_whole_process_group() {
-        let dir = temp_repo();
+    #[tokio::test]
+    async fn cancelling_kills_the_whole_process_group() {
+        let dir = temp_repo().await;
         let token = CancelToken::new();
         let options = RunOptions {
             cwd: Some(dir.path().to_path_buf()),
             cancel: Some(token.clone()),
             ..RunOptions::default()
         };
-        let canceller = thread::spawn({
+        let canceller = tokio::spawn({
             let token = token.clone();
-            move || {
-                thread::sleep(Duration::from_millis(150));
+            async move {
+                tokio::time::sleep(Duration::from_millis(150)).await;
                 token.cancel();
             }
         });
         let started = Instant::now();
-        let error = run_git_with(&["-c", "alias.nap=!sleep 30", "nap"], &options).unwrap_err();
-        canceller.join().unwrap();
+        let error = run_git_with(&["-c", "alias.nap=!sleep 30", "nap"], &options)
+            .await
+            .unwrap_err();
+        canceller.await.unwrap();
         assert!(matches!(error, GitError::Aborted(_)));
         assert!(started.elapsed() < Duration::from_secs(10));
         assert_eq!(

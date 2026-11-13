@@ -18,6 +18,13 @@ sha2 = "0.10"
 serde_json = "1"
 # Filesystem events (inotify, FSEvents, ReadDirectoryChangesW) for the repository watcher.
 notify = "8"
+# Async runtime: child processes, timers, channels, and pipe I/O. `macros` provides `join!` and
+# `select!` for the library and `#[tokio::test]` for tests. No `fs`, `net`, or multi-thread runtime.
+tokio = { version = "1.54.1", default-features = false, features = ["process", "rt", "macros", "time", "sync", "io-util"] }
+# `CancellationToken`, the cancel signal behind `CancelToken`.
+tokio-util = { version = "0.7.20", default-features = false }
+# Makes `GitRepository` and `PullRequestService` usable as `Arc<dyn ...>` with `Send` futures.
+async-trait = "0.1.92"
 
 [target.'cfg(unix)'.dependencies]
 # Signal a whole process group (kill(-pid)) so cancelled helpers do not hold pipes open.

@@ -1,12 +1,14 @@
 //! Debounced file system watch of a repository's HEAD, index, refs, and work
 //! tree. Port of `src/git/repository-watcher.ts`.
 //!
-//! The `notify` crate delivers events on its own thread. This module forwards
-//! them over a channel to one worker thread that owns the debounce state, so
-//! `on_change` and `on_error` run on that worker thread.
+//! The `notify` crate delivers events on its own thread. Its callback sends
+//! them into an unbounded tokio channel. One tokio task owns the debounce
+//! state and the timers, so `on_change` and `on_error` run on that task. They
+//! must return quickly, for example by forwarding into another channel.
 //!
 //! Differences from the TypeScript code:
-//! - `changed_at` is an [`Instant`] taken when the worker receives the event.
+//! - [`watch_repository`] must run inside a Tokio runtime. It spawns the task.
+//! - `changed_at` is an [`Instant`] taken when the task receives the event.
 //! - Read-only events (open, close without write) are dropped. `inotify`
 //!   reports them, and Node's `fs.watch` does not.
 //! - [`RepositoryWatcher::close`] does not wait for a running `on_change`.
@@ -14,12 +16,11 @@
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::mpsc::{self, RecvTimeoutError, Sender};
 use std::sync::{Arc, Mutex, PoisonError};
-use std::thread;
 use std::time::{Duration, Instant};
 
 use notify::{Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
+use tokio::sync::mpsc::{self, UnboundedReceiver, UnboundedSender};
 
 use crate::process::{RunOptions, own_git_active, run_git_with};
 use crate::types::RepositoryWatchPaths;
@@ -130,7 +131,7 @@ fn watch_targets(paths: &RepositoryWatchPaths) -> Vec<(PathBuf, RecursiveMode)> 
 }
 
 /// True when Git ignores every one of the given work-tree paths.
-fn all_ignored(work_tree: &str, names: &[String]) -> bool {
+async fn all_ignored(work_tree: &str, names: &[String]) -> bool {
     // -z needs --stdin. A name Git still quotes, such as one with a newline,
     // fails the match and counts as a change.
     let mut args: Vec<String> = ["-c", "core.quotePath=false", "check-ignore", "--"]
@@ -139,7 +140,7 @@ fn all_ignored(work_tree: &str, names: &[String]) -> bool {
     args.extend(names.iter().cloned());
     // Exit code 1 means none of the paths is ignored. Other failures, such as
     // a path inside a submodule, count as a change.
-    let Ok(result) = run_git_with(&args, &RunOptions::in_dir(work_tree)) else {
+    let Ok(result) = run_git_with(&args, &RunOptions::in_dir(work_tree)).await else {
         return false;
     };
     let ignored: HashSet<&str> = result.stdout.lines().filter(|l| !l.is_empty()).collect();
@@ -157,7 +158,7 @@ enum Message {
 pub struct RepositoryWatcher {
     closed: Arc<AtomicBool>,
     watchers: Arc<Mutex<Vec<RecommendedWatcher>>>,
-    sender: Sender<Message>,
+    sender: UnboundedSender<Message>,
 }
 
 impl RepositoryWatcher {
@@ -183,7 +184,7 @@ fn close_watch(closed: &AtomicBool, watchers: &Mutex<Vec<RecommendedWatcher>>) {
         .clear();
 }
 
-/// Debounce state, owned by the worker thread.
+/// Debounce state, owned by the worker task.
 struct Burst {
     timer: Option<Instant>,
     started_at: Option<Instant>,
@@ -205,11 +206,11 @@ struct Burst {
 /// closed by then.
 pub fn watch_repository(
     paths: RepositoryWatchPaths,
-    on_change: impl Fn(Instant) -> bool + Send + 'static,
-    on_error: impl Fn(notify::Error) + Send + 'static,
+    mut on_change: impl FnMut(Instant) -> bool + Send + 'static,
+    on_error: impl FnOnce(notify::Error) + Send + 'static,
     options: RepositoryWatchOptions,
 ) -> notify::Result<RepositoryWatcher> {
-    let (sender, receiver) = mpsc::channel::<Message>();
+    let (sender, receiver) = mpsc::unbounded_channel::<Message>();
     let closed = Arc::new(AtomicBool::new(false));
     let watchers = Arc::new(Mutex::new(Vec::new()));
 
@@ -243,16 +244,17 @@ pub fn watch_repository(
 
     let worker_closed = closed.clone();
     let worker_watchers = watchers.clone();
-    thread::spawn(move || {
+    tokio::spawn(async move {
         run_worker(
             &paths,
-            &receiver,
+            receiver,
             &worker_closed,
             &worker_watchers,
-            &on_change,
-            &on_error,
+            &mut on_change,
+            on_error,
             options,
-        );
+        )
+        .await;
     });
     Ok(RepositoryWatcher {
         closed,
@@ -261,13 +263,13 @@ pub fn watch_repository(
     })
 }
 
-fn run_worker(
+async fn run_worker(
     paths: &RepositoryWatchPaths,
-    receiver: &mpsc::Receiver<Message>,
+    mut receiver: UnboundedReceiver<Message>,
     closed: &AtomicBool,
     watchers: &Mutex<Vec<RecommendedWatcher>>,
-    on_change: &dyn Fn(Instant) -> bool,
-    on_error: &dyn Fn(notify::Error),
+    on_change: &mut (dyn FnMut(Instant) -> bool + Send),
+    on_error: impl FnOnce(notify::Error),
     options: RepositoryWatchOptions,
 ) {
     let mut burst = Burst {
@@ -279,22 +281,24 @@ fn run_worker(
     loop {
         let message = match burst.timer {
             Some(deadline) => {
-                match receiver.recv_timeout(deadline.saturating_duration_since(Instant::now())) {
-                    Ok(message) => Some(message),
-                    Err(RecvTimeoutError::Timeout) => None,
-                    Err(RecvTimeoutError::Disconnected) => return,
+                tokio::select! {
+                    message = receiver.recv() => match message {
+                        Some(message) => Some(message),
+                        None => return,
+                    },
+                    () = tokio::time::sleep_until(deadline.into()) => None,
                 }
             }
-            None => match receiver.recv() {
-                Ok(message) => Some(message),
-                Err(_) => return,
+            None => match receiver.recv().await {
+                Some(message) => Some(message),
+                None => return,
             },
         };
         if closed.load(Ordering::SeqCst) {
             return;
         }
         match message {
-            None => flush(paths, &mut burst, closed, on_change, options),
+            None => flush(paths, &mut burst, closed, &mut *on_change, options).await,
             Some(Message::Close) => return,
             Some(Message::Error(error)) => {
                 close_watch(closed, watchers);
@@ -351,11 +355,11 @@ fn record(
     schedule(burst, options.debounce.min(remaining));
 }
 
-fn flush(
+async fn flush(
     paths: &RepositoryWatchPaths,
     burst: &mut Burst,
     closed: &AtomicBool,
-    on_change: &dyn Fn(Instant) -> bool,
+    on_change: &mut (dyn FnMut(Instant) -> bool + Send),
     options: RepositoryWatchOptions,
 ) {
     burst.timer = None;
@@ -366,7 +370,7 @@ fn flush(
         && !names.is_empty()
     {
         let names: Vec<String> = names.into_iter().collect();
-        if all_ignored(&paths.work_tree, &names) {
+        if all_ignored(&paths.work_tree, &names).await {
             return;
         }
     }
@@ -391,6 +395,7 @@ mod tests {
     use std::fs;
     use std::process::Command;
     use std::sync::atomic::AtomicUsize;
+    use tokio::time::sleep;
 
     fn paths(work: &str, git: &str, common: &str) -> RepositoryWatchPaths {
         RepositoryWatchPaths {
@@ -535,16 +540,16 @@ mod tests {
         }
     }
 
-    fn wait_until(what: &str, condition: impl Fn() -> bool) {
+    async fn wait_until(what: &str, condition: impl Fn() -> bool) {
         let deadline = Instant::now() + TIMEOUT;
         while !condition() {
             assert!(Instant::now() < deadline, "timed out waiting for {what}");
-            thread::sleep(Duration::from_millis(20));
+            sleep(Duration::from_millis(20)).await;
         }
     }
 
-    #[test]
-    fn a_commit_from_another_terminal_is_reported_once() {
+    #[tokio::test]
+    async fn a_commit_from_another_terminal_is_reported_once() {
         let repo = repository();
         let root = repo.path();
         let w = watch(root, || true);
@@ -554,30 +559,30 @@ mod tests {
         external_git(root, &["add", "."]);
         external_git(root, &["commit", "-q", "-m", "second"]);
 
-        wait_until("the commit report", || w.count() >= 1);
-        thread::sleep(SETTLE);
+        wait_until("the commit report", || w.count() >= 1).await;
+        sleep(SETTLE).await;
         assert_eq!(w.count(), 1);
     }
 
-    #[test]
-    fn file_edits_are_reported_unless_git_ignores_them() {
+    #[tokio::test]
+    async fn file_edits_are_reported_unless_git_ignores_them() {
         let repo = repository();
         let root = repo.path();
         let w = watch(root, || true);
 
         fs::create_dir(root.join("build")).unwrap();
         fs::write(root.join("build/out.js"), "generated\n").unwrap();
-        thread::sleep(SETTLE);
+        sleep(SETTLE).await;
         assert_eq!(w.count(), 0);
 
         fs::write(root.join("a.txt"), "edited\n").unwrap();
-        wait_until("the edit report", || w.count() >= 1);
-        thread::sleep(SETTLE);
+        wait_until("the edit report", || w.count() >= 1).await;
+        sleep(SETTLE).await;
         assert_eq!(w.count(), 1);
     }
 
-    #[test]
-    fn index_writes_from_tuigs_own_git_reads_do_not_report_a_change() {
+    #[tokio::test]
+    async fn index_writes_from_tuigs_own_git_reads_do_not_report_a_change() {
         let repo = repository();
         let root = repo.path();
         // A stat-only change makes the next `git diff` rewrite the index.
@@ -588,17 +593,17 @@ mod tests {
             .unwrap()
             .set_modified(future)
             .unwrap();
-        thread::sleep(Duration::from_millis(50));
+        sleep(Duration::from_millis(50)).await;
         let w = watch(root, || true);
 
-        run_git(&["diff"], Some(root)).unwrap();
-        thread::sleep(SETTLE);
+        run_git(&["diff"], Some(root)).await.unwrap();
+        sleep(SETTLE).await;
 
         assert_eq!(w.count(), 0);
     }
 
-    #[test]
-    fn a_linked_worktree_sees_ref_updates_in_the_shared_common_dir() {
+    #[tokio::test]
+    async fn a_linked_worktree_sees_ref_updates_in_the_shared_common_dir() {
         let repo = repository();
         let root = repo.path();
         let holder = TempDir::new("tuig-watch-linked");
@@ -616,13 +621,13 @@ mod tests {
         );
         external_git(&linked, &["commit", "-q", "--allow-empty", "-m", "feature"]);
         let w = watch(&linked, || true);
-        thread::sleep(Duration::from_millis(100));
+        sleep(Duration::from_millis(100)).await;
 
         // Branch refs live in the main checkout's .git, outside the linked tree.
         external_git(root, &["update-ref", "refs/heads/feature", "main"]);
 
-        wait_until("the ref report", || w.count() >= 1);
-        thread::sleep(SETTLE);
+        wait_until("the ref report", || w.count() >= 1).await;
+        sleep(SETTLE).await;
         assert_eq!(w.count(), 1);
     }
 }

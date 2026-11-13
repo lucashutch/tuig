@@ -201,8 +201,8 @@ mod tests {
 
     /// A real 401 makes Git ask for a username. Prompts are disabled, so Git
     /// fails with "terminal prompts disabled", the case users hit in Tuig.
-    #[test]
-    fn fetch_from_an_https_remote_that_demands_credentials_classifies_as_credentials() {
+    #[tokio::test]
+    async fn fetch_from_an_https_remote_that_demands_credentials_classifies_as_credentials() {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let port = listener.local_addr().unwrap().port();
         std::thread::spawn(move || {
@@ -215,11 +215,13 @@ mod tests {
                 );
             }
         });
-        let repo = temp_repo();
+        let repo = temp_repo().await;
         let remote = format!("http://127.0.0.1:{port}/x.git");
-        run_git(&["remote", "add", "origin", &remote], Some(repo.path())).unwrap();
+        run_git(&["remote", "add", "origin", &remote], Some(repo.path()))
+            .await
+            .unwrap();
 
-        let error = run_git(&["fetch"], Some(repo.path())).unwrap_err();
+        let error = run_git(&["fetch"], Some(repo.path())).await.unwrap_err();
         let GitError::Command(error) = error else {
             panic!("expected a command error, got {error:?}");
         };

@@ -31,14 +31,16 @@ impl Drop for TempDir {
 }
 
 /// An empty repository on branch `main`.
-pub fn temp_repo() -> TempDir {
+pub async fn temp_repo() -> TempDir {
     let dir = TempDir::new("tuig-git-test");
-    run_git(&["init", "-b", "main"], Some(dir.path())).unwrap();
+    run_git(&["init", "-b", "main"], Some(dir.path()))
+        .await
+        .unwrap();
     dir
 }
 
 /// Commit all staged changes with a fixed identity.
-pub fn commit(dir: &Path, message: &str) {
+pub async fn commit(dir: &Path, message: &str) {
     run_git(
         &[
             "-c",
@@ -51,5 +53,6 @@ pub fn commit(dir: &Path, message: &str) {
         ],
         Some(dir),
     )
+    .await
     .unwrap();
 }

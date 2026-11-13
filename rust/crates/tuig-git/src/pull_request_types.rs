@@ -1,6 +1,8 @@
 //! Shared pull request types and the `PullRequestService` contract.
 //! Port of `src/git/pull-request-types.ts`.
 
+use async_trait::async_trait;
+
 use crate::process::CancelToken;
 
 /// Whether a pull request is ready for review.
@@ -75,9 +77,10 @@ pub enum PullRequestList {
 }
 
 /// Pull request access for one repository.
-pub trait PullRequestService {
+#[async_trait]
+pub trait PullRequestService: Send + Sync {
     /// Every open pull request in the repository, newest first, with `mine`
     /// and `review_requested` set. The sidebar shows those two groups. The
     /// history PR column matches the rest to branches by `head_branch`.
-    fn list(&self, cancel: Option<&CancelToken>) -> PullRequestList;
+    async fn list(&self, cancel: Option<&CancelToken>) -> PullRequestList;
 }

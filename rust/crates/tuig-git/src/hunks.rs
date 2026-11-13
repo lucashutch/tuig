@@ -243,8 +243,8 @@ mod tests {
         assert!(!selected.contains("No newline at end of file"));
     }
 
-    #[test]
-    fn splits_a_patch_while_retaining_file_headers() {
+    #[tokio::test]
+    async fn splits_a_patch_while_retaining_file_headers() {
         let patch =
             "diff --git a/a b/a\n--- a/a\n+++ b/a\n@@ -1 +1 @@\n-a\n+b\n@@ -3 +3 @@\n-c\n+d\n";
         let hunks = split_patch_hunks(patch);
@@ -255,70 +255,76 @@ mod tests {
         assert!(split_patch_hunks("diff --git a/a b/a\nBinary files differ\n").is_empty());
     }
 
-    fn git_in(dir: &std::path::Path, args: &[&str]) -> String {
-        run_git(args, Some(dir)).unwrap().stdout
+    async fn git_in(dir: &std::path::Path, args: &[&str]) -> String {
+        run_git(args, Some(dir)).await.unwrap().stdout
     }
 
-    fn apply(dir: &std::path::Path, patch: &str, args: &[&str]) {
+    async fn apply(dir: &std::path::Path, patch: &str, args: &[&str]) {
         let options = RunOptions {
             stdin: Some(patch.as_bytes().to_vec()),
             ..RunOptions::in_dir(dir)
         };
-        run_git_with(args, &options).unwrap();
+        run_git_with(args, &options).await.unwrap();
     }
 
-    #[test]
-    fn stages_unstages_and_discards_only_selected_lines() {
-        let repo = temp_repo();
+    #[tokio::test]
+    async fn stages_unstages_and_discards_only_selected_lines() {
+        let repo = temp_repo().await;
         let dir = repo.path();
         let file = dir.join("a.txt");
         std::fs::write(&file, "one\ntwo\nthree\n").unwrap();
-        git_in(dir, &["add", "a.txt"]);
-        commit(dir, "base");
+        git_in(dir, &["add", "a.txt"]).await;
+        commit(dir, "base").await;
         std::fs::write(&file, "ONE\ntwo\nTHREE\n").unwrap();
 
-        let diff = git_in(dir, &["diff", "--no-ext-diff", "-U3", "--", "a.txt"]);
+        let diff = git_in(dir, &["diff", "--no-ext-diff", "-U3", "--", "a.txt"]).await;
         let one_rows = rows(&[row_of(&diff, "-one"), row_of(&diff, "+ONE")]);
 
         apply(
             dir,
             &select_patch_lines(&diff, &one_rows, Preserve::Old),
             &["apply", "--cached"],
-        );
-        assert_eq!(git_in(dir, &["show", ":a.txt"]), "ONE\ntwo\nthree\n");
+        )
+        .await;
+        assert_eq!(git_in(dir, &["show", ":a.txt"]).await, "ONE\ntwo\nthree\n");
 
         let staged = git_in(
             dir,
             &["diff", "--no-ext-diff", "--cached", "-U3", "--", "a.txt"],
-        );
+        )
+        .await;
         let staged_rows = rows(&[row_of(&staged, "-one"), row_of(&staged, "+ONE")]);
         apply(
             dir,
             &select_patch_lines(&staged, &staged_rows, Preserve::New),
             &["apply", "--cached", "--reverse"],
-        );
-        assert_eq!(git_in(dir, &["show", ":a.txt"]), "one\ntwo\nthree\n");
+        )
+        .await;
+        assert_eq!(git_in(dir, &["show", ":a.txt"]).await, "one\ntwo\nthree\n");
 
         apply(
             dir,
             &select_patch_lines(&diff, &one_rows, Preserve::New),
             &["apply", "--reverse"],
-        );
+        )
+        .await;
         assert_eq!(std::fs::read_to_string(&file).unwrap(), "one\ntwo\nTHREE\n");
 
         std::fs::write(&file, "ONE\ntwo\nTHREE\n").unwrap();
-        git_in(dir, &["add", "a.txt"]);
+        git_in(dir, &["add", "a.txt"]).await;
         let full = git_in(
             dir,
             &["diff", "--no-ext-diff", "--cached", "-U3", "--", "a.txt"],
-        );
+        )
+        .await;
         let full_rows = rows(&[row_of(&full, "-one"), row_of(&full, "+ONE")]);
         apply(
             dir,
             &select_patch_lines(&full, &full_rows, Preserve::New),
             &["apply", "--cached", "--reverse"],
-        );
-        assert_eq!(git_in(dir, &["show", ":a.txt"]), "one\ntwo\nTHREE\n");
+        )
+        .await;
+        assert_eq!(git_in(dir, &["show", ":a.txt"]).await, "one\ntwo\nTHREE\n");
         assert_eq!(std::fs::read_to_string(&file).unwrap(), "ONE\ntwo\nTHREE\n");
     }
 }
