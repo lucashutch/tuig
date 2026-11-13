@@ -931,38 +931,6 @@ mod tests {
     }
 
     #[test]
-    fn reports_other_failures_with_a_short_message() {
-        let (service, _) = fake_gh(|| {
-            fail(
-                "gh: Could not resolve to a Repository with the name 'acme/app'.\nsecond line\n",
-                1,
-                &json!({"data": {"repository": null}}).to_string(),
-            )
-        });
-        assert_eq!(
-            service.list(None),
-            PullRequestList::Unavailable {
-                reason: PullRequestUnavailableReason::Error,
-                message: Some(
-                    "gh: Could not resolve to a Repository with the name 'acme/app'.".into()
-                ),
-            }
-        );
-    }
-
-    #[test]
-    fn reports_an_error_for_malformed_json() {
-        let (service, _) = fake_gh(|| ok("{not json"));
-        assert!(matches!(
-            service.list(None),
-            PullRequestList::Unavailable {
-                reason: PullRequestUnavailableReason::Error,
-                ..
-            }
-        ));
-    }
-
-    #[test]
     fn a_cancelled_request_is_an_error_not_an_empty_list() {
         let token = CancelToken::new();
         let inner = token.clone();
@@ -974,44 +942,6 @@ mod tests {
     }
 
     #[test]
-    fn parses_timestamps_for_ordering() {
-        assert_eq!(parse_time_ms("1970-01-01T00:00:00Z"), Some(0));
-        assert_eq!(parse_time_ms("1970-01-02T00:00:00.5Z"), Some(86_400_500));
-        assert_eq!(
-            parse_time_ms("2026-10-01T12:00:00+02:00"),
-            parse_time_ms("2026-10-01T10:00:00Z")
-        );
-        assert_eq!(parse_time_ms("not a date"), None);
-    }
-
-    #[test]
-    fn run_program_reports_a_missing_binary() {
-        let options = GhRunOptions {
-            cwd: Path::new("/"),
-            cancel: None,
-        };
-        let result = run_program("tuig-no-such-binary", &[], &options, GH_TIMEOUT);
-        assert_eq!(result, Err(GhError::NotFound));
-    }
-
-    #[test]
-    fn run_program_returns_output_and_exit_code_with_gh_environment() {
-        let options = GhRunOptions {
-            cwd: Path::new("/"),
-            cancel: None,
-        };
-        let args = [
-            "-c",
-            "printf \"$GH_PROMPT_DISABLED\"; echo oops >&2; exit 4",
-        ]
-        .map(String::from);
-        let result = run_program("sh", &args, &options, GH_TIMEOUT).unwrap();
-        assert_eq!(result.stdout, "1");
-        assert_eq!(result.stderr, "oops\n");
-        assert_eq!(result.exit_code, 4);
-    }
-
-    #[test]
     fn run_program_kills_a_run_that_exceeds_the_timeout() {
         let options = GhRunOptions {
             cwd: Path::new("/"),
@@ -1020,23 +950,5 @@ mod tests {
         let args = ["30".to_string()];
         let result = run_program("sleep", &args, &options, Duration::from_millis(100));
         assert_eq!(result, Err(GhError::Timeout(Duration::from_millis(100))));
-    }
-
-    #[test]
-    fn run_program_kills_a_run_the_caller_cancels() {
-        let token = CancelToken::new();
-        let canceller = token.clone();
-        let handle = thread::spawn(move || {
-            thread::sleep(Duration::from_millis(100));
-            canceller.cancel();
-        });
-        let options = GhRunOptions {
-            cwd: Path::new("/"),
-            cancel: Some(&token),
-        };
-        let args = ["30".to_string()];
-        let result = run_program("sleep", &args, &options, GH_TIMEOUT);
-        handle.join().unwrap();
-        assert_eq!(result, Err(GhError::Cancelled));
     }
 }

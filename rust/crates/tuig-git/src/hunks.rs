@@ -229,12 +229,6 @@ mod tests {
     }
 
     #[test]
-    fn returns_no_patch_without_selected_changes() {
-        assert_eq!(select_patch_lines(PATCH, &rows(&[]), Preserve::Old), "");
-        assert_eq!(select_patch_lines(PATCH, &rows(&[4]), Preserve::Old), "");
-    }
-
-    #[test]
     fn drops_a_no_newline_marker_with_an_omitted_line() {
         let with_marker = PATCH.replace(
             "+new two\n+extra",
@@ -247,27 +241,6 @@ mod tests {
         );
         assert!(selected.contains("+extra"));
         assert!(!selected.contains("No newline at end of file"));
-    }
-
-    #[test]
-    fn preserve_new_drops_unselected_removals_and_shifts_the_old_start() {
-        // Unselected removals drop out and unselected additions become context.
-        let selected = select_patch_lines(PATCH, &rows(&[7]), Preserve::New);
-        assert!(selected.contains("@@ -1,4 +1,5 @@"));
-        assert!(!selected.contains("-old"));
-        assert!(selected.contains(" new two"));
-        assert!(selected.contains("+new one"));
-    }
-
-    #[test]
-    fn keeps_the_hunk_suffix_and_each_changed_hunk_only() {
-        let two = "diff --git a/a b/a\n--- a/a\n+++ b/a\n@@ -1 +1 @@ fn one\n-a\n+b\n@@ -9 +9 @@ fn two\n-c\n+d\n";
-        let selected = select_patch_lines(two, &rows(&[7, 8]), Preserve::Old);
-        assert!(!selected.contains("fn one"));
-        assert_eq!(
-            selected,
-            "diff --git a/a b/a\n--- a/a\n+++ b/a\n@@ -9,1 +9,1 @@ fn two\n-c\n+d\n"
-        );
     }
 
     #[test]

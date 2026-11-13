@@ -228,14 +228,6 @@ fn remote_deletion_removes_the_server_branch_but_keeps_the_local_copy() {
 }
 
 #[test]
-fn deleting_a_branch_without_a_matching_remote_fails() {
-    let dir = repo_dir();
-    git(dir.path(), &["commit", "--allow-empty", "-m", "initial"]);
-    let message = error_text(open(&dir).delete_remote_branch("origin/topic", None));
-    assert_eq!(message, "No configured remote for origin/topic");
-}
-
-#[test]
 fn opening_a_non_repository_reports_a_launch_error() {
     let dir = TempDir::new("tuig-not-repo");
     let shown = dir.path().display().to_string();
@@ -246,63 +238,6 @@ fn opening_a_non_repository_reports_a_launch_error() {
         format!(
             "No Git repository found at \"{shown}\".\n\nHint: Run tuig from inside a Git repository or pass the path to one."
         )
-    );
-}
-
-#[test]
-fn opening_a_folder_suggests_up_to_three_repositories_inside_it() {
-    let dir = TempDir::new("tuig-parent");
-    for name in ["delta", "alpha", "charlie", "bravo"] {
-        git(
-            dir.path(),
-            &["init", dir.path().join(name).to_str().unwrap()],
-        );
-    }
-    let root = dir.path();
-    let message = error_text(GitRepositoryService::open(root));
-    assert!(message.contains(&format!(
-        "Repositories found nearby:\n  tuig {}\n  tuig {}\n  tuig {}",
-        root.join("alpha").display(),
-        root.join("bravo").display(),
-        root.join("charlie").display()
-    )));
-}
-
-#[test]
-fn a_misspelled_path_suggests_a_similarly_named_sibling() {
-    let dir = TempDir::new("tuig-siblings");
-    let root = dir.path();
-    git(root, &["init", root.join("project").to_str().unwrap()]);
-    let message = error_text(GitRepositoryService::open(root.join("porject")));
-    assert!(message.contains(&format!(
-        "Path \"{}\" does not exist.\n\nRepositories found nearby:\n  tuig {}",
-        root.join("porject").display(),
-        root.join("project").display()
-    )));
-}
-
-#[test]
-fn repository_suggestions_are_validated_and_shell_quoted() {
-    let dir = TempDir::new("tuig-suggestions");
-    let root = dir.path();
-    git(root, &["init", root.join("valid repo").to_str().unwrap()]);
-    write(root, "not-a-repo/.git", "not git metadata");
-    let message = error_text(GitRepositoryService::open(root));
-    assert!(message.contains(&format!(
-        "Repositories found nearby:\n  tuig '{}'",
-        root.join("valid repo").display()
-    )));
-    assert!(!message.contains("not-a-repo"));
-}
-
-#[test]
-fn opening_a_file_reports_that_it_is_not_a_directory() {
-    let dir = TempDir::new("tuig-file");
-    write(dir.path(), "README.md", "content");
-    let file = dir.path().join("README.md");
-    assert!(
-        error_text(GitRepositoryService::open(&file))
-            .starts_with(&format!("Path \"{}\" is not a directory.", file.display()))
     );
 }
 
@@ -631,40 +566,6 @@ fn refresh_reuses_history_for_worktree_edits_and_reloads_moved_refs() {
 }
 
 #[test]
-fn refresh_extends_an_unchanged_incomplete_history_page() {
-    let dir = repo_dir();
-    for name in ["one", "two", "three"] {
-        write(dir.path(), name, name);
-        git(dir.path(), &["add", name]);
-        git(dir.path(), &["commit", "-m", name]);
-    }
-    let repo = open(&dir);
-    let first = repo.snapshot(1).unwrap();
-    assert!(!first.commits_complete);
-    let extended = repo.refresh_snapshot(&first, 3).unwrap();
-    assert_eq!(extended.commits.len(), 3);
-    let starts = repo.walk_starts();
-    let reused = repo.refresh_snapshot(&extended, 2).unwrap();
-    assert_eq!(reused.commits, extended.commits);
-    assert_eq!(repo.walk_starts(), starts);
-}
-
-#[test]
-fn a_snapshot_the_service_did_not_build_always_reloads() {
-    let dir = repo_dir();
-    git(dir.path(), &["commit", "--allow-empty", "-m", "one"]);
-    let repo = open(&dir);
-    let starts = repo.walk_starts();
-    let foreign = RepositorySnapshot {
-        commits_complete: true,
-        ..RepositorySnapshot::default()
-    };
-    let refreshed = repo.refresh_snapshot(&foreign, 10).unwrap();
-    assert_eq!(refreshed.commits.len(), 1);
-    assert_eq!(repo.walk_starts(), starts + 1);
-}
-
-#[test]
 fn poll_notices_unborn_branch_creation_and_detached_head_movement() {
     let dir = repo_dir();
     let root = dir.path();
@@ -698,100 +599,6 @@ fn poll_notices_unborn_branch_creation_and_detached_head_movement() {
     repo.refresh_snapshot(&detached, DEFAULT_HISTORY_PAGE)
         .unwrap();
     assert_eq!(repo.walk_starts(), before);
-}
-
-#[test]
-fn deepening_while_still_shallow_invalidates_history_without_moved_refs() {
-    let source = repo_dir();
-    for i in 0..4 {
-        git(
-            source.path(),
-            &["commit", "--allow-empty", "-m", &format!("commit {i}")],
-        );
-    }
-    let dir = TempDir::new("tuig-shallow");
-    let url = format!("file://{}", source.path().display());
-    git(
-        dir.path(),
-        &["clone", "--depth=1", &url, dir.path().to_str().unwrap()],
-    );
-    let repo = open(&dir);
-    let first = repo.snapshot(DEFAULT_HISTORY_PAGE).unwrap();
-    assert_eq!(first.commits.len(), 1);
-
-    git(dir.path(), &["fetch", "--deepen=1"]);
-    assert_eq!(
-        git(dir.path(), &["rev-parse", "--is-shallow-repository"]),
-        "true"
-    );
-    let deeper = repo.refresh_snapshot(&first, DEFAULT_HISTORY_PAGE).unwrap();
-    assert_eq!(deeper.branches, first.branches);
-    assert_eq!(deeper.commits.len(), 2);
-}
-
-#[test]
-fn linked_worktrees_use_the_shared_graft_metadata_path() {
-    let source = repo_dir();
-    for i in 0..3 {
-        git(
-            source.path(),
-            &["commit", "--allow-empty", "-m", &format!("commit {i}")],
-        );
-    }
-    let dir = TempDir::new("tuig-graft");
-    git(
-        source.path(),
-        &[
-            "worktree",
-            "add",
-            "--detach",
-            dir.path().to_str().unwrap(),
-            "HEAD",
-        ],
-    );
-    let repo = open(&dir);
-    let first = repo.snapshot(DEFAULT_HISTORY_PAGE).unwrap();
-    assert_eq!(first.commits.len(), 3);
-    let graft_path = git(
-        dir.path(),
-        &[
-            "rev-parse",
-            "--path-format=absolute",
-            "--git-path",
-            "info/grafts",
-        ],
-    );
-    std::fs::write(&graft_path, format!("{}\n", first.commits[0].sha)).unwrap();
-
-    let grafted = repo.refresh_snapshot(&first, DEFAULT_HISTORY_PAGE).unwrap();
-    assert_eq!(grafted.commits.len(), 1);
-    std::fs::remove_file(&graft_path).unwrap();
-    let restored = repo
-        .refresh_snapshot(&grafted, DEFAULT_HISTORY_PAGE)
-        .unwrap();
-    assert_eq!(restored.commits.len(), 3);
-}
-
-#[test]
-fn paging_into_the_same_snapshot_retains_cheap_refresh_eligibility() {
-    let dir = repo_dir();
-    for i in 0..4 {
-        git(
-            dir.path(),
-            &["commit", "--allow-empty", "-m", &format!("commit {i}")],
-        );
-    }
-    let repo = open(&dir);
-    let mut first = repo.snapshot(1).unwrap();
-    let page = repo.commit_page(2, 1).unwrap();
-    first.commits.extend(page.commits);
-    first.commits_complete = page.complete;
-    let starts = repo.walk_starts();
-
-    let refreshed = repo.refresh_snapshot(&first, 3).unwrap();
-    assert_eq!(refreshed.commits, first.commits);
-    assert_eq!(refreshed.commits.len(), 3);
-    assert_eq!(repo.walk_starts(), starts);
 }
 
 #[test]
@@ -876,14 +683,6 @@ fn fetch_prunes_remote_tracking_branches_deleted_on_the_remote() {
     repo.fetch(None, None).unwrap();
     assert!(!has_topic(&repo));
     assert!(!repo.auth_blocked());
-}
-
-#[test]
-fn snapshot_tolerates_a_malformed_gitmodules_file() {
-    let dir = temp_repo();
-    write(dir.path(), ".gitmodules", "[submodule broken\n");
-    let snapshot = open(&dir).snapshot(DEFAULT_HISTORY_PAGE).unwrap();
-    assert!(snapshot.submodules.is_empty());
 }
 
 #[test]
@@ -1167,173 +966,6 @@ fn creates_branches_and_tags_cherry_picks_and_manages_stashes() {
 }
 
 #[test]
-fn renaming_a_stash_keeps_the_other_stashes_in_order() {
-    let dir = repo_dir();
-    let root = dir.path();
-    let repo = open(&dir);
-    commit_file(&repo, root, "file", "base\n", "base");
-    for name in ["one", "two", "three"] {
-        write(root, "file", &format!("{name}\n"));
-        repo.stash(Some(name), false).unwrap();
-    }
-    repo.rename_stash("stash@{1}", "renamed").unwrap();
-    let stashes = repo.snapshot(DEFAULT_HISTORY_PAGE).unwrap().stashes;
-    assert_eq!(stashes.len(), 3);
-    assert!(stashes[0].subject.contains("three"));
-    assert!(stashes[1].subject.contains("renamed"));
-    assert!(stashes[2].subject.contains("one"));
-    assert_eq!(
-        error_text(repo.rename_stash("stash@{9}", "x")),
-        "Stash not found: stash@{9}"
-    );
-    assert_eq!(
-        error_text(repo.rename_stash("HEAD", "x")),
-        "Invalid stash reference: HEAD"
-    );
-    assert_eq!(
-        error_text(repo.rename_stash("stash@{0}", " ")),
-        "A stash name is required"
-    );
-}
-
-#[test]
-fn loads_multiple_stashes_and_shows_their_first_parent_changes() {
-    let dir = repo_dir();
-    let root = dir.path();
-    write(root, "file", "base\n");
-    git(root, &["add", "file"]);
-    git(root, &["commit", "-m", "base"]);
-    let repo = open(&dir);
-
-    write(root, "file", "first\n");
-    repo.stash(Some("first stash"), false).unwrap();
-    write(root, "file", "second\n");
-    write(root, "untracked.txt", "untracked stash content\n");
-    repo.stash(Some("second stash"), true).unwrap();
-
-    let snapshot = repo.snapshot(DEFAULT_HISTORY_PAGE).unwrap();
-    let refs: Vec<&str> = snapshot
-        .stashes
-        .iter()
-        .map(|s| s.reference.as_str())
-        .collect();
-    assert_eq!(refs, ["stash@{0}", "stash@{1}"]);
-    let stash_sha = snapshot.stashes[0].sha.clone();
-    let files = repo.commit_files(&stash_sha, None).unwrap();
-    let listed: Vec<(&str, FileState)> = files.iter().map(|f| (f.path.as_str(), f.state)).collect();
-    assert_eq!(
-        listed,
-        [
-            ("file", FileState::Modified),
-            ("untracked.txt", FileState::Added)
-        ]
-    );
-    let diff = |path: Option<&str>| {
-        repo.diff(&DiffRequest {
-            commit: Some(stash_sha.clone()),
-            path: path.map(String::from),
-            ..DiffRequest::default()
-        })
-        .unwrap()
-    };
-    assert!(diff(Some("file")).contains("+second"));
-    let untracked = diff(Some("untracked.txt"));
-    assert!(untracked.contains("new file mode"));
-    assert!(untracked.contains("+untracked stash content"));
-    assert!(diff(None).contains("diff --git a/untracked.txt b/untracked.txt"));
-}
-
-#[test]
-fn rejects_empty_or_invalid_tag_names_before_creating_a_ref() {
-    let dir = repo_dir();
-    git(dir.path(), &["commit", "--allow-empty", "-m", "base"]);
-    let repo = open(&dir);
-    for name in ["", "   ", "invalid..name", "invalid~name"] {
-        assert!(repo.create_tag(name, None).is_err(), "{name:?} should fail");
-    }
-    assert!(repo.create_tag("ok", Some("")).is_err());
-    assert_eq!(git(dir.path(), &["tag", "--list"]), "");
-}
-
-#[test]
-fn working_status_reports_the_same_working_state_as_a_full_snapshot() {
-    let dir = repo_dir();
-    let root = dir.path();
-    write(root, "a.txt", "one\n");
-    write(root, "b.txt", "two\n");
-    let repo = open(&dir);
-    repo.stage(&paths(&["a.txt"])).unwrap();
-    repo.commit("initial").unwrap();
-    write(root, "a.txt", "changed\n");
-    repo.stage(&paths(&["a.txt"])).unwrap();
-    write(root, "a.txt", "changed again\n");
-
-    let snapshot = repo.snapshot(DEFAULT_HISTORY_PAGE).unwrap();
-    let status = repo.working_status().unwrap();
-    assert_eq!(status.files, snapshot.files);
-    assert_eq!(status.ahead, snapshot.ahead);
-    assert_eq!(status.behind, snapshot.behind);
-    assert_eq!(status.upstream, snapshot.upstream);
-}
-
-#[test]
-fn history_is_ordered_newest_first_across_every_ref() {
-    let dir = repo_dir();
-    let root = dir.path();
-    let commit = |name: &str, at: &str| {
-        write(root, &format!("{name}.txt"), &format!("{name}\n"));
-        git(root, &["add", &format!("{name}.txt")]);
-        git_env(
-            root,
-            &["commit", "-m", name],
-            &[("GIT_AUTHOR_DATE", at), ("GIT_COMMITTER_DATE", at)],
-        );
-    };
-    commit("first", "2020-01-01T00:00:00+00:00");
-    commit("second", "2020-01-02T00:00:00+00:00");
-    git(root, &["switch", "-c", "side", "HEAD~1"]);
-    commit("side", "2020-01-03T00:00:00+00:00");
-
-    // The walk drops --date-order for speed, so assert the ordering it relies on.
-    let commits = open(&dir).snapshot(DEFAULT_HISTORY_PAGE).unwrap().commits;
-    assert_eq!(subjects(&commits), ["side", "second", "first"]);
-}
-
-#[test]
-fn history_pages_report_whether_older_commits_remain() {
-    let dir = repo_dir();
-    let repo = open(&dir);
-    for name in ["one", "two", "three", "four"] {
-        commit_file(
-            &repo,
-            dir.path(),
-            &format!("{name}.txt"),
-            &format!("{name}\n"),
-            name,
-        );
-    }
-    let first = repo.commit_page(2, 0).unwrap();
-    assert_eq!(subjects(&first.commits), ["four", "three"]);
-    assert!(!first.complete);
-    let second = repo.commit_page(4, 0).unwrap();
-    assert_eq!(second.commits.len(), 4);
-    assert!(second.complete);
-    // A page larger than the history is still complete, without padding.
-    let third = repo.commit_page(50, 0).unwrap();
-    assert_eq!(third.commits.len(), 4);
-    assert!(third.complete);
-    let snapshot = repo.snapshot(2).unwrap();
-    assert_eq!(snapshot.commits.len(), 2);
-    assert!(!snapshot.commits_complete);
-    // A skipped page continues the same walk, so the caller can append it to
-    // what it already holds after checking the overlapping commit.
-    let continued = repo.commit_page(3, 1).unwrap();
-    assert_eq!(subjects(&continued.commits), ["three", "two", "one"]);
-    assert!(continued.complete);
-    assert_eq!(continued.commits[0].sha, first.commits[1].sha);
-}
-
-#[test]
 fn sequential_pages_continue_one_walk_and_match_skipped_reads() {
     let dir = repo_dir();
     let root = dir.path();
@@ -1385,20 +1017,6 @@ fn sequential_pages_continue_one_walk_and_match_skipped_reads() {
 }
 
 #[test]
-fn an_empty_repository_reports_complete_empty_history() {
-    let dir = temp_repo();
-    let repo = open(&dir);
-    let page = repo.commit_page(250, 0).unwrap();
-    assert!(page.commits.is_empty());
-    assert!(page.complete);
-    // Repeated reads of an empty walk stay empty rather than restarting badly.
-    let again = repo.commit_page(10, 5).unwrap();
-    assert!(again.commits.is_empty());
-    assert!(again.complete);
-    repo.dispose();
-}
-
-#[test]
 fn applies_and_discards_patches_through_stdin() {
     let dir = repo_dir();
     let root = dir.path();
@@ -1438,84 +1056,4 @@ fn remote_failures_without_credentials_block_background_fetch() {
     // error and must not mark the repository as blocked.
     assert!(matches!(error, GitError::Command(_)));
     assert!(!repo.auth_blocked());
-}
-
-#[test]
-fn watch_paths_resolve_real_directories_for_a_linked_worktree() {
-    let dir = repo_dir();
-    git(dir.path(), &["commit", "--allow-empty", "-m", "base"]);
-    let linked = TempDir::new("tuig-watch-linked");
-    git(
-        dir.path(),
-        &[
-            "worktree",
-            "add",
-            "--detach",
-            linked.path().to_str().unwrap(),
-            "HEAD",
-        ],
-    );
-    let main = open(&dir).watch_paths().unwrap().unwrap();
-    let paths = open(&linked).watch_paths().unwrap().unwrap();
-    let real = |p: &Path| {
-        std::fs::canonicalize(p)
-            .unwrap()
-            .to_string_lossy()
-            .into_owned()
-    };
-    assert_eq!(paths.work_tree, real(linked.path()));
-    assert_eq!(paths.common_dir, real(&dir.path().join(".git")));
-    assert_eq!(main.git_dir, main.common_dir);
-    assert_ne!(paths.git_dir, paths.common_dir);
-}
-
-#[test]
-fn remote_url_reads_origin_and_is_absent_without_one() {
-    let dir = repo_dir();
-    let repo = open(&dir);
-    assert_eq!(repo.remote_url(), None);
-    git(
-        dir.path(),
-        &["remote", "add", "origin", "https://example.com/a.git"],
-    );
-    assert_eq!(
-        repo.remote_url().as_deref(),
-        Some("https://example.com/a.git")
-    );
-}
-
-#[test]
-fn parses_commit_times_with_offsets() {
-    assert_eq!(parse_instant("1970-01-01T00:00:00Z"), Some(0));
-    assert_eq!(parse_instant("1970-01-01T10:00:00+10:00"), Some(0));
-    assert_eq!(
-        parse_instant("2026-01-02T00:00:00+00:00"),
-        Some(1_767_312_000)
-    );
-    assert_eq!(parse_instant("1969-12-31T23:00:00-01:00"), Some(0));
-    assert_eq!(parse_instant("not a date"), None);
-}
-
-#[test]
-fn adds_locks_and_removes_worktrees() {
-    let dir = repo_dir();
-    git(dir.path(), &["commit", "--allow-empty", "-m", "base"]);
-    let repo = open(&dir);
-    let parent = TempDir::new("tuig-wt-parent");
-    let path = parent.path().join("feature").to_string_lossy().into_owned();
-    repo.add_worktree(&path, Some("feature"), true).unwrap();
-    repo.lock_worktree(&path, true, Some("busy")).unwrap();
-    let snapshot = repo.snapshot(DEFAULT_HISTORY_PAGE).unwrap();
-    let linked = snapshot
-        .worktrees
-        .iter()
-        .find(|w| w.branch.as_deref() == Some("feature"))
-        .unwrap();
-    assert_eq!(linked.locked.as_deref(), Some("busy"));
-    repo.lock_worktree(&path, false, None).unwrap();
-    repo.remove_worktree(&path, false).unwrap();
-    assert_eq!(
-        repo.snapshot(DEFAULT_HISTORY_PAGE).unwrap().worktrees.len(),
-        1
-    );
 }

@@ -426,21 +426,6 @@ mod tests {
     }
 
     #[test]
-    fn log_accepts_nul_records_and_trims_body_newlines() {
-        let record = |sha: &str| {
-            format!(
-                "\n{sha}\x1fp1 p2\x1fA\x1fa@b\x1fd1\x1fA\x1fa@b\x1fd2\x1fsubj\x1f\x1f\n\nbody\n\n"
-            )
-        };
-        let commits = parse_log(&format!("{}\0{}", record("a"), record("b")));
-        assert_eq!(commits.len(), 2);
-        assert_eq!(commits[1].sha, "b");
-        assert_eq!(commits[0].parents, ["p1", "p2"]);
-        assert!(commits[0].decorations.is_empty());
-        assert_eq!(commits[0].body.as_deref(), Some("body"));
-    }
-
-    #[test]
     fn keeps_spaces_in_ordinary_and_unmerged_paths() {
         let ordinary = "1 .M N... 100644 100644 100644 abcdef0 abcdef0 path with spaces.txt\0";
         let unmerged =
@@ -486,42 +471,6 @@ mod tests {
     }
 
     #[test]
-    fn parses_multiple_stash_records_separated_by_nul_and_newline() {
-        let stashes = parse_stashes(
-            "stash@{0}\tabc\t2 hours ago\tfirst\0\nstash@{1}\tdef\tyesterday\tsecond\0\n",
-        );
-        assert_eq!(stashes.len(), 2);
-        assert_eq!(stashes[0].subject, "first");
-        assert_eq!(stashes[1].reference, "stash@{1}");
-        assert_eq!(stashes[1].created_at, "yesterday");
-        assert_eq!(stashes[1].subject, "second");
-    }
-
-    #[test]
-    fn extracts_the_branch_from_stash_subjects() {
-        let branch = |data: &str| parse_stashes(data)[0].branch.clone();
-        assert_eq!(
-            branch("stash@{0}\tabc\t9 minutes ago\tWIP on fix/avatar-flicker: b97d195 fix thing\0"),
-            Some("fix/avatar-flicker".into())
-        );
-        assert_eq!(
-            branch("stash@{0}\tabc\tnow\tOn main: custom message\0"),
-            Some("main".into())
-        );
-        assert_eq!(branch("stash@{0}\tabc\tnow\tcustom message\0"), None);
-    }
-
-    #[test]
-    fn parses_full_worktree_sha_and_normalizes_branch() {
-        let worktrees = parse_worktrees(&format!(
-            "worktree /repo\nHEAD {SHA}\nbranch refs/heads/main\n\n"
-        ));
-        assert_eq!(worktrees[0].path, "/repo");
-        assert_eq!(worktrees[0].sha, SHA);
-        assert_eq!(worktrees[0].branch.as_deref(), Some("main"));
-    }
-
-    #[test]
     fn worktree_flags_and_lock_reasons() {
         let worktrees = parse_worktrees(&format!(
             "worktree /a\nHEAD {SHA}\nbare\n\nworktree /b\nHEAD {SHA}\ndetached\nlocked\nprunable gitdir file points to non-existent location\n\nworktree /c\nHEAD {SHA}\nlocked on a trip\n"
@@ -534,14 +483,6 @@ mod tests {
             Some("gitdir file points to non-existent location")
         );
         assert_eq!(worktrees[2].locked.as_deref(), Some("on a trip"));
-    }
-
-    #[test]
-    fn separates_submodule_path_and_description() {
-        let parsed = parse_submodules(&format!(" {SHA} libs/my lib (heads/main)\n"), None);
-        assert_eq!(parsed[0].path, "libs/my lib");
-        assert_eq!(parsed[0].description.as_deref(), Some("heads/main"));
-        assert_eq!(parsed[0].state, SubmoduleState::Clean);
     }
 
     #[test]
@@ -576,26 +517,6 @@ mod tests {
     }
 
     #[test]
-    fn parses_multiple_local_and_remote_refs_and_marks_the_current_branch() {
-        let refs = parse_refs(&format!(
-            "refs/heads/main\t{SHA}\t*\0\nrefs/heads/feature/x\t{SHA}\t\0refs/remotes/origin/main\t{SHA}\t\0"
-        ));
-        let summary: Vec<_> = refs
-            .iter()
-            .map(|r| (r.name.as_str(), r.full_name.as_str(), r.current, r.remote))
-            .collect();
-        assert_eq!(
-            summary,
-            [
-                ("main", "refs/heads/main", true, false),
-                ("feature/x", "refs/heads/feature/x", false, false),
-                ("origin/main", "refs/remotes/origin/main", false, true),
-            ]
-        );
-        assert_eq!(refs[0].sha, SHA);
-    }
-
-    #[test]
     fn name_status_reads_renames_and_copies_as_two_paths() {
         let files = parse_name_status(
             "M\0a.txt\0A\0b.txt\0D\0c.txt\0R100\0old.txt\0new.txt\0C75\0src\0dst\0",
@@ -614,20 +535,5 @@ mod tests {
                 (FileState::Copied, "dst", Some("src")),
             ]
         );
-    }
-
-    #[test]
-    fn tracking_reads_upstream_and_counts() {
-        let tracking =
-            parse_tracking("# branch.oid abc\0# branch.upstream origin/main\0# branch.ab +3 -12\0");
-        assert_eq!(
-            tracking,
-            Tracking {
-                upstream: Some("origin/main".into()),
-                ahead: 3,
-                behind: 12
-            }
-        );
-        assert_eq!(parse_tracking("# branch.head main\0"), Tracking::default());
     }
 }

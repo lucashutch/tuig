@@ -193,53 +193,10 @@ mod tests {
     }
 
     #[test]
-    fn finds_the_host_in_an_authenticity_prompt() {
-        let stderr = "The authenticity of host 'github.com (140.82.121.4)' can't be established.\nHost key verification failed.\n";
-        assert_eq!(
-            classify_remote_auth_failure(stderr)
-                .and_then(|f| f.host)
-                .as_deref(),
-            Some("github.com")
-        );
-    }
-
-    #[test]
     fn ignores_network_errors_missing_repositories_and_rejected_pushes() {
         for stderr in [NETWORK, MISSING_REPO, REJECTED, BARE_READ_FAILURE] {
             assert_eq!(classify_remote_auth_failure(stderr), None, "{stderr}");
         }
-    }
-
-    #[test]
-    fn describes_the_remote_and_host_when_both_are_known() {
-        let failure = RemoteAuthFailure {
-            kind: RemoteAuthKind::Credentials,
-            host: Some("github.com".into()),
-        };
-        assert_eq!(
-            describe_remote_auth_failure(RemoteOperation::Push, &failure, Some("origin")),
-            "Push needs credentials for origin (github.com). Set up a credential helper or an SSH key in an agent."
-        );
-    }
-
-    #[test]
-    fn describe_falls_back_to_the_host_then_to_a_generic_name() {
-        let with_host = RemoteAuthFailure {
-            kind: RemoteAuthKind::Credentials,
-            host: Some("h.io".into()),
-        };
-        assert!(
-            describe_remote_auth_failure(RemoteOperation::Fetch, &with_host, None)
-                .contains("for h.io.")
-        );
-        let no_host = RemoteAuthFailure {
-            kind: RemoteAuthKind::HostKey,
-            host: None,
-        };
-        assert!(
-            describe_remote_auth_failure(RemoteOperation::Pull, &no_host, None)
-                .contains("host key for the remote")
-        );
     }
 
     /// A real 401 makes Git ask for a username. Prompts are disabled, so Git

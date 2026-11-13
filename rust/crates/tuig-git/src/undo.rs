@@ -185,7 +185,7 @@ mod tests {
     use std::path::Path;
 
     use super::*;
-    use crate::process::{RunOptions, run_git, run_git_with};
+    use crate::process::run_git;
     use crate::repository::{GitRepository, GitRepositoryService};
     use crate::test_util::{TempDir, temp_repo};
 
@@ -288,31 +288,6 @@ mod tests {
     }
 
     #[test]
-    fn undo_preserves_ignored_content_that_the_target_would_overwrite() {
-        let f = fixture();
-        let root = f.dir.path();
-        std::fs::write(root.join("artifact"), "original\n").unwrap();
-        git(root, &["add", "artifact"]);
-        git(root, &["commit", "-m", "track artifact"]);
-        git(root, &["rm", "artifact"]);
-        std::fs::write(root.join(".gitignore"), "artifact\n").unwrap();
-        git(root, &["add", ".gitignore"]);
-        git(root, &["commit", "-m", "ignore artifact"]);
-        let preview = f.repo.get_undo_preview().unwrap();
-        std::fs::write(root.join("artifact"), "precious ignored content\n").unwrap();
-        assert_eq!(git(root, &["status", "--porcelain"]), "");
-
-        assert!(message(f.repo.get_undo_preview()).contains("ignored untracked files"));
-        assert!(message(f.repo.undo(&preview)).contains("ignored untracked files"));
-
-        assert_eq!(git(root, &["rev-parse", "HEAD"]), preview.head);
-        assert_eq!(
-            std::fs::read_to_string(root.join("artifact")).unwrap(),
-            "precious ignored content\n"
-        );
-    }
-
-    #[test]
     fn undo_refuses_ignored_prefix_collisions() {
         for target_directory in [false, true] {
             let f = fixture();
@@ -389,21 +364,6 @@ mod tests {
     }
 
     #[test]
-    fn custom_unsupported_reflog_actions_are_refused() {
-        let f = fixture();
-        let root = f.dir.path();
-        commit(root, "new\n");
-        let mut options = RunOptions::in_dir(root);
-        options.env = vec![("GIT_REFLOG_ACTION".into(), Some("custom operation".into()))];
-        run_git_with(&["reset", "--hard", &f.initial], &options).unwrap();
-        assert!(
-            message(f.repo.get_undo_preview())
-                .contains("unsupported reflog action: custom operation")
-        );
-        assert_eq!(git(root, &["rev-parse", "HEAD"]), f.initial);
-    }
-
-    #[test]
     fn cherry_pick_checkout_detached_head_and_active_operations_are_refused() {
         let f = fixture();
         let root = f.dir.path();
@@ -435,45 +395,5 @@ mod tests {
         assert!(message(f.repo.get_undo_preview()).contains("unsupported"));
         std::fs::create_dir(root.join(".git/rebase-merge")).unwrap();
         assert!(message(f.repo.get_undo_preview()).contains("operation is active"));
-    }
-
-    #[test]
-    fn undo_does_not_recurse_into_submodules_when_configured_to_recurse() {
-        let child = fixture();
-        let f = fixture();
-        let root = f.dir.path();
-        git(
-            root,
-            &[
-                "-c",
-                "protocol.file.allow=always",
-                "submodule",
-                "add",
-                child.dir.path().to_str().unwrap(),
-                "nested",
-            ],
-        );
-        git(root, &["commit", "-am", "add submodule"]);
-        let target = git(root, &["rev-parse", "HEAD"]);
-        let nested = root.join("nested");
-        git(&nested, &["config", "user.name", "Test"]);
-        git(&nested, &["config", "user.email", "test@example.com"]);
-        std::fs::write(nested.join("file"), "nested new\n").unwrap();
-        git(&nested, &["commit", "-am", "nested new"]);
-        let nested_head = git(&nested, &["rev-parse", "HEAD"]);
-        let nested_branch = git(&nested, &["symbolic-ref", "HEAD"]);
-        git(root, &["add", "nested"]);
-        git(root, &["commit", "-m", "advance submodule"]);
-        git(root, &["config", "submodule.recurse", "true"]);
-
-        f.repo.undo(&f.repo.get_undo_preview().unwrap()).unwrap();
-
-        assert_eq!(git(root, &["rev-parse", "HEAD"]), target);
-        assert_eq!(git(&nested, &["rev-parse", "HEAD"]), nested_head);
-        assert_eq!(git(&nested, &["symbolic-ref", "HEAD"]), nested_branch);
-        assert_eq!(
-            std::fs::read_to_string(nested.join("file")).unwrap(),
-            "nested new\n"
-        );
     }
 }

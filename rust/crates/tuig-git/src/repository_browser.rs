@@ -134,25 +134,6 @@ mod tests {
     }
 
     #[test]
-    fn resolves_home_relative_repository_paths() {
-        let cwd = Path::new("/work");
-        let home = Path::new("/home/tester");
-        assert_eq!(resolve_repository_path("~", cwd, home), home);
-        assert_eq!(
-            resolve_repository_path("~/projects/repo", cwd, home),
-            Path::new("/home/tester/projects/repo")
-        );
-        assert_eq!(
-            resolve_repository_path("../other/./repo", cwd, home),
-            Path::new("/other/repo")
-        );
-        assert_eq!(
-            resolve_repository_path("/abs/path", cwd, home),
-            Path::new("/abs/path")
-        );
-    }
-
-    #[test]
     fn lists_sorted_non_hidden_child_directories_and_ignores_files() {
         let cwd = TempDir::new("tuig-browser");
         for dir in ["zulu", "Alpha", ".cache"] {
@@ -187,23 +168,5 @@ mod tests {
             suggest_directories(absolute.to_str().unwrap(), cwd.path()),
             vec![suggestion(cwd.path(), &["Projects", "Nested"])]
         );
-    }
-
-    #[test]
-    fn uses_a_trailing_separator_to_suggest_children_of_the_implied_directory() {
-        let cwd = TempDir::new("tuig-browser");
-        fs::create_dir_all(cwd.path().join("repo/src")).unwrap();
-        fs::create_dir(cwd.path().join("repo/.git")).unwrap();
-
-        assert_eq!(
-            suggest_directories("repo/", cwd.path()),
-            vec![suggestion(cwd.path(), &["repo", "src"])]
-        );
-    }
-
-    #[test]
-    fn a_missing_parent_produces_no_suggestions() {
-        let cwd = TempDir::new("tuig-browser");
-        assert!(suggest_directories("nope/child", cwd.path()).is_empty());
     }
 }

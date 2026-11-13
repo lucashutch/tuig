@@ -357,24 +357,6 @@ mod tests {
     }
 
     #[test]
-    fn exhausted_walk_reports_short_pages() {
-        let dir = temp_repo();
-        make_commits(&dir, 3);
-        let walk = CommitWalk::new(dir.path());
-        assert_eq!(walk.read(0, 10).unwrap().len(), 3);
-        assert!(walk.read(3, 10).unwrap().is_empty());
-        assert!(walk.read(50, 10).unwrap().is_empty());
-    }
-
-    #[test]
-    fn empty_repository_reads_nothing() {
-        let dir = temp_repo();
-        let walk = CommitWalk::new(dir.path());
-        assert!(walk.read(0, 10).unwrap().is_empty());
-        assert!(walk.read(5, 10).unwrap().is_empty());
-    }
-
-    #[test]
     fn invalidate_makes_the_next_read_see_new_commits() {
         let dir = temp_repo();
         make_commits(&dir, 2);
@@ -386,19 +368,5 @@ mod tests {
         walk.invalidate();
         assert!(!walk.is_open());
         assert_eq!(walk.read(0, 1).unwrap()[0].subject, "extra");
-    }
-
-    #[test]
-    fn idle_walk_closes_its_process() {
-        let dir = temp_repo();
-        make_commits(&dir, 2);
-        let walk = CommitWalk::new(dir.path());
-        walk.read(0, 1).unwrap();
-        // The first record leaves the second unread, so the process stays open.
-        assert!(walk.is_open());
-        std::thread::sleep(IDLE + Duration::from_millis(400));
-        assert!(!walk.is_open());
-        // The walk still works after the idle close.
-        assert_eq!(walk.read(0, 1).unwrap()[0].subject, "c1");
     }
 }

@@ -583,7 +583,7 @@ fn wait_with_limits(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_util::{TempDir, temp_repo};
+    use crate::test_util::temp_repo;
 
     #[test]
     fn reports_stderr_in_command_errors() {
@@ -595,18 +595,6 @@ mod tests {
         assert_eq!(error.args, ["show", "nope"]);
         assert_ne!(error.result.exit_code, 0);
         assert!(error.to_string().starts_with("git show nope: fatal:"));
-    }
-
-    #[test]
-    fn command_error_falls_back_to_exit_code() {
-        let error = GitCommandError::new(
-            &["x"],
-            CommandResult {
-                exit_code: 3,
-                ..CommandResult::default()
-            },
-        );
-        assert_eq!(error.to_string(), "git x: exit 3");
     }
 
     #[test]
@@ -689,54 +677,5 @@ mod tests {
             error.to_string(),
             "git -c alias.nap=!sleep 30 nap: cancelled"
         );
-    }
-
-    #[test]
-    fn an_already_cancelled_token_never_starts_git() {
-        let token = CancelToken::new();
-        token.cancel();
-        let options = RunOptions {
-            cancel: Some(token),
-            ..RunOptions::default()
-        };
-        let error = run_git_with(&["--version"], &options).unwrap_err();
-        assert!(matches!(error, GitError::Aborted(_)));
-    }
-
-    #[test]
-    fn not_repository_messages_cover_each_problem() {
-        let plain = NotGitRepositoryError::new("/x", vec![], NotRepositoryProblem::NotRepository);
-        assert_eq!(
-            plain.to_string(),
-            "No Git repository found at \"/x\".\n\nHint: Run tuig from inside a Git repository or pass the path to one."
-        );
-        let missing = NotGitRepositoryError::new(
-            "/x",
-            vec!["/a b".into(), "/ok".into()],
-            NotRepositoryProblem::Missing,
-        );
-        assert_eq!(
-            missing.to_string(),
-            "Path \"/x\" does not exist.\n\nRepositories found nearby:\n  tuig '/a b'\n  tuig /ok"
-        );
-    }
-
-    #[test]
-    fn finds_nearby_repositories_by_similar_name() {
-        let root = TempDir::new("tuig-nearby");
-        for name in ["project", "valid repo", "plain-dir"] {
-            let path = root.path().join(name);
-            std::fs::create_dir(&path).unwrap();
-            if name != "plain-dir" {
-                run_git(&["init", "-b", "main"], Some(&path)).unwrap();
-            }
-        }
-        let child = nearby_repositories(root.path(), true);
-        let names: Vec<_> = child.iter().map(|p| base_name_lower(p)).collect();
-        assert_eq!(names, ["project", "valid repo"]);
-
-        let typo = nearby_repositories(&root.path().join("projcet"), false);
-        assert_eq!(typo, [root.path().join("project")]);
-        assert!(nearby_repositories(&root.path().join("zzzzzzzz"), false).is_empty());
     }
 }

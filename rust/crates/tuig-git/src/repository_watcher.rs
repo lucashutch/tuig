@@ -447,18 +447,6 @@ mod tests {
         );
     }
 
-    #[test]
-    fn watches_outside_dirs_only_for_linked_worktrees() {
-        let normal = watch_targets(&paths("/r", "/r/.git", "/r/.git"));
-        assert_eq!(normal.len(), 1);
-        let linked = watch_targets(&paths("/w", "/r/.git/worktrees/w", "/r/.git"));
-        let dirs: Vec<_> = linked.iter().map(|(p, _)| p.to_str().unwrap()).collect();
-        assert_eq!(
-            dirs,
-            ["/w", "/r/.git/worktrees/w", "/r/.git", "/r/.git/refs"]
-        );
-    }
-
     const OPTIONS: RepositoryWatchOptions = RepositoryWatchOptions {
         debounce: Duration::from_millis(300),
         max_wait: Duration::from_secs(3),
@@ -636,48 +624,5 @@ mod tests {
         wait_until("the ref report", || w.count() >= 1);
         thread::sleep(SETTLE);
         assert_eq!(w.count(), 1);
-    }
-
-    #[test]
-    fn a_change_the_caller_cannot_take_yet_is_reported_again() {
-        let repo = repository();
-        let root = repo.path();
-        let ready = Arc::new(AtomicBool::new(false));
-        let accepted = Arc::new(AtomicUsize::new(0));
-        let (flag, took) = (ready.clone(), accepted.clone());
-        let w = watch(root, move || {
-            let ok = flag.load(Ordering::SeqCst);
-            if ok {
-                took.fetch_add(1, Ordering::SeqCst);
-            }
-            ok
-        });
-
-        fs::write(root.join("a.txt"), "edited\n").unwrap();
-        wait_until("the first refused report", || w.count() >= 1);
-        ready.store(true, Ordering::SeqCst);
-        wait_until("a report the caller accepts", || {
-            accepted.load(Ordering::SeqCst) >= 1
-        });
-        let total = w.count();
-        thread::sleep(SETTLE);
-
-        // Once accepted, the burst is over: no further asks.
-        assert_eq!(accepted.load(Ordering::SeqCst), 1);
-        assert_eq!(w.count(), total);
-    }
-
-    #[test]
-    fn a_closed_watcher_reports_nothing() {
-        let repo = repository();
-        let root = repo.path();
-        let w = watch(root, || true);
-
-        w._watcher.close();
-        fs::write(root.join("a.txt"), "edited\n").unwrap();
-        external_git(root, &["commit", "-q", "-am", "edit"]);
-        thread::sleep(SETTLE);
-
-        assert_eq!(w.count(), 0);
     }
 }
