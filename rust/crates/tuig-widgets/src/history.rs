@@ -4,9 +4,19 @@
 //! [`HistoryList`] is a [`Component`]. Put it in the tree with `Custom::new(app, HistoryList::new(theme))` and change
 //! it with `Custom::update`. Its width is the pane's content width: the TypeScript app draws the same rows inside a
 //! one-cell padding.
+//!
+//! Known parity gaps with `paintHistory` and its mouse handling in the TypeScript app:
+//!
+//! - Branch hints.
+//! - The `A ` comparison marker.
+//! - The PR column and its spinner.
+//! - Divider hover and drag colors.
+//! - Avatars.
+//! - Click hits on the SHA and on labels.
+//! - The 16 ms wheel batching and the 80 ms settle timer.
+//! - The shell, not the widget, owns viewport and selection in the TypeScript app. Here the widget owns both.
 
 use crate::decorations::{RefIndex, resolve_head_sha, summarise_decorations};
-use crate::text::{fit_columns, str_width};
 use crate::viewport::Viewport;
 use opentui::prelude::*;
 use std::cell::{Cell, RefCell};
@@ -21,6 +31,7 @@ use tuig_ui_model::history_columns::{
     HistoryColumns, history_column_layout, visible_history_columns,
 };
 use tuig_ui_model::scrollbar::{ScrollbarCell, scrollbar_cell, scrollbar_thumb};
+use tuig_ui_model::text_width::{fit_columns, string_width};
 use tuig_ui_model::theme::{Theme, interaction_background};
 
 /// Rows one wheel notch scrolls. `WHEEL_ROWS` in `src/ui/runtime-widgets.ts`.
@@ -46,6 +57,14 @@ pub struct Span {
     pub bg: Option<Rgba>,
 }
 
+/// The selected row, kept apart from display rows so that the working row appearing or disappearing does not move
+/// the selection to another commit. TypeScript keeps `historySelection` and `commitIndex` the same way.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Selection {
+    Working,
+    Commit(usize),
+}
+
 type SelectHandler = Box<dyn FnMut(&mut Cx<'_>, usize)>;
 
 pub struct HistoryList {
@@ -55,6 +74,8 @@ pub struct HistoryList {
     colors: Vec<String>,
     theme: Theme,
     columns: HistoryColumns,
+    selection: Selection,
+    /// Scroll state. `selected` is derived from `selection` whenever the widget reads or paints it.
     viewport: Cell<Viewport>,
     /// Body lines at the last paint, so events between paints use the painted geometry.
     lines: Cell<usize>,
@@ -78,6 +99,7 @@ impl HistoryList {
                 show_sha: true,
                 ..HistoryColumns::default()
             },
+            selection: Selection::Working,
             viewport: Cell::new(Viewport::default()),
             lines: Cell::new(1),
             graph_scroll: Cell::new(0),
@@ -102,10 +124,14 @@ impl HistoryList {
         self.refs = RefIndex::new(&data.branches);
         self.graph = RefCell::new(graph);
         self.data = data;
-        let total = self.total();
-        let mut viewport = self.viewport.get();
-        viewport.selected = viewport.selected.min(total.saturating_sub(1));
-        self.viewport.set(viewport);
+        self.selection = match self.selection {
+            Selection::Working if self.has_working() => Selection::Working,
+            Selection::Working => Selection::Commit(0),
+            Selection::Commit(index) => {
+                Selection::Commit(index.min(self.data.commits.len().saturating_sub(1)))
+            }
+        };
+        self.sync_selected();
     }
 
     /// Adds the next page of older commits. The graph continues from where it stopped.
@@ -146,7 +172,22 @@ impl HistoryList {
         self.data.working_files > 0
     }
 
+    /// The selected display row.
+    fn selected_row(&self) -> usize {
+        match self.selection {
+            Selection::Working => 0,
+            Selection::Commit(index) => index + usize::from(self.has_working()),
+        }
+    }
+
+    fn sync_selected(&self) {
+        let mut viewport = self.viewport.get();
+        viewport.selected = self.selected_row();
+        self.viewport.set(viewport);
+    }
+
     pub fn viewport(&self) -> Viewport {
+        self.sync_selected();
         self.viewport.get()
     }
 
@@ -160,15 +201,18 @@ impl HistoryList {
         let mut viewport = self.viewport.get();
         viewport.select(row, self.total());
         self.viewport.set(viewport);
+        self.selection = match (self.has_working(), viewport.selected) {
+            (true, 0) => Selection::Working,
+            (true, row) => Selection::Commit(row - 1),
+            (false, row) => Selection::Commit(row),
+        };
     }
 
     /// The commit index of the selected row, or `None` for the working row.
     pub fn selected_commit(&self) -> Option<usize> {
-        let row = self.viewport.get().selected;
-        if self.has_working() {
-            row.checked_sub(1)
-        } else {
-            Some(row)
+        match self.selection {
+            Selection::Working => None,
+            Selection::Commit(index) => Some(index),
         }
     }
 
@@ -189,10 +233,13 @@ impl HistoryList {
     pub fn render(&self, width: u32, height: u32) -> Vec<Vec<Span>> {
         let theme = &self.theme;
         let width = i64::from(width);
+        // The widget is the pane's content: one header line, then body lines up to the bottom edge. TypeScript's
+        // `contentHeight - 2` counts the pane border too, which is already outside this widget's height.
         let lines = (height as usize).saturating_sub(1).max(1);
         self.lines.set(lines);
         let has_working = self.has_working();
         let total = self.total();
+        self.sync_selected();
         let mut viewport = self.viewport.get();
         let start = viewport.resolve(total, lines);
         self.viewport.set(viewport);
@@ -233,7 +280,7 @@ impl HistoryList {
             span(
                 fit_columns(
                     "Graph",
-                    geometry.graph_width - str_width(&arrows) as i64,
+                    geometry.graph_width - string_width(&arrows) as i64,
                     false,
                 ),
                 header,
@@ -286,13 +333,14 @@ impl HistoryList {
             };
             (glyph.to_string(), fg)
         };
+        let muted_hex = theme.muted.to_hex();
         let window = |cells: &[GraphCell]| {
             graph_window_cells(
                 cells,
                 graph_scroll as i64,
                 visible_graph,
                 graph_columns,
-                &theme.muted.to_hex(),
+                &muted_hex,
             )
             .cells
         };
@@ -469,8 +517,15 @@ impl Component for HistoryList {
                     style = style.bg(to_color(bg));
                 }
                 painter.text(x, y as i32, &span.text, style);
-                x += str_width(&span.text) as i32;
+                // Advance by the width OpenTUI draws with, so a span never overlaps the next one.
+                x += painter.text_width(&span.text) as i32;
             }
+        }
+    }
+
+    fn focus_changed(&mut self, _cx: &mut Cx<'_>, focused: bool) {
+        if !focused {
+            self.hovered_line = None;
         }
     }
 
@@ -483,7 +538,8 @@ impl Component for HistoryList {
             MouseEventKind::ScrollRight => self.scroll_graph(1),
             MouseEventKind::ScrollUp => self.wheel(-WHEEL_ROWS),
             MouseEventKind::ScrollDown => self.wheel(WHEEL_ROWS),
-            MouseEventKind::Down(MouseButton::Left | MouseButton::Right) => {
+            // A right click does nothing here: the shell handles it and opens the graph menu, as TypeScript does.
+            MouseEventKind::Down(MouseButton::Left) => {
                 let Some(row) = self.viewport.get().row_at_line(local.1, self.total()) else {
                     return false;
                 };

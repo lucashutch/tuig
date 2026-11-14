@@ -3,5 +3,4 @@
 
 pub mod decorations;
 pub mod history;
-pub mod text;
 pub mod viewport;

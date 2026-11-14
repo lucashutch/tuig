@@ -221,3 +221,42 @@ fn wheel_scrolls_rows_and_click_selects_the_row_under_the_pointer() {
         "a click does not scroll"
     );
 }
+
+#[test]
+fn columns_after_a_wide_subject_stay_aligned() {
+    let mut data = demo();
+    data.working_files = 0;
+    data.commits[0].subject = "日本語 👨\u{200d}👩\u{200d}👧 family".to_string();
+    let mut list = HistoryList::new(one_dark_theme());
+    list.set_data(data);
+    let (app, _widget) = paint(list);
+    let capture = app.render();
+    let committer_x = |y: u32| {
+        (0..u32::from(WIDTH) - 1)
+            .find(|&x| {
+                capture.cell(x, y).is_some_and(|cell| cell.symbol == "A")
+                    && capture
+                        .cell(x + 1, y)
+                        .is_some_and(|cell| cell.symbol == "d")
+            })
+            .unwrap_or_else(|| panic!("no committer on line {y}\n{}", capture.text()))
+    };
+    // Line 1 holds the wide subject and line 2 a plain one.
+    assert_eq!(committer_x(1), committer_x(2), "{}", capture.text());
+}
+
+#[test]
+fn the_selected_commit_stays_selected_when_the_working_row_changes() {
+    let mut list = HistoryList::new(one_dark_theme());
+    list.set_data(demo());
+    list.select(4);
+    assert_eq!(list.selected_commit(), Some(3));
+    let mut data = demo();
+    data.working_files = 0;
+    list.set_data(data);
+    assert_eq!(list.selected_commit(), Some(3));
+    assert_eq!(list.viewport().selected, 3);
+    list.set_data(demo());
+    assert_eq!(list.selected_commit(), Some(3));
+    assert_eq!(list.viewport().selected, 4);
+}
