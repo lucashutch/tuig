@@ -1,0 +1,23 @@
+[package]
+name = "tuig-app"
+description = "The tuig terminal Git UI: app shell, message loop and screens"
+edition.workspace = true
+version.workspace = true
+publish = false
+license.workspace = true
+
+[[bin]]
+name = "tuig"
+path = "src/main.rs"
+
+[dependencies]
+tuig-git = { path = "../tuig-git" }
+tuig-ui-model = { path = "../tuig-ui-model" }
+tuig-widgets = { path = "../tuig-widgets" }
+opentui.workspace = true
+bitflags = "2"
+# The watcher forwarder: channel receive and a short sleep when the app queue is full.
+tokio = { version = "1.54.1", default-features = false, features = ["rt", "time", "sync"] }
+
+[lints]
+workspace = true
