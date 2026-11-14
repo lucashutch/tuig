@@ -3,15 +3,17 @@
 //!
 //! The `notify` crate delivers events on its own thread. Its callback sends
 //! them into an unbounded tokio channel. One tokio task owns the debounce
-//! state and the timers, so `on_change` and `on_error` run on that task. They
-//! must return quickly, for example by forwarding into another channel.
+//! state and the timers, and sends each report as a [`WatchEvent`] into the
+//! receiver that [`watch_repository`] returns.
 //!
 //! Differences from the TypeScript code:
 //! - [`watch_repository`] must run inside a Tokio runtime. It spawns the task.
 //! - `changed_at` is an [`Instant`] taken when the task receives the event.
 //! - Read-only events (open, close without write) are dropped. `inotify`
 //!   reports them, and Node's `fs.watch` does not.
-//! - [`RepositoryWatcher::close`] does not wait for a running `on_change`.
+//! - Reports go into a channel instead of callbacks. TypeScript's `onChange`
+//!   returns false when the caller cannot refresh yet and the watcher asks
+//!   again later. A channel cannot answer, so the receiver keeps that retry.
 
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
@@ -29,8 +31,6 @@ use crate::types::RepositoryWatchPaths;
 pub const WATCH_DEBOUNCE: Duration = Duration::from_millis(200);
 /// A steady stream of events, such as a build, still reports once per window.
 pub const WATCH_MAX_WAIT: Duration = Duration::from_millis(1000);
-/// Delay before asking again when the caller cannot refresh yet.
-pub const WATCH_RETRY: Duration = Duration::from_millis(1000);
 /// Index writes this soon after a Tuig Git process exits are its own. Watch
 /// events and process exits reach the worker in no fixed order.
 const OWN_INDEX_WRITE_GRACE: Duration = Duration::from_millis(150);
@@ -41,7 +41,6 @@ const IGNORE_CHECK_LIMIT: usize = 200;
 pub struct RepositoryWatchOptions {
     pub debounce: Duration,
     pub max_wait: Duration,
-    pub retry: Duration,
 }
 
 impl Default for RepositoryWatchOptions {
@@ -49,13 +48,22 @@ impl Default for RepositoryWatchOptions {
         Self {
             debounce: WATCH_DEBOUNCE,
             max_wait: WATCH_MAX_WAIT,
-            retry: WATCH_RETRY,
         }
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// What a watch reports through its channel.
+#[derive(Debug)]
 pub enum WatchEvent {
+    /// A burst of changes went quiet. `at` is the time of its latest event.
+    Changed { at: Instant },
+    /// The watch failed and closed itself. No event follows.
+    Failed(notify::Error),
+}
+
+/// The Git state that one changed path can affect.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WatchKind {
     Ignore,
     Metadata,
     Index,
@@ -72,38 +80,38 @@ fn inside<'a>(parent: &Path, path: &'a Path) -> Option<&'a Path> {
 /// Only HEAD, the index, and refs change what Tuig shows. Objects, logs, and
 /// lock files change on every commit and would only add noise. A `.git`
 /// segment inside the work tree belongs to a nested repository or submodule.
-pub fn classify_watch_event(paths: &RepositoryWatchPaths, path: &Path) -> WatchEvent {
+pub fn classify_watch_event(paths: &RepositoryWatchPaths, path: &Path) -> WatchKind {
     let git_dir = Path::new(&paths.git_dir);
     let common_dir = Path::new(&paths.common_dir);
     let work_tree = Path::new(&paths.work_tree);
     if let Some(name) = inside(git_dir, path) {
         if name == Path::new("index") {
-            return WatchEvent::Index;
+            return WatchKind::Index;
         }
         if name == Path::new("HEAD") {
-            return WatchEvent::Metadata;
+            return WatchKind::Metadata;
         }
     }
     if let Some(name) = inside(common_dir, path) {
         let name = name.to_string_lossy();
         if name.ends_with(".lock") {
-            return WatchEvent::Ignore;
+            return WatchKind::Ignore;
         }
         if name == "packed-refs" || name.starts_with("refs/") {
-            return WatchEvent::Metadata;
+            return WatchKind::Metadata;
         }
-        return WatchEvent::Ignore;
+        return WatchKind::Ignore;
     }
     if inside(git_dir, path).is_some() {
-        return WatchEvent::Ignore;
+        return WatchKind::Ignore;
     }
     if let Some(name) = inside(work_tree, path) {
         if name.as_os_str().is_empty() || name.components().any(|c| c.as_os_str() == ".git") {
-            return WatchEvent::Ignore;
+            return WatchKind::Ignore;
         }
-        return WatchEvent::WorkTree;
+        return WatchKind::WorkTree;
     }
-    WatchEvent::Ignore
+    WatchKind::Ignore
 }
 
 /// Directories to watch. The work tree is watched recursively and already
@@ -162,8 +170,8 @@ pub struct RepositoryWatcher {
 }
 
 impl RepositoryWatcher {
-    /// Stop watching. `on_change` is not called after this returns, though one
-    /// call that already started can still finish.
+    /// Stop watching. No event is sent after this returns, though a report
+    /// that was already sent stays in the channel.
     pub fn close(&self) {
         close_watch(&self.closed, &self.watchers);
         let _ = self.sender.send(Message::Close);
@@ -196,20 +204,19 @@ struct Burst {
 
 /// Report changes to a repository's HEAD, index, refs, and work tree.
 ///
-/// A burst of events is reported once, after it goes quiet. `on_change` gets
-/// the time of the latest event in the burst and returns false when it cannot
-/// refresh yet; the watcher then asks again later. Index writes made by Tuig's
-/// own Git processes are dropped so a refresh cannot trigger another one.
+/// A burst of events is reported once, after it goes quiet, as
+/// [`WatchEvent::Changed`] with the time of the latest event in the burst.
+/// Index writes made by Tuig's own Git processes are dropped so a refresh
+/// cannot trigger another one. The receiver ends when the watcher closes.
 ///
 /// Fails when a watch cannot start, for example when the inotify watch limit
-/// is reached. `on_error` reports a watch that fails later; the watcher is
-/// closed by then.
+/// is reached. A watch that fails later sends [`WatchEvent::Failed`]; the
+/// watcher is closed by then.
 pub fn watch_repository(
     paths: RepositoryWatchPaths,
-    mut on_change: impl FnMut(Instant) -> bool + Send + 'static,
-    on_error: impl FnOnce(notify::Error) + Send + 'static,
     options: RepositoryWatchOptions,
-) -> notify::Result<RepositoryWatcher> {
+) -> notify::Result<(RepositoryWatcher, UnboundedReceiver<WatchEvent>)> {
+    let (events, reports) = mpsc::unbounded_channel::<WatchEvent>();
     let (sender, receiver) = mpsc::unbounded_channel::<Message>();
     let closed = Arc::new(AtomicBool::new(false));
     let watchers = Arc::new(Mutex::new(Vec::new()));
@@ -250,17 +257,19 @@ pub fn watch_repository(
             receiver,
             &worker_closed,
             &worker_watchers,
-            &mut on_change,
-            on_error,
+            &events,
             options,
         )
         .await;
     });
-    Ok(RepositoryWatcher {
-        closed,
-        watchers,
-        sender,
-    })
+    Ok((
+        RepositoryWatcher {
+            closed,
+            watchers,
+            sender,
+        },
+        reports,
+    ))
 }
 
 async fn run_worker(
@@ -268,8 +277,7 @@ async fn run_worker(
     mut receiver: UnboundedReceiver<Message>,
     closed: &AtomicBool,
     watchers: &Mutex<Vec<RecommendedWatcher>>,
-    on_change: &mut (dyn FnMut(Instant) -> bool + Send),
-    on_error: impl FnOnce(notify::Error),
+    events: &UnboundedSender<WatchEvent>,
     options: RepositoryWatchOptions,
 ) {
     let mut burst = Burst {
@@ -298,17 +306,17 @@ async fn run_worker(
             return;
         }
         match message {
-            None => flush(paths, &mut burst, closed, &mut *on_change, options).await,
+            None => flush(paths, &mut burst, closed, events).await,
             Some(Message::Close) => return,
             Some(Message::Error(error)) => {
                 close_watch(closed, watchers);
-                on_error(error);
+                let _ = events.send(WatchEvent::Failed(error));
                 return;
             }
             Some(Message::Paths(changed)) => {
                 if changed.is_empty() {
                     // The backend named no file: treat it as a metadata change.
-                    record(paths, &mut burst, WatchEvent::Metadata, None, options);
+                    record(paths, &mut burst, WatchKind::Metadata, None, options);
                 }
                 for path in &changed {
                     let kind = classify_watch_event(paths, path);
@@ -326,19 +334,19 @@ fn schedule(burst: &mut Burst, delay: Duration) {
 fn record(
     paths: &RepositoryWatchPaths,
     burst: &mut Burst,
-    kind: WatchEvent,
+    kind: WatchKind,
     path: Option<&Path>,
     options: RepositoryWatchOptions,
 ) {
-    if kind == WatchEvent::Ignore {
+    if kind == WatchKind::Ignore {
         return;
     }
-    if kind == WatchEvent::Index && own_git_active(OWN_INDEX_WRITE_GRACE) {
+    if kind == WatchKind::Index && own_git_active(OWN_INDEX_WRITE_GRACE) {
         return;
     }
     let now = Instant::now();
     burst.changed_at = now;
-    if kind != WatchEvent::WorkTree {
+    if kind != WatchKind::WorkTree {
         burst.work_tree_names = None;
     } else if let Some(names) = &mut burst.work_tree_names {
         let name = path
@@ -359,8 +367,7 @@ async fn flush(
     paths: &RepositoryWatchPaths,
     burst: &mut Burst,
     closed: &AtomicBool,
-    on_change: &mut (dyn FnMut(Instant) -> bool + Send),
-    options: RepositoryWatchOptions,
+    events: &UnboundedSender<WatchEvent>,
 ) {
     burst.timer = None;
     let names = burst.work_tree_names.take();
@@ -377,14 +384,9 @@ async fn flush(
     if closed.load(Ordering::SeqCst) {
         return;
     }
-    if on_change(burst.changed_at) {
-        return;
-    }
-    burst.work_tree_names = None;
-    burst.started_at.get_or_insert_with(Instant::now);
-    if burst.timer.is_none() {
-        schedule(burst, options.retry);
-    }
+    let _ = events.send(WatchEvent::Changed {
+        at: burst.changed_at,
+    });
 }
 
 #[cfg(test)]
@@ -407,7 +409,7 @@ mod tests {
 
     #[test]
     fn classifies_paths_by_the_git_state_they_affect() {
-        use WatchEvent::*;
+        use WatchKind::*;
         let normal = paths("/r", "/r/.git", "/r/.git");
         let cases = [
             ("/r/.git/index", Index),
@@ -455,7 +457,6 @@ mod tests {
     const OPTIONS: RepositoryWatchOptions = RepositoryWatchOptions {
         debounce: Duration::from_millis(300),
         max_wait: Duration::from_secs(3),
-        retry: Duration::from_millis(200),
     };
     /// Long enough for a debounced report and the ignore check to land.
     const SETTLE: Duration = Duration::from_millis(1500);
@@ -521,19 +522,19 @@ mod tests {
         }
     }
 
-    fn watch(dir: &Path, on_change: impl Fn() -> bool + Send + 'static) -> Watch {
+    /// Counts the reports a watch sends. A failure panics the counting task, and the count then stops.
+    fn watch(dir: &Path) -> Watch {
         let calls = Arc::new(AtomicUsize::new(0));
         let counter = calls.clone();
-        let watcher = watch_repository(
-            watch_paths(dir),
-            move |_| {
-                counter.fetch_add(1, Ordering::SeqCst);
-                on_change()
-            },
-            |error| panic!("watch failed: {error}"),
-            OPTIONS,
-        )
-        .unwrap();
+        let (watcher, mut events) = watch_repository(watch_paths(dir), OPTIONS).unwrap();
+        tokio::spawn(async move {
+            while let Some(event) = events.recv().await {
+                match event {
+                    WatchEvent::Changed { .. } => counter.fetch_add(1, Ordering::SeqCst),
+                    WatchEvent::Failed(error) => panic!("watch failed: {error}"),
+                };
+            }
+        });
         Watch {
             calls,
             _watcher: watcher,
@@ -552,7 +553,7 @@ mod tests {
     async fn a_commit_from_another_terminal_is_reported_once() {
         let repo = repository();
         let root = repo.path();
-        let w = watch(root, || true);
+        let w = watch(root);
 
         fs::write(root.join("a.txt"), "changed\n").unwrap();
         fs::write(root.join("b.txt"), "new\n").unwrap();
@@ -568,7 +569,7 @@ mod tests {
     async fn file_edits_are_reported_unless_git_ignores_them() {
         let repo = repository();
         let root = repo.path();
-        let w = watch(root, || true);
+        let w = watch(root);
 
         fs::create_dir(root.join("build")).unwrap();
         fs::write(root.join("build/out.js"), "generated\n").unwrap();
@@ -594,7 +595,7 @@ mod tests {
             .set_modified(future)
             .unwrap();
         sleep(Duration::from_millis(50)).await;
-        let w = watch(root, || true);
+        let w = watch(root);
 
         run_git(&["diff"], Some(root)).await.unwrap();
         sleep(SETTLE).await;
@@ -620,7 +621,7 @@ mod tests {
             ],
         );
         external_git(&linked, &["commit", "-q", "--allow-empty", "-m", "feature"]);
-        let w = watch(&linked, || true);
+        let w = watch(&linked);
         sleep(Duration::from_millis(100)).await;
 
         // Branch refs live in the main checkout's .git, outside the linked tree.
