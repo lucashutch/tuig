@@ -13,6 +13,10 @@ use unicode_width::UnicodeWidthStr;
 
 /// Columns that `text` covers on a terminal row.
 pub fn string_width(text: &str) -> usize {
+    debug_assert!(
+        !text.contains('\x1b'),
+        "string_width does not strip ANSI escapes"
+    );
     text.graphemes(true).map(grapheme_width).sum()
 }
 
