@@ -5,6 +5,11 @@
 //! it with `Custom::update`. Its width is the pane's content width: the TypeScript app draws the same rows inside a
 //! one-cell padding.
 //!
+//! The widget holds no history state of its own. The shell owns the commits, the graph index, the viewport and the
+//! selection. It builds a [`HistoryWindow`] for the rows on screen with [`history_window`] and passes it in with
+//! [`HistoryList::set_window`], with the selection through [`HistoryList::set_selected`]. Mouse input comes back as
+//! [`HistoryEvent`] through [`HistoryList::on_event`].
+//!
 //! Known parity gaps with `paintHistory` and its mouse handling in the TypeScript app:
 //!
 //! - Branch hints.
@@ -12,17 +17,15 @@
 //! - The PR column and its spinner.
 //! - Divider hover and drag colors.
 //! - Avatars.
-//! - Click hits on the SHA and on labels.
-//! - The 16 ms wheel batching and the 80 ms settle timer.
-//! - The shell, not the widget, owns viewport and selection in the TypeScript app. Here the widget owns both.
+//! - Click hits on the SHA and on labels, and the scrollbar drag.
 
-use crate::decorations::{RefIndex, resolve_head_sha, summarise_decorations};
-use crate::viewport::Viewport;
+use crate::decorations::{RefIndex, summarise_decorations};
 use opentui::prelude::*;
-use std::cell::{Cell, RefCell};
+use std::rc::Rc;
+use std::time::{Duration, Instant};
 use tuig_git::types::{BranchRef, Commit};
 use tuig_ui_model::color::Rgba;
-use tuig_ui_model::graph::GraphCell;
+use tuig_ui_model::graph::{GraphCell, GraphRow};
 use tuig_ui_model::graph_index::GraphIndex;
 use tuig_ui_model::graph_viewport::{
     clamp_graph_scroll, graph_scroll_indicator, graph_window_cells,
@@ -30,23 +33,92 @@ use tuig_ui_model::graph_viewport::{
 use tuig_ui_model::history_columns::{
     HistoryColumns, history_column_layout, visible_history_columns,
 };
+use tuig_ui_model::history_viewport::WHEEL_ROWS;
 use tuig_ui_model::scrollbar::{ScrollbarCell, scrollbar_cell, scrollbar_thumb};
 use tuig_ui_model::text_width::{fit_columns, string_width};
 use tuig_ui_model::theme::{Theme, interaction_background};
 
-/// Rows one wheel notch scrolls. `WHEEL_ROWS` in `src/ui/runtime-widgets.ts`.
-pub const WHEEL_ROWS: i64 = 1;
+/// Two presses on the same row within this time count as a double click. `DOUBLE_CLICK_MS` in TypeScript.
+pub const DOUBLE_CLICK: Duration = Duration::from_millis(400);
 
-/// What the list shows. The shell owns loading; the widget only lays it out.
+/// One commit on screen.
+#[derive(Debug, Clone)]
+pub struct HistoryRow {
+    pub graph: GraphRow,
+    pub commit: Commit,
+    /// The primary ref label, empty when the commit has none.
+    pub label: String,
+    /// Refs on the commit beyond the primary one, shown as `+N`.
+    pub extra: usize,
+}
+
+/// The part of the history the widget paints, built by [`history_window`].
 #[derive(Debug, Clone, Default)]
-pub struct HistoryData {
-    /// Newest first, as `git log` lists them.
-    pub commits: Vec<Commit>,
-    pub branches: Vec<BranchRef>,
+pub struct HistoryWindow {
+    /// First display row on screen. Row 0 is the working row when `working_files` is above zero.
+    pub start: usize,
     /// Changed files in the working tree. Above zero, the list starts with a working-changes row.
     pub working_files: usize,
+    /// Commits loaded, for the header and the row count.
+    pub commits: usize,
     /// False while older commits remain unread. The header then shows `N+ commits`.
     pub commits_complete: bool,
+    /// Graph lanes across all loaded commits, so the column layout does not change while scrolling.
+    pub graph_columns: usize,
+    /// Commit rows from the first commit on screen, at least as many as the body has lines.
+    pub rows: Vec<HistoryRow>,
+}
+
+impl HistoryWindow {
+    /// Display rows: the working row, if any, then one per commit.
+    pub fn total(&self) -> usize {
+        self.commits + usize::from(self.working_files > 0)
+    }
+}
+
+/// The inputs to [`history_window`] that change only when the history does.
+pub struct HistorySource<'a> {
+    pub commits: &'a [Commit],
+    pub branches: &'a [BranchRef],
+    pub refs: &'a RefIndex,
+    pub colors: &'a [String],
+    pub working_files: usize,
+    pub commits_complete: bool,
+}
+
+/// Builds the rows for `lines` body lines from display row `start`. The graph rows come from `index`, which keeps
+/// lane checkpoints and replays the window.
+pub fn history_window(
+    index: &mut GraphIndex,
+    source: &HistorySource<'_>,
+    start: usize,
+    lines: usize,
+) -> HistoryWindow {
+    let has_working = source.working_files > 0;
+    let first_commit = start.saturating_sub(usize::from(has_working));
+    let graph = index.window(source.commits, source.colors, first_commit, lines + 1);
+    let rows = graph
+        .iter()
+        .zip(&source.commits[first_commit.min(source.commits.len())..])
+        .map(|(graph, commit)| {
+            let (label, extra) =
+                summarise_decorations(&commit.decorations, source.branches, source.refs);
+            HistoryRow {
+                graph: graph.clone(),
+                commit: commit.clone(),
+                label,
+                extra,
+            }
+        })
+        .collect();
+    HistoryWindow {
+        start,
+        working_files: source.working_files,
+        commits: source.commits.len(),
+        commits_complete: source.commits_complete,
+        graph_columns: index.columns,
+        rows,
+    }
 }
 
 /// One run of cells with one style. `bg: None` keeps the pane background.
@@ -57,96 +129,71 @@ pub struct Span {
     pub bg: Option<Rgba>,
 }
 
-/// The selected row, kept apart from display rows so that the working row appearing or disappearing does not move
-/// the selection to another commit. TypeScript keeps `historySelection` and `commitIndex` the same way.
+/// Mouse input for the shell. Rows are display rows and columns are cells from the widget's left edge.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Selection {
-    Working,
-    Commit(usize),
+pub enum HistoryEvent {
+    /// A left press on a row. `clicks` is 2 for a second press on the same row within [`DOUBLE_CLICK`].
+    Click { row: usize, column: u16, clicks: u8 },
+    /// Vertical wheel, in rows.
+    Wheel(i32),
+    /// Horizontal wheel or shift with the vertical wheel, in graph columns.
+    ScrollGraph(i32),
 }
 
-type SelectHandler = Box<dyn FnMut(&mut Cx<'_>, usize)>;
+type EventHandler = Box<dyn FnMut(&mut Cx<'_>, HistoryEvent)>;
 
 pub struct HistoryList {
-    data: HistoryData,
-    refs: RefIndex,
-    graph: RefCell<GraphIndex>,
-    colors: Vec<String>,
+    window: Rc<HistoryWindow>,
     theme: Theme,
     columns: HistoryColumns,
-    selection: Selection,
-    /// Scroll state. `selected` is derived from `selection` whenever the widget reads or paints it.
-    viewport: Cell<Viewport>,
-    /// Body lines at the last paint, so events between paints use the painted geometry.
-    lines: Cell<usize>,
-    graph_scroll: Cell<usize>,
+    /// The selected display row.
+    selected: Option<usize>,
+    graph_scroll: usize,
     focused: bool,
     hovered_line: Option<usize>,
-    on_select: Option<SelectHandler>,
+    last_press: Option<(usize, Instant)>,
+    on_event: Option<EventHandler>,
 }
 
 impl HistoryList {
     pub fn new(theme: Theme) -> Self {
-        let colors: Vec<String> = theme.graph.iter().map(|color| color.to_hex()).collect();
         Self {
-            data: HistoryData::default(),
-            refs: RefIndex::default(),
-            graph: RefCell::new(GraphIndex::new(None, &colors)),
-            colors,
+            window: Rc::default(),
             theme,
             columns: HistoryColumns {
                 show_committer: true,
                 show_sha: true,
                 ..HistoryColumns::default()
             },
-            selection: Selection::Working,
-            viewport: Cell::new(Viewport::default()),
-            lines: Cell::new(1),
-            graph_scroll: Cell::new(0),
+            selected: None,
+            graph_scroll: 0,
             focused: false,
             hovered_line: None,
-            on_select: None,
+            last_press: None,
+            on_event: None,
         }
     }
 
-    /// Replaces the history and lays out its graph again.
-    pub fn set_data(&mut self, data: HistoryData) {
-        let head = resolve_head_sha(&data.branches, &data.commits);
-        let working_parent = if data.working_files > 0 {
-            head.as_deref()
-        } else {
-            None
-        };
-        let mut graph = GraphIndex::new(working_parent, &self.colors);
-        graph
-            .extend(&data.commits, &self.colors, head.as_deref())
-            .expect("a new index takes any commit list");
-        self.refs = RefIndex::new(&data.branches);
-        self.graph = RefCell::new(graph);
-        self.data = data;
-        self.selection = match self.selection {
-            Selection::Working if self.has_working() => Selection::Working,
-            Selection::Working => Selection::Commit(0),
-            Selection::Commit(index) => {
-                Selection::Commit(index.min(self.data.commits.len().saturating_sub(1)))
-            }
-        };
-        self.sync_selected();
+    pub fn set_window(&mut self, window: Rc<HistoryWindow>) {
+        self.window = window;
     }
 
-    /// Adds the next page of older commits. The graph continues from where it stopped.
-    pub fn append_commits(&mut self, commits: Vec<Commit>, complete: bool) {
-        self.data.commits.extend(commits);
-        self.data.commits_complete = complete;
-        let head = resolve_head_sha(&self.data.branches, &self.data.commits);
-        self.graph
-            .get_mut()
-            .extend(&self.data.commits, &self.colors, head.as_deref())
-            .expect("the commit list only grows");
+    pub fn window(&self) -> &HistoryWindow {
+        &self.window
     }
 
-    pub fn data(&self) -> &HistoryData {
-        &self.data
+    /// The selected display row, or `None` for no selection.
+    pub fn set_selected(&mut self, row: Option<usize>) {
+        self.selected = row;
+    }
+
+    /// The first graph column on screen. Painting clamps it to the lanes.
+    pub fn set_graph_scroll(&mut self, columns: usize) {
+        self.graph_scroll = columns;
+    }
+
+    pub fn set_theme(&mut self, theme: &Theme) {
+        self.theme = theme.clone();
     }
 
     pub fn set_columns(&mut self, columns: HistoryColumns) {
@@ -157,102 +204,43 @@ impl HistoryList {
         self.focused = focused;
     }
 
-    /// Called with the new display row after a click selects one. The handler must not call `Custom::update` or
-    /// `Custom::with` on this widget: the widget is borrowed while it runs.
-    pub fn on_select(&mut self, handler: impl FnMut(&mut Cx<'_>, usize) + 'static) {
-        self.on_select = Some(Box::new(handler));
+    /// Called for each mouse event the shell must handle. The handler must not call `Custom::update` or
+    /// `Custom::with` on this widget: the widget is borrowed while it runs. Queue a message instead.
+    pub fn on_event(&mut self, handler: impl FnMut(&mut Cx<'_>, HistoryEvent) + 'static) {
+        self.on_event = Some(Box::new(handler));
     }
 
-    /// Display rows: the working row, if any, then one per commit.
-    pub fn total(&self) -> usize {
-        self.data.commits.len() + usize::from(self.has_working())
-    }
-
-    fn has_working(&self) -> bool {
-        self.data.working_files > 0
-    }
-
-    /// The selected display row.
-    fn selected_row(&self) -> usize {
-        match self.selection {
-            Selection::Working => 0,
-            Selection::Commit(index) => index + usize::from(self.has_working()),
+    fn emit(&mut self, cx: &mut Cx<'_>, event: HistoryEvent) {
+        if let Some(handler) = self.on_event.as_mut() {
+            handler(cx, event);
         }
     }
 
-    fn sync_selected(&self) {
-        let mut viewport = self.viewport.get();
-        viewport.selected = self.selected_row();
-        self.viewport.set(viewport);
+    /// The display row under widget line `line`, where line 0 is the header.
+    fn row_at_line(&self, line: i32) -> Option<usize> {
+        let body = usize::try_from(line.checked_sub(1)?).ok()?;
+        let row = self.window.start + body;
+        (row < self.window.total()).then_some(row)
     }
 
-    pub fn viewport(&self) -> Viewport {
-        self.sync_selected();
-        self.viewport.get()
-    }
-
-    /// Body lines at the last paint.
-    pub fn lines(&self) -> usize {
-        self.lines.get()
-    }
-
-    /// Selects a display row. The viewport follows it at the next paint.
-    pub fn select(&mut self, row: usize) {
-        let mut viewport = self.viewport.get();
-        viewport.select(row, self.total());
-        self.viewport.set(viewport);
-        self.selection = match (self.has_working(), viewport.selected) {
-            (true, 0) => Selection::Working,
-            (true, row) => Selection::Commit(row - 1),
-            (false, row) => Selection::Commit(row),
-        };
-    }
-
-    /// The commit index of the selected row, or `None` for the working row.
-    pub fn selected_commit(&self) -> Option<usize> {
-        match self.selection {
-            Selection::Working => None,
-            Selection::Commit(index) => Some(index),
-        }
-    }
-
-    pub fn wheel(&mut self, delta: i64) {
-        let mut viewport = self.viewport.get();
-        viewport.wheel(delta, self.total(), self.lines.get());
-        self.viewport.set(viewport);
-    }
-
-    /// Scrolls the graph lanes sideways. Painting clamps the offset to the lanes.
-    pub fn scroll_graph(&mut self, delta: i64) {
-        let next = (self.graph_scroll.get() as i64 + delta).max(0) as usize;
-        self.graph_scroll.set(next);
-    }
-
-    /// The rows the widget draws at `width` by `height` cells, one span list per line. Resolves the viewport as
-    /// painting does.
+    /// The rows the widget draws at `width` by `height` cells, one span list per line.
     pub fn render(&self, width: u32, height: u32) -> Vec<Vec<Span>> {
         let theme = &self.theme;
         let width = i64::from(width);
         // The widget is the pane's content: one header line, then body lines up to the bottom edge. TypeScript's
         // `contentHeight - 2` counts the pane border too, which is already outside this widget's height.
         let lines = (height as usize).saturating_sub(1).max(1);
-        self.lines.set(lines);
-        let has_working = self.has_working();
-        let total = self.total();
-        self.sync_selected();
-        let mut viewport = self.viewport.get();
-        let start = viewport.resolve(total, lines);
-        self.viewport.set(viewport);
-
-        let mut graph = self.graph.borrow_mut();
-        let graph_columns = graph.columns;
+        let data = &*self.window;
+        let has_working = data.working_files > 0;
+        let total = data.total();
+        let start = data.start;
+        let graph_columns = data.graph_columns;
         let columns = visible_history_columns(self.columns, false);
         let geometry = history_column_layout(width, graph_columns, columns);
         let label_width = geometry.branch_width;
         let visible_graph = geometry.graph_columns;
         let graph_scroll =
-            clamp_graph_scroll(self.graph_scroll.get() as i64, graph_columns, visible_graph);
-        self.graph_scroll.set(graph_scroll);
+            clamp_graph_scroll(self.graph_scroll as i64, graph_columns, visible_graph);
         let graph_pad =
             " ".repeat((geometry.graph_width - visible_graph as i64 * 2).max(0) as usize);
 
@@ -292,8 +280,8 @@ impl HistoryList {
                 fit_columns(
                     &format!(
                         "Message ({}{} commits)",
-                        self.data.commits.len(),
-                        if self.data.commits_complete { "" } else { "+" }
+                        data.commits,
+                        if data.commits_complete { "" } else { "+" }
                     ),
                     geometry.message_width,
                     false,
@@ -345,11 +333,11 @@ impl HistoryList {
             .cells
         };
         let color = |hex: &str| Rgba::parse(hex).unwrap_or(theme.muted);
-        let selected_row = viewport.selected;
+        let selected_row = self.selected;
 
         let mut body = 0;
         if has_working && start == 0 {
-            let selected = selected_row == 0;
+            let selected = selected_row == Some(0);
             let bg = Some(interaction_background(
                 theme,
                 theme.panel_raised,
@@ -357,7 +345,7 @@ impl HistoryList {
                 selected,
                 self.hovered_line == Some(0),
             ));
-            let files = self.data.working_files;
+            let files = data.working_files;
             let subject = fit_columns(
                 &format!(
                     "Working Changes ({files} {} modified)",
@@ -405,26 +393,19 @@ impl HistoryList {
         let first_row = start.max(usize::from(has_working && start == 0));
         let leading = usize::from(has_working);
         let window_from = first_row.saturating_sub(leading);
-        let rows = graph.window(
-            &self.data.commits,
-            &self.colors,
-            window_from,
-            lines - body + 1,
-        );
         let backgrounds = [theme.bg, theme.panel_raised];
         for row_index in first_row..total {
             if body >= lines {
                 break;
             }
             let commit_index = row_index - leading;
-            let Some(row) = rows.get(commit_index - window_from) else {
+            let Some(entry) = data.rows.get(commit_index - window_from) else {
                 break;
             };
-            let commit = &self.data.commits[commit_index];
+            let (row, commit) = (&entry.graph, &entry.commit);
+            let (primary, extra) = (&entry.label, entry.extra);
             let offset = row_index - start;
-            let selected = row_index == selected_row;
-            let (primary, extra) =
-                summarise_decorations(&commit.decorations, &self.data.branches, &self.refs);
+            let selected = selected_row == Some(row_index);
             let chip = if extra > 0 {
                 format!(" +{extra}")
             } else {
@@ -433,7 +414,7 @@ impl HistoryList {
             let label = if primary.is_empty() {
                 String::new()
             } else {
-                let fitted = fit_columns(&primary, label_width - 2 - chip.len() as i64, true);
+                let fitted = fit_columns(primary, label_width - 2 - chip.len() as i64, true);
                 format!("{}{chip}", fitted.trim_end())
             };
             let label_text = if label.is_empty() {
@@ -531,38 +512,42 @@ impl Component for HistoryList {
 
     fn mouse(&mut self, cx: &mut Cx<'_>, event: &MouseEvent, local: (i32, i32)) -> bool {
         let sideways = event.modifiers.contains(Modifiers::SHIFT);
-        match event.kind {
-            MouseEventKind::ScrollUp if sideways => self.scroll_graph(-1),
-            MouseEventKind::ScrollDown if sideways => self.scroll_graph(1),
-            MouseEventKind::ScrollLeft => self.scroll_graph(-1),
-            MouseEventKind::ScrollRight => self.scroll_graph(1),
-            MouseEventKind::ScrollUp => self.wheel(-WHEEL_ROWS),
-            MouseEventKind::ScrollDown => self.wheel(WHEEL_ROWS),
-            // A right click does nothing here: the shell handles it and opens the graph menu, as TypeScript does.
+        let event = match event.kind {
+            MouseEventKind::ScrollUp if sideways => HistoryEvent::ScrollGraph(-1),
+            MouseEventKind::ScrollDown if sideways => HistoryEvent::ScrollGraph(1),
+            MouseEventKind::ScrollLeft => HistoryEvent::ScrollGraph(-1),
+            MouseEventKind::ScrollRight => HistoryEvent::ScrollGraph(1),
+            MouseEventKind::ScrollUp => HistoryEvent::Wheel(-WHEEL_ROWS),
+            MouseEventKind::ScrollDown => HistoryEvent::Wheel(WHEEL_ROWS),
+            // A right click does nothing here: the graph menu is not ported yet.
             MouseEventKind::Down(MouseButton::Left) => {
-                let Some(row) = self.viewport.get().row_at_line(local.1, self.total()) else {
+                let Some(row) = self.row_at_line(local.1) else {
                     return false;
                 };
-                self.select(row);
-                if let Some(handler) = self.on_select.as_mut() {
-                    handler(cx, row);
+                let now = cx.app().now();
+                let doubled = self
+                    .last_press
+                    .is_some_and(|(last, at)| last == row && now.duration_since(at) < DOUBLE_CLICK);
+                self.last_press = if doubled { None } else { Some((row, now)) };
+                HistoryEvent::Click {
+                    row,
+                    column: u16::try_from(local.0.max(0)).unwrap_or(u16::MAX),
+                    clicks: if doubled { 2 } else { 1 },
                 }
             }
             MouseEventKind::Moved => {
-                let line = usize::try_from(local.1 - 1).ok();
-                let hovered = line.filter(|&line| {
-                    self.viewport
-                        .get()
-                        .row_at_line(line as i32 + 1, self.total())
-                        .is_some()
-                });
+                let hovered = usize::try_from(local.1 - 1)
+                    .ok()
+                    .filter(|_| self.row_at_line(local.1).is_some());
                 if hovered == self.hovered_line {
                     return false;
                 }
                 self.hovered_line = hovered;
+                return true;
             }
             _ => return false,
-        }
+        };
+        self.emit(cx, event);
         true
     }
 }

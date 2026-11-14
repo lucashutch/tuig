@@ -1,7 +1,9 @@
 //! The painted history list compared cell by cell with the TypeScript app's parity golden.
 
 use super::*;
+use crate::decorations::{RefIndex, resolve_head_sha};
 use opentui::testing::TestApp;
+use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
 use tuig_ui_model::theme::one_dark_theme;
@@ -67,6 +69,36 @@ fn branch(name: &str, sha: &str, current: bool) -> BranchRef {
         upstream: None,
         tracking: None,
     }
+}
+
+/// What the shell holds for one history: commits, refs and the working-tree file count.
+struct HistoryData {
+    commits: Vec<Commit>,
+    branches: Vec<BranchRef>,
+    working_files: usize,
+    commits_complete: bool,
+}
+
+/// The window the shell would build for `lines` body lines from display row `start`.
+fn window(data: &HistoryData, start: usize, lines: usize) -> Rc<HistoryWindow> {
+    let theme = one_dark_theme();
+    let colors: Vec<String> = theme.graph.iter().map(|color| color.to_hex()).collect();
+    let head = resolve_head_sha(&data.branches, &data.commits);
+    let working_parent = head.as_deref().filter(|_| data.working_files > 0);
+    let mut index = GraphIndex::new(working_parent, &colors);
+    index
+        .extend(&data.commits, &colors, head.as_deref())
+        .unwrap();
+    let refs = RefIndex::new(&data.branches);
+    let source = HistorySource {
+        commits: &data.commits,
+        branches: &data.branches,
+        refs: &refs,
+        colors: &colors,
+        working_files: data.working_files,
+        commits_complete: data.commits_complete,
+    };
+    Rc::new(history_window(&mut index, &source, start, lines))
 }
 
 /// The `demo` fixture from `tools/parity/parity/fixtures.py`, as `git log` reports it.
@@ -143,10 +175,10 @@ fn rgba(color: Color) -> Rgba {
 #[test]
 fn painted_cells_match_the_typescript_golden() {
     let mut list = HistoryList::new(one_dark_theme());
-    list.set_data(demo());
+    list.set_window(window(&demo(), 0, usize::from(HEIGHT) - 1));
     list.set_focused(true);
     // The app opens with the first commit selected, below the working row.
-    list.select(1);
+    list.set_selected(Some(1));
     let (app, _widget) = paint(list);
     let capture = app.render();
     let golden = golden();
@@ -189,36 +221,47 @@ fn painted_cells_match_the_typescript_golden() {
 }
 
 #[test]
-fn wheel_scrolls_rows_and_click_selects_the_row_under_the_pointer() {
+fn mouse_input_becomes_events_for_the_shell() {
     let mut list = HistoryList::new(one_dark_theme());
-    list.set_data(demo());
+    // Five body lines under the header from row 3, eleven rows in all.
+    list.set_window(window(&demo(), 3, 5));
     let app = TestApp::new(WIDTH, 6);
     let widget = Custom::new(&app, list).width(u32::from(WIDTH)).height(6);
     app.root().add(&widget);
-    let clicked = Rc::new(Cell::new(None));
-    let seen = clicked.clone();
-    widget.update(|list| list.on_select(move |_cx, row| seen.set(Some(row))));
-    app.render();
-    // Five body lines under the header, eleven rows in all.
-    for _ in 0..3 {
-        app.scroll(10, 3, true);
-    }
-    let viewport = widget.with(HistoryList::viewport);
-    assert_eq!(
-        (viewport.start, viewport.selected),
-        (3, 0),
-        "the wheel moves rows, not the selection"
-    );
+    let events = Rc::new(RefCell::new(Vec::new()));
+    let seen = events.clone();
+    widget.update(|list| list.on_event(move |_cx, event| seen.borrow_mut().push(event)));
     let screen = app.render();
     assert!(screen.row(1).contains("refactor: rename"), "{screen}");
+
+    app.scroll(10, 3, true);
+    app.scroll(10, 3, false);
     // Line 2 shows row 4, which is commit 3 because the working row is row 0.
     app.click(40, 2);
-    assert_eq!(clicked.get(), Some(4));
-    assert_eq!(widget.with(HistoryList::selected_commit), Some(3));
+    app.click(40, 2);
+    app.click(40, 0);
     assert_eq!(
-        widget.with(HistoryList::viewport).start,
+        *events.borrow(),
+        [
+            HistoryEvent::Wheel(1),
+            HistoryEvent::Wheel(-1),
+            HistoryEvent::Click {
+                row: 4,
+                column: 40,
+                clicks: 1
+            },
+            HistoryEvent::Click {
+                row: 4,
+                column: 40,
+                clicks: 2
+            },
+        ],
+        "the header is not a row"
+    );
+    assert_eq!(
+        widget.with(|list| list.window().start),
         3,
-        "a click does not scroll"
+        "the widget does not scroll by itself"
     );
 }
 
@@ -228,7 +271,7 @@ fn columns_after_a_wide_subject_stay_aligned() {
     data.working_files = 0;
     data.commits[0].subject = "日本語 👨\u{200d}👩\u{200d}👧 family".to_string();
     let mut list = HistoryList::new(one_dark_theme());
-    list.set_data(data);
+    list.set_window(window(&data, 0, usize::from(HEIGHT) - 1));
     let (app, _widget) = paint(list);
     let capture = app.render();
     let committer_x = |y: u32| {
@@ -243,20 +286,4 @@ fn columns_after_a_wide_subject_stay_aligned() {
     };
     // Line 1 holds the wide subject and line 2 a plain one.
     assert_eq!(committer_x(1), committer_x(2), "{}", capture.text());
-}
-
-#[test]
-fn the_selected_commit_stays_selected_when_the_working_row_changes() {
-    let mut list = HistoryList::new(one_dark_theme());
-    list.set_data(demo());
-    list.select(4);
-    assert_eq!(list.selected_commit(), Some(3));
-    let mut data = demo();
-    data.working_files = 0;
-    list.set_data(data);
-    assert_eq!(list.selected_commit(), Some(3));
-    assert_eq!(list.viewport().selected, 3);
-    list.set_data(demo());
-    assert_eq!(list.selected_commit(), Some(3));
-    assert_eq!(list.viewport().selected, 4);
 }

@@ -8,8 +8,6 @@ license.workspace = true
 
 [dependencies]
 tuig-git = { path = "../tuig-git" }
-tuig-ui-model = { path = "../tuig-ui-model" }
-tuig-widgets = { path = "../tuig-widgets" }
 opentui.workspace = true
 tree-sitter-python = "0.25.0"
 tree-sitter-go = "0.25.0"
