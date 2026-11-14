@@ -167,6 +167,7 @@ impl Shell {
     /// Ports `refreshForWatchedChange`: wait while a refresh runs, skip when a read started after the change, and
     /// otherwise refresh.
     fn watched_change(&mut self, app: &App, at: Instant) {
+        // TODO: the composer-open and mutation-busy checks join this condition once those features exist.
         if self.tasks.snapshot.busy() {
             self.refresh.pending_change = Some(at);
             return;

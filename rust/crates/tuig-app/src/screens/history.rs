@@ -13,7 +13,9 @@ use tuig_ui_model::graph_viewport::clamp_graph_scroll;
 use tuig_ui_model::history_columns::{
     HistoryColumns, history_column_layout, visible_history_columns,
 };
-use tuig_ui_model::history_viewport::{HistorySelection, HistoryViewport};
+use tuig_ui_model::history_viewport::{
+    HistorySelection, HistoryViewport, history_start_for_commit,
+};
 use tuig_ui_model::theme::Theme;
 use tuig_widgets::decorations::{RefIndex, resolve_head_sha};
 use tuig_widgets::history::{HistorySource, HistoryWindow, history_window};
@@ -46,6 +48,8 @@ pub struct HistoryState {
     pub settle_timer: Option<TimerId>,
     /// True from a wheel notch until the settle timer fires. Graph avatars stay hidden meanwhile once they exist.
     pub scrolling: bool,
+    /// The checked-out commit that a new repository selects once paging has loaded it. `focusCheckedOutCommit`.
+    pub focus_sha: Option<String>,
     /// The window `sync` last gave the widget.
     pub window: Option<Rc<HistoryWindow>>,
 }
@@ -73,6 +77,7 @@ impl HistoryState {
             scroll_timer: None,
             settle_timer: None,
             scrolling: false,
+            focus_sha: None,
             window: None,
         }
     }
@@ -171,9 +176,9 @@ impl Shell {
             history.commits = commits;
             history.complete = snapshot.commits_complete;
         }
-        if first && !self.history.commits.is_empty() {
-            // The TS app opens with the newest commit selected, below the working row (`initial-load` golden).
-            self.history.selection = HistorySelection::Commit(0);
+        if first {
+            // `focusCheckedOutCommit`: with no HEAD the selection stays on the working row.
+            self.history.focus_sha = snapshot.head_sha.clone().or(head);
         }
         self.snapshot = Some(snapshot);
         self.dirty |= Dirty::HISTORY;
@@ -184,13 +189,17 @@ impl Shell {
     /// everything.
     fn load_more(&mut self, app: &App) {
         let history = &self.history;
+        // A snapshot in flight carries the old limit and would cut the pages this read adds. `settle_history`
+        // runs again when the snapshot lands, so the page starts then if the viewport still needs it.
         if self.snapshot.is_none()
             || history.complete
             || self.tasks.page.busy()
+            || self.tasks.snapshot.busy()
             || history.page_failures >= HISTORY_PAGE_FAILURE_LIMIT
-            || !history
-                .viewport
-                .wants_more(self.history_total(), self.layout.history_lines())
+            || (history.focus_sha.is_none()
+                && !history
+                    .viewport
+                    .wants_more(self.history_total(), self.layout.history_lines()))
         {
             return;
         }
@@ -341,11 +350,38 @@ impl Shell {
         true
     }
 
+    /// Ports `focusCommit`: selects the commit and centers it once it is loaded. Until then `load_more` pages
+    /// history. The wait ends when history is complete or paging gives up, and the selection stays as it is.
+    fn focus_head(&mut self) {
+        let Some(sha) = self.history.focus_sha.clone() else {
+            return;
+        };
+        let history = &mut self.history;
+        match history.commits.iter().position(|commit| commit.sha == sha) {
+            Some(index) => {
+                history.focus_sha = None;
+                history.selection = HistorySelection::Commit(index);
+                history.viewport.detached = false;
+                let has_working = self.has_working();
+                let lines = self.layout.history_lines();
+                let history = &mut self.history;
+                history.viewport.start =
+                    history_start_for_commit(index, has_working, lines, history.commits.len());
+                self.dirty |= Dirty::HISTORY;
+            }
+            None if history.complete || history.page_failures >= HISTORY_PAGE_FAILURE_LIMIT => {
+                history.focus_sha = None;
+            }
+            None => {}
+        }
+    }
+
     /// Runs after every message: resolves the viewport as `paintHistory` does, then prefetches the next page.
     pub(crate) fn settle_history(&mut self, app: &App) {
         if self.snapshot.is_none() {
             return;
         }
+        self.focus_head();
         let (selected, total, lines) = (
             self.selected_row(),
             self.history_total(),

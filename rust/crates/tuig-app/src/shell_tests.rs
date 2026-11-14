@@ -79,7 +79,20 @@ struct Harness {
 
 impl Harness {
     fn new(commits: usize) -> Self {
+        Self::open(repository(commits))
+    }
+
+    /// Like `new`, with HEAD detached `back` commits behind `main`.
+    fn detached(commits: usize, back: usize) -> Self {
         let repo = repository(commits);
+        git(
+            &repo.0,
+            &["checkout", "-q", "--detach", &format!("main~{back}")],
+        );
+        Self::open(repo)
+    }
+
+    fn open(repo: TempRepo) -> Self {
         let app = TestApp::new(160, 48);
         let service = app
             .app()
@@ -116,14 +129,16 @@ impl Harness {
 #[test]
 fn a_result_for_a_superseded_request_is_dropped() {
     let h = Harness::new(10);
+    let first = h.read(|shell| shell.tasks.snapshot.current());
     let stale = h.read(|shell| {
         let mut snapshot = shell.snapshot.clone().unwrap();
         snapshot.commits = shell.history.commits[..1].to_vec();
         snapshot
     });
-    // The first snapshot was request 1. A refresh makes request 2 current.
+    // A refresh supersedes the first request.
     h.shell.borrow_mut().request_refresh(h.app.app(), false);
-    h.update(Msg::Snapshot(ReqId(1), Ok(stale)));
+    assert_ne!(h.read(|shell| shell.tasks.snapshot.current()), first);
+    h.update(Msg::Snapshot(first, Ok(stale)));
     assert_eq!(h.read(|shell| shell.history.commits.len()), 10);
     h.wait("the refresh", |shell| !shell.tasks.snapshot.busy());
     assert_eq!(h.read(|shell| shell.history.commits.len()), 10);
@@ -229,5 +244,49 @@ fn a_change_seen_during_a_refresh_refreshes_again_afterwards() {
             .snapshot
             .started_at()
             .is_some_and(|started| started > at)
+    });
+}
+
+fn head_sha(dir: &Path) -> String {
+    let out = Process::new("git")
+        .args(["rev-parse", "HEAD"])
+        .current_dir(dir)
+        .output()
+        .unwrap();
+    String::from_utf8(out.stdout).unwrap().trim().to_owned()
+}
+
+#[test]
+fn a_detached_head_behind_the_tip_is_selected_and_centered() {
+    let h = Harness::detached(100, 60);
+    h.wait("the head to be focused", |shell| {
+        shell.history.focus_sha.is_none()
+    });
+    h.read(|shell| {
+        assert_eq!(shell.history.selection, HistorySelection::Commit(60));
+        assert_eq!(
+            shell.history.selected_sha(),
+            Some(head_sha(&h._repo.0).as_str())
+        );
+        // 43 body lines: the start puts row 60 at line 21.
+        assert_eq!(shell.history.viewport.start, 39);
+        assert!(!shell.history.viewport.detached);
+    });
+}
+
+#[test]
+fn a_head_beyond_the_first_page_is_paged_in_before_it_is_selected() {
+    let h = Harness::detached(300, 270);
+    h.wait("the head to be focused", |shell| {
+        shell.history.focus_sha.is_none()
+    });
+    h.read(|shell| {
+        assert_eq!(shell.history.commits.len(), 300);
+        assert_eq!(shell.history.selection, HistorySelection::Commit(270));
+        assert_eq!(
+            shell.history.selected_sha(),
+            Some(head_sha(&h._repo.0).as_str())
+        );
+        assert_eq!(shell.history.viewport.start, 249);
     });
 }

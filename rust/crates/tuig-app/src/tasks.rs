@@ -46,6 +46,12 @@ impl Slot {
         true
     }
 
+    /// The id of the running or last request.
+    #[cfg(test)]
+    pub fn current(&self) -> ReqId {
+        ReqId(self.id)
+    }
+
     pub fn busy(&self) -> bool {
         self.task.is_some()
     }

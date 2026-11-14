@@ -15,10 +15,11 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use tuig_git::repository::GitRepositoryService;
 
-/// The repository path: the first argument that is not a flag, else the current directory. The parity harness
-/// passes `--clean`, which this ignores until the CLI crate handles it.
+/// The repository path: the first argument that does not start with `-`, else the current directory. The parity
+/// harness passes `--clean`, which this ignores.
+// TODO: replace this with the `tuig-cli` crate, which parses the flags.
 fn repository_path() -> std::io::Result<PathBuf> {
-    match std::env::args().skip(1).find(|arg| !arg.starts_with("--")) {
+    match std::env::args().skip(1).find(|arg| !arg.starts_with('-')) {
         Some(path) => Ok(path.into()),
         None => std::env::current_dir(),
     }

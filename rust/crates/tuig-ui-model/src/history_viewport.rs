@@ -19,6 +19,22 @@ pub fn history_lines(content_height: i64) -> usize {
     (content_height - 2).max(1) as usize
 }
 
+/// The viewport start that puts a commit near the middle of the pane. Ports `historyStartForCommit` in
+/// `src/ui/runtime-history.ts`. `lines` is the body line count, which TS derives as `contentHeight - 2`.
+pub fn history_start_for_commit(
+    commit_index: usize,
+    has_working: bool,
+    lines: usize,
+    total_commits: usize,
+) -> usize {
+    let lines = lines.max(1);
+    let leading = usize::from(has_working);
+    let selected_row = commit_index + leading;
+    let total_rows = total_commits + leading;
+    let centered = selected_row.saturating_sub(lines / 2);
+    centered.min(total_rows.saturating_sub(lines))
+}
+
 /// The selected row, kept apart from display rows so that the working row appearing or disappearing does not move
 /// the selection to another commit. TypeScript keeps `historySelection` and `commitIndex` the same way.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]

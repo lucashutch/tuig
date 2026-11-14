@@ -170,8 +170,9 @@ pub struct RepositoryWatcher {
 }
 
 impl RepositoryWatcher {
-    /// Stop watching. No event is sent after this returns, though a report
-    /// that was already sent stays in the channel.
+    /// Stop watching. At most one report that was already in flight may
+    /// arrive after this returns. The receiver's owner discards it, for
+    /// example with a generation check.
     pub fn close(&self) {
         close_watch(&self.closed, &self.watchers);
         let _ = self.sender.send(Message::Close);
@@ -513,30 +514,41 @@ mod tests {
 
     struct Watch {
         calls: Arc<AtomicUsize>,
+        failure: Arc<Mutex<Option<String>>>,
         _watcher: RepositoryWatcher,
     }
 
     impl Watch {
+        /// Panics on the test thread when the watch failed, so the test shows the real error.
         fn count(&self) -> usize {
+            if let Some(error) = self.failure.lock().unwrap().as_ref() {
+                panic!("watch failed: {error}");
+            }
             self.calls.load(Ordering::SeqCst)
         }
     }
 
-    /// Counts the reports a watch sends. A failure panics the counting task, and the count then stops.
+    /// Counts the reports a watch sends. A failure is stored and `Watch::count` panics with it.
     fn watch(dir: &Path) -> Watch {
         let calls = Arc::new(AtomicUsize::new(0));
         let counter = calls.clone();
+        let failure = Arc::new(Mutex::new(None));
+        let failed = failure.clone();
         let (watcher, mut events) = watch_repository(watch_paths(dir), OPTIONS).unwrap();
         tokio::spawn(async move {
             while let Some(event) = events.recv().await {
                 match event {
                     WatchEvent::Changed { .. } => counter.fetch_add(1, Ordering::SeqCst),
-                    WatchEvent::Failed(error) => panic!("watch failed: {error}"),
+                    WatchEvent::Failed(error) => {
+                        *failed.lock().unwrap() = Some(error.to_string());
+                        0
+                    }
                 };
             }
         });
         Watch {
             calls,
+            failure,
             _watcher: watcher,
         }
     }
