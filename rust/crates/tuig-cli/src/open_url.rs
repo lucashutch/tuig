@@ -1,10 +1,13 @@
 use crate::error::CliError;
 use std::process::{Command, Stdio};
 
-/// The scheme of `url` in lowercase, or `None` when it has no valid scheme.
+/// Strip leading and trailing C0 controls and spaces, as the WHATWG parser behind `new URL` does.
+fn trim_url(url: &str) -> &str {
+    url.trim_matches(|c: char| c <= ' ')
+}
+
+/// The scheme of a trimmed `url` in lowercase, or `None` when it has no valid scheme.
 fn scheme(url: &str) -> Option<String> {
-    // The WHATWG parser that `new URL` uses strips leading and trailing C0 controls and spaces.
-    let url = url.trim_matches(|c: char| c <= ' ');
     let (scheme, _) = url.split_once(':')?;
     let mut chars = scheme.chars();
     let valid = chars.next().is_some_and(|c| c.is_ascii_alphabetic())
@@ -33,10 +36,25 @@ pub async fn open_url(url: &str) -> Result<(), CliError> {
 
 /// [`open_url`] with a chosen program.
 pub async fn open_url_with(program: &str, url: &str) -> Result<(), CliError> {
-    match scheme(url).as_deref() {
-        None => return Err(CliError::Other(format!("Not a valid URL: {url}"))),
-        Some("http" | "https") => {}
-        Some(_) => return Err(CliError::Other(format!("Not a web URL: {url}"))),
+    let url = trim_url(url);
+    let invalid = || CliError::Other(format!("Not a valid URL: {url}"));
+    let scheme = scheme(url).ok_or_else(invalid)?;
+    if url.chars().any(|c| c.is_ascii_control()) {
+        return Err(invalid());
+    }
+    if matches!(scheme.as_str(), "http" | "https") {
+        // A web URL needs a host: `new URL` rejects "http:" and "http://".
+        let after = url[scheme.len() + 1..].trim_start_matches(['/', '\\']);
+        let host = after
+            .split(['/', '\\', '?', '#'])
+            .next()
+            .unwrap_or_default();
+        let host = host.rsplit_once('@').map_or(host, |(_, host)| host);
+        if host.is_empty() || host.starts_with(':') {
+            return Err(invalid());
+        }
+    } else {
+        return Err(CliError::Other(format!("Not a web URL: {url}")));
     }
     let mut command = Command::new(program);
     command
@@ -69,6 +87,14 @@ mod tests {
             ("file:///etc/passwd", "Not a web URL: file:///etc/passwd"),
             ("mailto:a@b.c", "Not a web URL: mailto:a@b.c"),
             ("javascript:alert(1)", "Not a web URL: javascript:alert(1)"),
+            ("http:", "Not a valid URL: http:"),
+            ("http://", "Not a valid URL: http://"),
+            ("http://:80/", "Not a valid URL: http://:80/"),
+            ("http://a.com/\nx", "Not a valid URL: http://a.com/\nx"),
+            (
+                "http://a.com/\x1b[0m",
+                "Not a valid URL: http://a.com/\x1b[0m",
+            ),
         ] {
             let error = open_url_with(program, url).await.unwrap_err();
             assert_eq!(error.to_string(), message);
@@ -78,6 +104,44 @@ mod tests {
             .await
             .unwrap_err();
         assert!(!error.to_string().starts_with("Not a"));
+    }
+
+    #[tokio::test]
+    async fn trims_the_url_before_checking() {
+        let error = open_url_with("tuig-no-such-opener", "  https://example.com \n")
+            .await
+            .unwrap_err();
+        assert!(!error.to_string().starts_with("Not a"));
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn passes_the_trimmed_url_to_the_opener() {
+        let dir = std::env::temp_dir().join(format!("tuig-open-url-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let out = dir.join("arg");
+        let script = dir.join("opener.sh");
+        std::fs::write(
+            &script,
+            format!("#!/bin/sh\nprintf %s \"$1\" > '{}'\n", out.display()),
+        )
+        .unwrap();
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
+        open_url_with(script.to_str().unwrap(), " https://example.com/a ")
+            .await
+            .unwrap();
+        for _ in 0..100 {
+            if out.exists() && std::fs::metadata(&out).unwrap().len() > 0 {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        }
+        assert_eq!(
+            std::fs::read_to_string(&out).unwrap(),
+            "https://example.com/a"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[cfg(unix)]

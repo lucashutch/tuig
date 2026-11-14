@@ -5,6 +5,8 @@
 //! - The release request runs through `curl` (see [`CurlFetcher`]) with a 30 second limit. The
 //!   TypeScript code uses `fetch` with no limit.
 //! - [`open_url`] uses `open` on macOS. The TypeScript code only knows `xdg-open`.
+//! - When `bun install` ends on a signal, the error text says `(exit signal)`. The TypeScript code
+//!   prints the numeric exit code.
 //! - `tuig update` still installs through `bun install -g`, as in the TypeScript app.
 
 pub mod args;

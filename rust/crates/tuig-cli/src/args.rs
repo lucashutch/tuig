@@ -1,8 +1,8 @@
 use crate::error::CliError;
 use std::path::{Path, PathBuf};
 
-/// The crate version. The `tuig-app` binary should show its own version through [`version_line`].
-pub const VERSION: &str = env!("CARGO_PKG_VERSION");
+/// The Tuig version. `build.rs` reads it from the root `package.json`, so it matches the TypeScript app.
+pub const VERSION: &str = env!("TUIG_VERSION");
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CliAction {
@@ -96,6 +96,14 @@ pub fn parse_args(args: &[String], cwd: &Path) -> Result<CliAction, CliError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn version_matches_package_json() {
+        let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../../../package.json");
+        let json: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
+        assert_eq!(json["version"].as_str(), Some(VERSION));
+    }
 
     fn parse(args: &[&str]) -> Result<CliAction, String> {
         let args: Vec<String> = args.iter().map(|a| a.to_string()).collect();

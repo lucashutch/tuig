@@ -24,7 +24,8 @@ pub struct CurlFetcher;
 impl ReleaseFetcher for CurlFetcher {
     async fn get(&self, url: &str, accept: &str) -> Result<HttpResponse, CliError> {
         let output = Command::new("curl")
-            .args(["--silent", "--show-error", "--location", "--max-time", "30"])
+            .args(["-q", "--silent", "--show-error", "--location"])
+            .args(["--proto", "=https", "--max-time", "30"])
             .args(["--header", &format!("Accept: {accept}")])
             .args(["--write-out", "\n%{http_code}", url])
             .stdin(Stdio::null())
