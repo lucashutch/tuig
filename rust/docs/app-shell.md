@@ -255,7 +255,7 @@ I prefer `Custom` painters over `Select` for lists. `Select` scrolls the selecti
 
 `HistoryList` is a `Custom<HistoryListComponent>` that the shell feeds with `set_rows(Rc<[GraphRow]>)` (from `tuig_ui_model::graph`), `set_viewport(start: usize)`, `set_selected(Option<usize>)` and `set_theme(&Theme)`, and that reports only `HistoryEvent::{Click { row, column, clicks }, Wheel(i32)}` through one callback, so the shell owns all scroll and selection state.
 
-Current state: the widget on `feature/rust-history-widget` still owns its viewport and selection. It keeps a `Viewport` with a selected display row, and `selected_commit()` maps that row to `Option<usize>` (`None` for the working row). The shell design needs `Selection::{Working, Commit(usize)}` in `HistoryState`. Moving this ownership to the shell is a follow-up. Do it before the shell (item 7) is built.
+Current state: the widget on `feature/rust-history-widget` still owns its viewport and selection. It stores the selection as `Selection::{Working, Commit(usize)}`, the same type `HistoryState` needs, and handles the wheel itself. Moving this ownership to the shell is a follow-up. Do it before the shell (item 7) is built.
 
 ## Crate layout
 
