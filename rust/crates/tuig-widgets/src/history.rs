@@ -512,6 +512,24 @@ impl Component for HistoryList {
 
     fn mouse(&mut self, cx: &mut Cx<'_>, event: &MouseEvent, local: (i32, i32)) -> bool {
         let sideways = event.modifiers.contains(Modifiers::SHIFT);
+        if matches!(
+            event.kind,
+            MouseEventKind::Moved
+                | MouseEventKind::ScrollUp
+                | MouseEventKind::ScrollDown
+                | MouseEventKind::ScrollLeft
+                | MouseEventKind::ScrollRight
+        ) {
+            // The TS app also moves the hover highlight to the line under a wheel event.
+            let hovered = usize::try_from(local.1 - 1)
+                .ok()
+                .filter(|_| self.row_at_line(local.1).is_some());
+            let changed = hovered != self.hovered_line;
+            self.hovered_line = hovered;
+            if event.kind == MouseEventKind::Moved {
+                return changed;
+            }
+        }
         let event = match event.kind {
             MouseEventKind::ScrollUp if sideways => HistoryEvent::ScrollGraph(-1),
             MouseEventKind::ScrollDown if sideways => HistoryEvent::ScrollGraph(1),
@@ -534,16 +552,6 @@ impl Component for HistoryList {
                     column: u16::try_from(local.0.max(0)).unwrap_or(u16::MAX),
                     clicks: if doubled { 2 } else { 1 },
                 }
-            }
-            MouseEventKind::Moved => {
-                let hovered = usize::try_from(local.1 - 1)
-                    .ok()
-                    .filter(|_| self.row_at_line(local.1).is_some());
-                if hovered == self.hovered_line {
-                    return false;
-                }
-                self.hovered_line = hovered;
-                return true;
             }
             _ => return false,
         };
