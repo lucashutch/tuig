@@ -10,7 +10,7 @@ The shell builds on these OpenTUI facts:
 - `App::spawn(future, done)` (`app/tasks.rs:93`) runs `future` on the app's tokio runtime and calls `done(cx, output)` on the UI thread. It returns a `TaskHandle` with `abort()` and `is_finished()`. Abort drops the future. `tuig-git` kills its child processes when the future drops, so abort also stops git.
 - `App::proxy()` returns an `AppProxy` that is `Send`. `AppProxy::send(message)` delivers a typed message to handlers registered with `App::on_message::<M>` (`app/proxy.rs:120`, `app/mod.rs:857`). The queue has a fixed capacity and returns `ProxyError::Full` or `ProxyError::Closed`.
 - `App::set_timeout` and `App::set_interval` return a `TimerId` that the shell can cancel.
-- `Custom<T: Component>` (`widget/custom.rs`) is a widget with a user `paint(&Painter)`, `key`, `paste`, `mouse` (with local coordinates) and `focus_changed`. `Custom::update` changes the component and the next frame repaints it.
+- `Custom<T: Component>` (`widget/custom.rs`) is a widget with a user `paint(&self, painter: &mut Painter<'_>)`, `key`, `paste`, `mouse` (with local coordinates) and `focus_changed`. `Custom::update` changes the component and the next frame repaints it.
 - Built-in widgets: `View`, `Text`, `Input`, `Textarea`, `Select`, `Tabs`, `Scroll`, `Diff`, `Code`, `Image`, `Table`, `TextTable`, `Markdown`, `Slider`.
 - `App::on_selection` reports a finished text selection and `copy_to_clipboard` sends OSC 52.
 
@@ -34,7 +34,7 @@ The TS `Runtime` class (`src/ui/runtime.ts`) has about 80 fields plus controller
 pub struct Shell {
     pub tabs: Vec<TabState>,          // runtime-tabs.ts RuntimeTab
     pub active: usize,
-    pub repo: Arc<dyn GitRepository>, // active tab's repository
+    pub repo: Arc<GitRepositoryService>, // active tab's repository
     pub snapshot: Option<Rc<RepositorySnapshot>>,
     pub view: View,                   // tuig_ui_model::runtime_layout::View
     pub history: HistoryState,        // runtime-history.ts, graph index, viewport
@@ -50,6 +50,7 @@ pub struct Shell {
     pub refresh: RefreshState,        // auto-refresh.ts plus watcher
     pub notice: Option<Notice>,       // runtime-notifications.ts
     dirty: Dirty,
+    weak_self: Weak<RefCell<Shell>>, // used by Shell::start to build completion callbacks
 }
 
 pub struct HistoryState {
@@ -76,11 +77,14 @@ pub enum Overlay {
     BranchFilter(String),
 }
 
+// `tuig-app` adds the `bitflags` dependency.
 bitflags::bitflags! {
     struct Dirty: u16 { const LAYOUT = 1; const SIDEBAR = 2; const HISTORY = 4;
         const FILES = 8; const DETAILS = 16; const DIFF = 32; const CHROME = 64; const OVERLAY = 128; }
 }
 ```
+
+`GitRepository` uses native `async fn`, so it is not object safe and `Arc<dyn GitRepository>` does not compile. The shell holds the concrete `Arc<GitRepositoryService>`, as the spike does. Code that needs a fake repository in tests takes a generic `R: GitRepository`.
 
 `Rc<RepositorySnapshot>` replaces the TS identity checks (`ctx.snapshot === snapshot`). A pointer compare with `Rc::ptr_eq` keeps that meaning.
 
@@ -117,10 +121,16 @@ pub enum Msg {
     Poll,
     NoticeExpired,
 
-    // Watcher
-    Watch(WatchEvent),
+    // Watcher, built from WatchMsg on the UI thread
+    Watch { generation: u64, event: WatchEvent },
 }
+
+/// The only type that crosses threads through AppProxy::send, which needs `M: Send`.
+/// `Msg` holds `Rc` values and is not `Send`.
+pub struct WatchMsg { pub generation: u64, pub event: WatchEvent }
 ```
+
+The shell registers `app.on_message::<WatchMsg>`. The handler wraps each message into `Msg::Watch { generation, event }` and passes it to `update`.
 
 `Shell::update` matches on `Msg` and calls one function per TS module, for example `history::on_wheel` for `queueHistoryScroll`. Keys go through a port of `runtime-keys.ts` that returns `Option<CommandId>`.
 
@@ -166,7 +176,8 @@ Rules:
 - The TS `current()` check in `loadDiff` (`runtime-data.ts:530`) also compares view, mode, comparison base and selected path. In Rust these changes always start a new request in the slot, so the id check is enough. Any code path that changes these fields without a new load must call `Slot::cancel`.
 - A tab switch cancels every slot.
 - Mutations (`runtime-commands.ts`) use one slot and set `composer.busy`. They are not aborted by selection changes. The user can cancel them, as `cancelActiveMutation` does now.
-- `RefCell` borrows: `done` runs outside any `update` call, so `borrow_mut` does not panic. `update` must not call widget methods that run handlers synchronously while it holds the borrow. `sync` runs after `update` returns and the borrow drops.
+- `RefCell` borrows: `done` runs outside any `update` call, so `borrow_mut` does not panic.
+- Re-entrancy: a widget callback never calls `Shell::update` directly. It pushes a `Msg` into a `VecDeque<Msg>` queue, or posts the `Msg` through the proxy or `cx`. The loop drains the queue after the current handler returns. Each drained `Msg` goes through `update`, and `sync` runs once after the queue is empty. So `sync` never calls `Custom::update` on a widget whose handler is still running, and no handler re-borrows the `RefCell`.
 
 ## Watcher
 
@@ -187,9 +198,12 @@ pub fn watch_repository(
 Wiring:
 
 1. On tab activation, the shell creates the watcher on the UI thread and stores `RepositoryWatcher` and a generation number in `RefreshState`. Dropping the watcher closes it.
-2. A forwarder task (`app.runtime().spawn`) reads the receiver and calls `proxy.send(Msg::Watch(generation, event))`. It ends when the channel closes. On `ProxyError::Full` it keeps only the newest `Changed`, because one refresh covers all of them.
+2. A forwarder task (`app.runtime().spawn`) reads the receiver and calls `proxy.send(WatchMsg { generation, event })`. `on_message::<WatchMsg>` turns each one into `Msg::Watch`. The task ends when the channel closes. On `ProxyError::Full` it keeps only the newest `Changed`, because one refresh covers all of them.
 3. `update` drops events from an old generation. This replaces the `generation` counter in `auto-refresh.ts`.
-4. On `Changed { at }`, the shell applies `refreshForWatchedChange` (`runtime.ts:1056`): skip if a snapshot read started after `at`. If the composer is open, a refresh is running, or a mutation is busy, it stores `pending_change = Some(at)`. When the blocking condition clears, the shell checks `pending_change` and refreshes.
+4. On `Changed { at }`, the shell applies `refreshForWatchedChange` (`runtime.ts:1056`) in the same order:
+   1. If the composer is open, a refresh is running, or a mutation is busy, store `pending_change = Some(at)`. This is the TS "return false, ask again" case. When the blocking condition clears, the shell checks `pending_change` and runs these steps again.
+   2. Otherwise, if a snapshot read started after `at`, skip. That read already includes the change.
+   3. Otherwise, start a refresh.
 5. On `Failed`, it drops the watcher and polls every 10 s (`FALLBACK_REFRESH_INTERVAL_MS`). With a live watcher it polls every 30 s. Both use `set_interval`.
 
 The burst debounce and the drop of Tuig's own index writes stay inside `tuig-git`.
@@ -201,7 +215,7 @@ TS loads the diff without a debounce, but it cancels the previous load. The spik
 - Selection change in history: commit files and commit meta.
 - Selection change in files: diff.
 - Each load kind has its own `Slot.timer`. A new selection cancels the timer and the running task, then calls `set_timeout(DEBOUNCE, |cx| send DebounceElapsed(kind))`.
-- The start value is 60 ms, from the spike. Parity scenarios that press keys and capture at once must wait for the load. Set the value in one constant and test it in parity.
+- The value is 0 ms (off) until the parity harness can wait for loads, so behavior matches TS. The spike uses 60 ms (`DIFF_DEBOUNCE`). Keep the value in one constant. Raise it to 60 ms when the harness waits for loads.
 - The UI updates the selection highlight at once. Only the Git load waits.
 
 Wheel scroll keeps the TS timing: a 16 ms batch timer (`queueHistoryScroll`) and an 80 ms settle timer that hides graph avatars while scrolling (`markHistoryScrolling`).
@@ -241,6 +255,8 @@ I prefer `Custom` painters over `Select` for lists. `Select` scrolls the selecti
 
 `HistoryList` is a `Custom<HistoryListComponent>` that the shell feeds with `set_rows(Rc<[GraphRow]>)` (from `tuig_ui_model::graph`), `set_viewport(start: usize)`, `set_selected(Option<usize>)` and `set_theme(&Theme)`, and that reports only `HistoryEvent::{Click { row, column, clicks }, Wheel(i32)}` through one callback, so the shell owns all scroll and selection state.
 
+Current state: the widget on `feature/rust-history-widget` still owns its viewport and selection. It keeps a `Viewport` with a selected display row, and `selected_commit()` maps that row to `Option<usize>` (`None` for the working row). The shell design needs `Selection::{Working, Commit(usize)}` in `HistoryState`. Moving this ownership to the shell is a follow-up. Do it before the shell (item 7) is built.
+
 ## Crate layout
 
 ```
@@ -259,13 +275,12 @@ rust/crates/
   tuig-spike/      kept until item 7 ports its screens, then removed
 ```
 
-`tuig-widgets` depends on `opentui` and `tuig-ui-model`, not on `tuig-git`. It can then have headless tests with `app/headless.rs`. If item 5 lands in `tuig-spike` first, move it into `tuig-widgets` when `tuig-app` starts.
+Target: `tuig-widgets` depends on `opentui` and `tuig-ui-model`, not on `tuig-git`. It can then have headless tests with `app/headless.rs`. Current state: on `feature/rust-history-widget` it also depends on `tuig-git` for `Commit` and `BranchRef` (`decorations.rs`). Remove that dependency in the same follow-up, for example by moving the needed fields into `tuig-ui-model` types. If item 5 lands in `tuig-spike` first, move it into `tuig-widgets` when `tuig-app` starts.
 
 ## Open questions
 
-- Is a 60 ms selection debounce acceptable against TS parity? TS has no debounce, so a parity capture right after a key press can differ. The harness may need a wait.
+- When can the selection debounce move from 0 to 60 ms? TS has no debounce, so a parity capture right after a key press differs. The harness must wait for loads first.
 - `PROXY_CAPACITY` is 4096 (`app/proxy.rs:7`), and `spawn` completions use the same queue (`app/tasks.rs`). Avatar loads for a long scroll could compete with watcher events. Decide whether to cap concurrent avatar tasks.
-- One `RefCell<Shell>` with a single `update` is simple, but a widget handler that runs during `sync` and sends a `Msg` would re-borrow. Decide whether `sync` queues such messages or whether widgets never call back synchronously.
 - Should the watcher API keep a retry signal (`on_change` returning `false`) inside `tuig-git`, or is the shell-side `pending_change` enough? This note picks the shell side.
 - Graph avatars use one `ImageRenderable` per visible row in TS. Check that OpenTUI Rust `Image` can be placed over a `Custom` painter row and replaced without flicker in Kitty-protocol terminals.
 - Background tabs: TS watches only the active tab and reads a fresh snapshot on switch. Keep that, or keep per-tab snapshots in memory?
