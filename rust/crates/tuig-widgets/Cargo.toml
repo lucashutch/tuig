@@ -1,0 +1,16 @@
+[package]
+name = "tuig-widgets"
+description = "OpenTUI widgets for tuig that paint tuig-ui-model state"
+edition.workspace = true
+version.workspace = true
+publish = false
+license.workspace = true
+
+[dependencies]
+tuig-git = { path = "../tuig-git" }
+tuig-ui-model = { path = "../tuig-ui-model" }
+opentui.workspace = true
+unicode-width = "0.2.0"
+
+[lints]
+workspace = true
