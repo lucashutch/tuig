@@ -8,6 +8,7 @@
 
 use crate::keys::{self, Command};
 use crate::refresh::{RefreshState, WatchSignal};
+use crate::screens::details::{DetailsAction, DetailsState, HistoryLoaded};
 use crate::screens::files::{ChangesAction, FilesState, Focus, Split};
 use crate::screens::history::HistoryState;
 use crate::selected::SelectedFile;
@@ -22,7 +23,9 @@ use std::rc::{Rc, Weak};
 use std::sync::Arc;
 use tuig_git::process::GitError;
 use tuig_git::repository::GitRepository;
-use tuig_git::types::{ChangedFile, CommitPage, RepositorySnapshot, RepositoryWatchPaths};
+use tuig_git::types::{
+    ChangedFile, CommitPage, LineBlame, RepositorySnapshot, RepositoryWatchPaths,
+};
 use tuig_ui_model::file_tree::FileRowAction;
 use tuig_ui_model::history_viewport::history_lines;
 use tuig_ui_model::runtime_layout::{PaneInputs, PaneLayout, layout_panes};
@@ -68,6 +71,8 @@ pub enum Msg {
         y: u16,
     },
     Resize(u16, u16),
+    Details(DetailsAction),
+    FileHistoryClick(usize),
 
     Snapshot(ReqId, GitResult<RepositorySnapshot>),
     CommitPage(ReqId, GitResult<CommitPage>),
@@ -81,6 +86,8 @@ pub enum Msg {
     /// The user opened a file: a click on a file row, or Enter in the changes pane. The diff pane shows it.
     #[allow(dead_code)] // Read by the diff pane.
     FileOpened(SelectedFile),
+    FileHistory(ReqId, HistoryLoaded),
+    Blame(ReqId, GitResult<LineBlame>),
 
     ScrollFlush,
     ScrollSettled,
@@ -98,6 +105,7 @@ bitflags! {
         const LAYOUT = 1;
         const HISTORY = 4;
         const FILES = 16;
+        const DETAILS = 32;
     }
 }
 
@@ -174,6 +182,7 @@ pub struct Shell {
     pub snapshot: Option<RepositorySnapshot>,
     pub history: HistoryState,
     pub files: FilesState,
+    pub details: DetailsState,
     pub layout: LayoutState,
     pub tasks: Tasks,
     pub refresh: RefreshState,
@@ -200,6 +209,7 @@ impl Shell {
             snapshot: None,
             history: HistoryState::new(&theme),
             files: FilesState::new(),
+            details: DetailsState::default(),
             layout: LayoutState::new(width, height),
             tasks: Tasks::default(),
             refresh: RefreshState::default(),
@@ -281,7 +291,7 @@ impl Shell {
             }
             Msg::Resize(width, height) => {
                 self.layout = LayoutState::new(width, height);
-                self.dirty |= Dirty::LAYOUT | Dirty::HISTORY;
+                self.dirty |= Dirty::LAYOUT | Dirty::HISTORY | Dirty::DETAILS;
             }
             Msg::Snapshot(id, result) => {
                 if self.tasks.snapshot.finish(id) {
@@ -307,6 +317,18 @@ impl Shell {
             Msg::CommitFilesDue => self.commit_files_due(app),
             // The diff pane reacts to these two.
             Msg::FileSelected(_) | Msg::FileOpened(_) => {}
+            Msg::Details(action) => self.details_action(app, action),
+            Msg::FileHistoryClick(index) => self.select_file_history(index),
+            Msg::FileHistory(id, loaded) => {
+                if self.tasks.file_history.finish(id) {
+                    self.file_history_loaded(loaded);
+                }
+            }
+            Msg::Blame(id, result) => {
+                if self.tasks.blame.finish(id) {
+                    self.blame_loaded(result);
+                }
+            }
             Msg::ScrollFlush => self.flush_history_scroll(),
             Msg::ScrollSettled => self.history_settled(),
             Msg::Poll => self.request_refresh(app, true),
@@ -322,7 +344,11 @@ impl Shell {
             Command::MoveCommit(delta) if self.files.focus == Focus::Changes => {
                 self.move_file(delta)
             }
-            Command::MoveCommit(delta) => self.move_commit(delta),
+            Command::MoveCommit(delta) => {
+                if !self.scroll_file_history(delta) {
+                    self.move_commit(delta);
+                }
+            }
             // With no graph to pan, the arrows step through the files, as in TS.
             Command::ScrollGraph(delta) => {
                 if self.files.focus == Focus::Changes || !self.scroll_graph(delta) {
@@ -331,7 +357,11 @@ impl Shell {
             }
             Command::SwitchPane => self.switch_pane(),
             Command::Open => self.files_enter(app),
-            Command::Back => self.files_back(),
+            Command::Back => {
+                if !self.escape_details() {
+                    self.files_back();
+                }
+            }
             Command::ToggleStaged => self.files_toggle_mode(),
             Command::Refresh => self.request_refresh(app, false),
         }

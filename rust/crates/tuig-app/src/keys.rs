@@ -41,9 +41,9 @@ pub fn command_for(key: &KeyEvent) -> Option<Command> {
         Command::Refresh
     } else if key.matches("tab") {
         Command::SwitchPane
-    } else if key.matches("enter") {
+    } else if key.matches("enter") || key.matches("return") {
         Command::Open
-    } else if key.matches("esc") {
+    } else if key.matches("esc") || key.matches("escape") {
         Command::Back
     } else if key.matches("t") {
         Command::ToggleStaged

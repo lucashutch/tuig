@@ -67,4 +67,6 @@ pub struct Tasks {
     pub page: Slot,
     pub watch_paths: Slot,
     pub commit_files: Slot,
+    pub file_history: Slot,
+    pub blame: Slot,
 }

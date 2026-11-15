@@ -273,10 +273,14 @@ impl Shell {
             .selection
             .moved(delta, has_working, history.commits.len());
         self.dirty |= Dirty::HISTORY;
+        // TS keeps the commit view on a working selection and paints stale details. Leave the view instead.
+        if self.history.selection == HistorySelection::Working && self.details.commit_open {
+            self.close_details_for_working();
+        }
     }
 
-    /// Ports `historyClick` for a left press on a row. Opening a commit on double click waits for the commit
-    /// details screen.
+    /// Ports `historyClick` for a left press on a row. A commit row opens the details pane. The working row closes
+    /// it. Label and SHA clicks wait for those parts of the list.
     pub(crate) fn history_click(&mut self, row: usize, _column: u16, _clicks: u8) {
         let has_working = self.has_working();
         let history = &mut self.history;
@@ -284,6 +288,10 @@ impl Shell {
         history.viewport.detached = false;
         history.selection = HistorySelection::from_row(row, has_working);
         self.dirty |= Dirty::HISTORY;
+        match self.history.selection {
+            HistorySelection::Commit(_) => self.open_commit(),
+            HistorySelection::Working => self.close_details_for_working(),
+        }
     }
 
     /// Ports `queueHistoryScroll`: wheel notches add up for [`SCROLL_BATCH`] and then move the viewport once.
