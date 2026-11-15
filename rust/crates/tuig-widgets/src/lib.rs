@@ -3,6 +3,8 @@
 
 pub mod commit_text;
 pub mod decorations;
+pub mod diff;
 pub mod file_history;
 pub mod files;
+pub mod grammars;
 pub mod history;

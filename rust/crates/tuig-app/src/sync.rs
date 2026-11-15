@@ -9,6 +9,7 @@ use opentui::widget::View;
 use std::rc::Rc;
 use tuig_ui_model::color::Rgba;
 use tuig_ui_model::theme::Theme;
+use tuig_widgets::diff::DiffPane;
 use tuig_widgets::history::{HistoryEvent, HistoryList};
 
 fn color(color: Rgba) -> Color {
@@ -17,6 +18,7 @@ fn color(color: Rgba) -> Color {
 
 pub struct Widgets {
     pub history: Custom<HistoryList>,
+    pub diff: Custom<DiffPane>,
     /// Tab strip and toolbar rows.
     header: View,
     sidebar: View,
@@ -62,6 +64,7 @@ impl Widgets {
         details_view.attach(&details);
         let widgets = Self {
             history,
+            diff: crate::screens::diff::diff_widget(app, theme, inbox),
             header: placeholder(app, theme),
             sidebar: placeholder(app, theme),
             details,
@@ -74,6 +77,7 @@ impl Widgets {
             .add(&widgets.header)
             .add(&widgets.sidebar)
             .add(&widgets.history)
+            .add(&widgets.diff)
             .add(&widgets.details)
             .add(&widgets.hints);
         widgets.history.focus();
@@ -81,7 +85,7 @@ impl Widgets {
     }
 }
 
-fn place(widget: &impl Widget, left: i64, top: i64, width: i64, height: i64) {
+pub(crate) fn place(widget: &impl Widget, left: i64, top: i64, width: i64, height: i64) {
     let cells = |value: i64| u32::try_from(value.max(0)).unwrap_or(0);
     widget
         .position(Edge::Left, cells(left))
@@ -149,6 +153,7 @@ impl Shell {
         {
             self.sync_details();
         }
+        self.sync_diff();
         self.dirty = Dirty::empty();
     }
 }

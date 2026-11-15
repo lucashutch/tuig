@@ -247,7 +247,7 @@ The tracker lists three pieces that `tuig-ui-model` left out.
 | History column header (`runtime-history-columns.ts`) | `TextRenderable` | Part of `HistoryList`, or a one-row `Custom` |
 | Changed files and file tree (`runtime-files.ts`, `runtime-presentation-changes.ts`) | `TextRenderable` per section | `Custom` painter per section, rows from `flatten_visible` |
 | Commit details (`runtime-presentation-commit.ts`) | `BoxRenderable`, `ScrollBoxRenderable`, `TextRenderable`, `ImageRenderable` | `View` and `Scroll` with `Text`, and `Image` for author photo and provider badge |
-| Diff pane (`diff-view.ts`, `runtime-diff-selection.ts`) | `DiffView` wrapping `DiffRenderable` | `Diff`. Line mapping from `tuig-spike/src/mapping.rs`. Gaps: no per-row highlight, first file only, no word diff (tracker item 6). |
+| Diff pane (`diff-view.ts`, `runtime-diff-selection.ts`) | `DiffView` wrapping `DiffRenderable` | `DiffPane` custom painter (`tuig-widgets/src/diff.rs`). `Diff` cannot color one selected row, which line staging needs. |
 | Composer summary and body | `InputRenderable`, `TextareaRenderable` | `Input`, `Textarea` |
 | Commit and amend buttons, working banner | `TextRenderable` with mouse | `Custom` one-row painters |
 | Command palette (`runtime-palette.ts`) | `BoxRenderable`, `InputRenderable`, `TextRenderable` | `View` overlay with `Input` and a `Custom` result list. Matching from `tuig_ui_model::command_palette`. |
@@ -288,5 +288,4 @@ rust/crates/
 - `PROXY_CAPACITY` is 4096 (`app/proxy.rs:7`), and `spawn` completions use the same queue (`app/tasks.rs`). Avatar loads for a long scroll could compete with watcher events. Decide whether to cap concurrent avatar tasks.
 - Graph avatars use one `ImageRenderable` per visible row in TS. Check that OpenTUI Rust `Image` can be placed over a `Custom` painter row and replaced without flicker in Kitty-protocol terminals.
 - Background tabs: TS watches only the active tab and reads a fresh snapshot on switch. Keep that, or keep per-tab snapshots in memory?
-- `Diff` gaps (per-row highlight, multi-file patches, word diff) may force a custom diff painter. Decide after the upstream issues in item 6.
 - Text width for painters: `Painter::text_width` exists. Check whether it agrees with `Bun.stringWidth` before choosing a separate crate for item 3's open text-width task.

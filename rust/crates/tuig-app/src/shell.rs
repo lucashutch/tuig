@@ -9,6 +9,7 @@
 use crate::keys::{self, Command};
 use crate::refresh::{RefreshState, WatchSignal};
 use crate::screens::details::{DetailsAction, DetailsState, HistoryLoaded};
+use crate::screens::diff::DiffState;
 use crate::screens::files::{ChangesAction, FilesState, Focus, Split};
 use crate::screens::history::HistoryState;
 use crate::selected::SelectedFile;
@@ -30,6 +31,7 @@ use tuig_ui_model::file_tree::FileRowAction;
 use tuig_ui_model::history_viewport::history_lines;
 use tuig_ui_model::runtime_layout::{PaneInputs, PaneLayout, layout_panes};
 use tuig_ui_model::theme::one_dark_theme;
+use tuig_widgets::diff::{DiffDocument, DiffEvent};
 use tuig_widgets::files::ListKind;
 
 pub type GitResult<T> = Result<T, GitError>;
@@ -73,6 +75,7 @@ pub enum Msg {
     Resize(u16, u16),
     Details(DetailsAction),
     FileHistoryClick(usize),
+    DiffInput(DiffEvent),
 
     Snapshot(ReqId, GitResult<RepositorySnapshot>),
     CommitPage(ReqId, GitResult<CommitPage>),
@@ -88,6 +91,9 @@ pub enum Msg {
     FileOpened(SelectedFile),
     FileHistory(ReqId, HistoryLoaded),
     Blame(ReqId, GitResult<LineBlame>),
+    Diff(ReqId, GitResult<DiffDocument>),
+    Mutation(ReqId, GitResult<()>),
+    PreviewFiles(ReqId, GitResult<(String, Vec<ChangedFile>)>),
 
     ScrollFlush,
     ScrollSettled,
@@ -106,6 +112,7 @@ bitflags! {
         const HISTORY = 4;
         const FILES = 16;
         const DETAILS = 32;
+        const DIFF = 64;
     }
 }
 
@@ -183,6 +190,7 @@ pub struct Shell {
     pub history: HistoryState,
     pub files: FilesState,
     pub details: DetailsState,
+    pub diff: DiffState,
     pub layout: LayoutState,
     pub tasks: Tasks,
     pub refresh: RefreshState,
@@ -210,6 +218,7 @@ impl Shell {
             history: HistoryState::new(&theme),
             files: FilesState::new(),
             details: DetailsState::default(),
+            diff: DiffState::new(),
             layout: LayoutState::new(width, height),
             tasks: Tasks::default(),
             refresh: RefreshState::default(),
@@ -274,6 +283,7 @@ impl Shell {
             } => {
                 self.history_click(row, column, clicks);
                 self.files_history_clicked();
+                self.preview_selection(app);
             }
             Msg::FileClick { section, row } => self.file_click(app, section, row),
             Msg::FileWheel { section, delta } => self.file_wheel(section, delta),
@@ -297,6 +307,7 @@ impl Shell {
                 if self.tasks.snapshot.finish(id) {
                     self.snapshot_loaded(app, result);
                     self.files_snapshot_applied();
+                    self.diff_after_refresh(app);
                 }
             }
             Msg::CommitPage(id, result) => {
@@ -329,6 +340,22 @@ impl Shell {
                     self.blame_loaded(result);
                 }
             }
+            Msg::DiffInput(event) => self.diff_input(app, event),
+            Msg::Diff(id, result) => {
+                if self.tasks.diff.finish(id) {
+                    self.diff_loaded(result);
+                }
+            }
+            Msg::Mutation(id, result) => {
+                if self.tasks.mutation.finish(id) {
+                    self.mutation_done(app, result);
+                }
+            }
+            Msg::PreviewFiles(id, result) => {
+                if self.tasks.preview_files.finish(id) {
+                    self.preview_files_loaded(app, result);
+                }
+            }
             Msg::ScrollFlush => self.flush_history_scroll(),
             Msg::ScrollSettled => self.history_settled(),
             Msg::Poll => self.request_refresh(app, true),
@@ -356,14 +383,27 @@ impl Shell {
                 }
             }
             Command::SwitchPane => self.switch_pane(),
-            Command::Open => self.files_enter(app),
+            Command::Open => {
+                if self.diff.selected_rows.is_empty() {
+                    self.files_enter(app);
+                } else {
+                    self.apply_selected_lines(app, false);
+                }
+            }
             Command::Back => {
-                if !self.escape_details() {
+                if !self.diff_escape() && !self.escape_details() {
                     self.files_back();
                 }
             }
             Command::ToggleStaged => self.files_toggle_mode(),
             Command::Refresh => self.request_refresh(app, false),
+            Command::StageFirstHunk => self.stage_first_hunk(app),
+            Command::ToggleDiffView => self.toggle_diff_view(),
+            Command::LoadLargeDiff => {
+                if self.diff.is_open() {
+                    self.load_diff(app, true);
+                }
+            }
         }
     }
 }

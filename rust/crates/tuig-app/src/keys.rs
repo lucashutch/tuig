@@ -20,6 +20,12 @@ pub enum Command {
     Back,
     /// `t`: switches between the unstaged and staged lists.
     ToggleStaged,
+    /// `h`: stages the first hunk of the file in the diff (`stageFirstHunk`).
+    StageFirstHunk,
+    /// Switches the diff between unified and side by side. The TS app has a toolbar button for this.
+    ToggleDiffView,
+    /// Shift+L: loads a diff past the display limit.
+    LoadLargeDiff,
 }
 
 /// The command for a key that the focused widget did not take. `None` for keys the ported screens do not use.
@@ -47,6 +53,12 @@ pub fn command_for(key: &KeyEvent) -> Option<Command> {
         Command::Back
     } else if key.matches("t") {
         Command::ToggleStaged
+    } else if key.matches("h") {
+        Command::StageFirstHunk
+    } else if key.matches("v") {
+        Command::ToggleDiffView
+    } else if key.matches("shift+l") {
+        Command::LoadLargeDiff
     } else {
         return None;
     };
