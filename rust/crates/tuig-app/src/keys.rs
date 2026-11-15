@@ -12,6 +12,14 @@ pub enum Command {
     /// Pans the graph lanes by columns (`scrollGraphColumns`).
     ScrollGraph(i64),
     Refresh,
+    /// Tab: moves focus between the history and changes panes.
+    SwitchPane,
+    /// Enter: opens the selected commit or file.
+    Open,
+    /// Esc: leaves the commit view.
+    Back,
+    /// `t`: switches between the unstaged and staged lists.
+    ToggleStaged,
 }
 
 /// The command for a key that the focused widget did not take. `None` for keys the ported screens do not use.
@@ -31,6 +39,14 @@ pub fn command_for(key: &KeyEvent) -> Option<Command> {
         Command::ScrollGraph(1)
     } else if key.matches("r") {
         Command::Refresh
+    } else if key.matches("tab") {
+        Command::SwitchPane
+    } else if key.matches("enter") {
+        Command::Open
+    } else if key.matches("esc") {
+        Command::Back
+    } else if key.matches("t") {
+        Command::ToggleStaged
     } else {
         return None;
     };

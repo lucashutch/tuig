@@ -6,6 +6,7 @@
 mod keys;
 mod refresh;
 mod screens;
+mod selected;
 mod shell;
 mod sync;
 mod tasks;

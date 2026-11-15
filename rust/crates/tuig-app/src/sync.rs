@@ -1,6 +1,7 @@
 //! Pushes shell state into widgets, once per drained inbox. Panes that are not ported yet are empty views placed
 //! where `runtime-layout.ts` puts them, so the history pane has the same size and position as in the TS app.
 
+use crate::screens::files::FilesWidgets;
 use crate::shell::{Dirty, Inbox, Msg, PANE_TOP, Shell};
 use opentui::prelude::*;
 use opentui::widget::View;
@@ -19,6 +20,7 @@ pub struct Widgets {
     header: View,
     sidebar: View,
     details: View,
+    pub files: FilesWidgets,
     /// Key hints on the bottom row.
     hints: View,
 }
@@ -51,11 +53,15 @@ impl Widgets {
             });
         }
         let history = Custom::new(app, list).absolute();
+        let details = placeholder(app, theme).bg(color(theme.panel));
+        let files = FilesWidgets::new(app, theme, inbox);
+        files.attach(&details);
         let widgets = Self {
             history,
             header: placeholder(app, theme),
             sidebar: placeholder(app, theme),
-            details: placeholder(app, theme),
+            details,
+            files,
             hints: placeholder(app, theme),
         };
         app.root()
@@ -127,6 +133,11 @@ impl Shell {
                 list.set_graph_scroll(graph_scroll);
             });
         }
+        self.sync_files();
+        let focused = self.files.focus == crate::screens::files::Focus::History;
+        self.widgets
+            .history
+            .update(|list| list.set_focused(focused));
         self.dirty = Dirty::empty();
     }
 }

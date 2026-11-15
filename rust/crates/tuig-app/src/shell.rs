@@ -8,7 +8,9 @@
 
 use crate::keys::{self, Command};
 use crate::refresh::{RefreshState, WatchSignal};
+use crate::screens::files::{ChangesAction, FilesState, Focus, Split};
 use crate::screens::history::HistoryState;
+use crate::selected::SelectedFile;
 use crate::sync::Widgets;
 use crate::tasks::{ReqId, Slot, Tasks};
 use bitflags::bitflags;
@@ -20,10 +22,12 @@ use std::rc::{Rc, Weak};
 use std::sync::Arc;
 use tuig_git::process::GitError;
 use tuig_git::repository::GitRepository;
-use tuig_git::types::{CommitPage, RepositorySnapshot, RepositoryWatchPaths};
+use tuig_git::types::{ChangedFile, CommitPage, RepositorySnapshot, RepositoryWatchPaths};
+use tuig_ui_model::file_tree::FileRowAction;
 use tuig_ui_model::history_viewport::history_lines;
 use tuig_ui_model::runtime_layout::{PaneInputs, PaneLayout, layout_panes};
 use tuig_ui_model::theme::one_dark_theme;
+use tuig_widgets::files::ListKind;
 
 pub type GitResult<T> = Result<T, GitError>;
 
@@ -35,20 +39,57 @@ const DETAILS_WIDTH: i64 = 44;
 
 pub enum Msg {
     Key(KeyEvent),
-    HistoryClick { row: usize, column: u16, clicks: u8 },
+    HistoryClick {
+        row: usize,
+        column: u16,
+        clicks: u8,
+    },
     HistoryWheel(i32),
     HistoryScrollGraph(i32),
+    FileClick {
+        section: ListKind,
+        row: usize,
+    },
+    FileWheel {
+        section: ListKind,
+        delta: i32,
+    },
+    FileToggleSection(ListKind),
+    /// A hover action on a file row. Staging handles it.
+    FileRowAction {
+        section: ListKind,
+        row: usize,
+        action: FileRowAction,
+    },
+    /// Discard all, Stage all or Unstage all. Staging handles it.
+    ChangesAction(ChangesAction),
+    SplitDrag {
+        split: Split,
+        y: u16,
+    },
     Resize(u16, u16),
 
     Snapshot(ReqId, GitResult<RepositorySnapshot>),
     CommitPage(ReqId, GitResult<CommitPage>),
     WatchPaths(ReqId, GitResult<Option<RepositoryWatchPaths>>),
+    CommitFiles(ReqId, GitResult<Vec<ChangedFile>>),
+    CommitFilesDue,
+
+    /// The highlighted file changed. Posted once per change, with `None` when no file is selected.
+    #[allow(dead_code)] // Read by the diff pane.
+    FileSelected(Option<SelectedFile>),
+    /// The user opened a file: a click on a file row, or Enter in the changes pane. The diff pane shows it.
+    #[allow(dead_code)] // Read by the diff pane.
+    FileOpened(SelectedFile),
 
     ScrollFlush,
     ScrollSettled,
     Poll,
 
-    Watch { generation: u64, event: WatchSignal },
+    Watch {
+        generation: u64,
+        event: WatchSignal,
+    },
 }
 
 bitflags! {
@@ -56,6 +97,7 @@ bitflags! {
     pub struct Dirty: u16 {
         const LAYOUT = 1;
         const HISTORY = 4;
+        const FILES = 16;
     }
 }
 
@@ -131,6 +173,7 @@ pub struct Shell {
     /// The latest snapshot. Its `commits` are moved into `history.commits`, which paging extends.
     pub snapshot: Option<RepositorySnapshot>,
     pub history: HistoryState,
+    pub files: FilesState,
     pub layout: LayoutState,
     pub tasks: Tasks,
     pub refresh: RefreshState,
@@ -156,6 +199,7 @@ impl Shell {
             repo,
             snapshot: None,
             history: HistoryState::new(&theme),
+            files: FilesState::new(),
             layout: LayoutState::new(width, height),
             tasks: Tasks::default(),
             refresh: RefreshState::default(),
@@ -217,7 +261,20 @@ impl Shell {
                 row,
                 column,
                 clicks,
-            } => self.history_click(row, column, clicks),
+            } => {
+                self.history_click(row, column, clicks);
+                self.files_history_clicked();
+            }
+            Msg::FileClick { section, row } => self.file_click(app, section, row),
+            Msg::FileWheel { section, delta } => self.file_wheel(section, delta),
+            Msg::FileToggleSection(section) => self.file_toggle_section(section),
+            Msg::FileRowAction {
+                section,
+                row,
+                action,
+            } => self.file_row_action(section, row, action),
+            Msg::ChangesAction(action) => self.changes_action(action),
+            Msg::SplitDrag { split, y } => self.split_drag(split, y),
             Msg::HistoryWheel(delta) => self.queue_history_scroll(app, delta),
             Msg::HistoryScrollGraph(delta) => {
                 self.scroll_graph(i64::from(delta));
@@ -229,6 +286,7 @@ impl Shell {
             Msg::Snapshot(id, result) => {
                 if self.tasks.snapshot.finish(id) {
                     self.snapshot_loaded(app, result);
+                    self.files_snapshot_applied();
                 }
             }
             Msg::CommitPage(id, result) => {
@@ -241,21 +299,40 @@ impl Shell {
                     self.watch_paths_loaded(app, result);
                 }
             }
+            Msg::CommitFiles(id, result) => {
+                if self.tasks.commit_files.finish(id) {
+                    self.commit_files_loaded(result);
+                }
+            }
+            Msg::CommitFilesDue => self.commit_files_due(app),
+            // The diff pane reacts to these two.
+            Msg::FileSelected(_) | Msg::FileOpened(_) => {}
             Msg::ScrollFlush => self.flush_history_scroll(),
             Msg::ScrollSettled => self.history_settled(),
             Msg::Poll => self.request_refresh(app, true),
             Msg::Watch { generation, event } => self.watch_event(app, generation, event),
         }
         self.settle_history(app);
+        self.settle_files(app);
     }
 
     fn command(&mut self, app: &App, command: Command) {
         match command {
             Command::Quit => app.quit(),
-            Command::MoveCommit(delta) => self.move_commit(delta),
-            Command::ScrollGraph(delta) => {
-                self.scroll_graph(delta);
+            Command::MoveCommit(delta) if self.files.focus == Focus::Changes => {
+                self.move_file(delta)
             }
+            Command::MoveCommit(delta) => self.move_commit(delta),
+            // With no graph to pan, the arrows step through the files, as in TS.
+            Command::ScrollGraph(delta) => {
+                if self.files.focus == Focus::Changes || !self.scroll_graph(delta) {
+                    self.move_file(delta);
+                }
+            }
+            Command::SwitchPane => self.switch_pane(),
+            Command::Open => self.files_enter(app),
+            Command::Back => self.files_back(),
+            Command::ToggleStaged => self.files_toggle_mode(),
             Command::Refresh => self.request_refresh(app, false),
         }
     }

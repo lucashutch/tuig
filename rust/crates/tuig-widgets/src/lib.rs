@@ -2,4 +2,5 @@
 //! app draws.
 
 pub mod decorations;
+pub mod files;
 pub mod history;
