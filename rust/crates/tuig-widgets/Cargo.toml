@@ -10,6 +10,7 @@ license.workspace = true
 tuig-git = { path = "../tuig-git" }
 tuig-ui-model = { path = "../tuig-ui-model" }
 opentui.workspace = true
+jiff = "0.2"
 
 [lints]
 workspace = true
