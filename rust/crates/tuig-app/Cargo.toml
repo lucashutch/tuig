@@ -11,6 +11,7 @@ name = "tuig"
 path = "src/main.rs"
 
 [dependencies]
+tuig-cli = { path = "../tuig-cli" }
 tuig-git = { path = "../tuig-git" }
 tuig-ui-model = { path = "../tuig-ui-model" }
 tuig-widgets = { path = "../tuig-widgets" }
