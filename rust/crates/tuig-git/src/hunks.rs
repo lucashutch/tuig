@@ -58,6 +58,17 @@ pub fn split_patch_hunks(patch: &str) -> Vec<DiffHunk> {
         .collect()
 }
 
+/// The hunk that contains a zero-based row of `patch.split('\n')`, or `None` for rows before the first hunk.
+pub fn hunk_at_row(patch: &str, row: usize) -> Option<DiffHunk> {
+    let headers = patch
+        .split('\n')
+        .take(row.saturating_add(1))
+        .filter(|line| line.starts_with("@@ "))
+        .count();
+    let index = headers.checked_sub(1)?;
+    split_patch_hunks(patch).into_iter().nth(index)
+}
+
 struct HunkHeader<'a> {
     old_start: u64,
     new_start: u64,
@@ -253,6 +264,54 @@ mod tests {
         assert_eq!(hunks[1].header, "@@ -3 +3 @@");
         assert_eq!(hunks[1].index, 1);
         assert!(split_patch_hunks("diff --git a/a b/a\nBinary files differ\n").is_empty());
+    }
+
+    #[test]
+    fn finds_no_hunk_for_header_rows() {
+        assert_eq!(hunk_at_row(PATCH, 1), None);
+        assert_eq!(hunk_at_row(PATCH, 5).map(|hunk| hunk.index), Some(0));
+    }
+
+    #[tokio::test]
+    async fn stages_unstages_and_reverts_one_hunk_of_a_two_hunk_file() {
+        let repo = temp_repo().await;
+        let dir = repo.path();
+        let file = dir.join("a.txt");
+        let base: Vec<String> = (1..=30).map(|i| format!("line {i}")).collect();
+        std::fs::write(&file, format!("{}\n", base.join("\n"))).unwrap();
+        git_in(dir, &["add", "a.txt"]).await;
+        commit(dir, "base").await;
+        let mut edited = base.clone();
+        edited[1] = "TOP".into();
+        edited[27] = "BOTTOM".into();
+        std::fs::write(&file, format!("{}\n", edited.join("\n"))).unwrap();
+
+        let diff = git_in(dir, &["diff", "--no-ext-diff", "-U3", "--", "a.txt"]).await;
+        assert_eq!(split_patch_hunks(&diff).len(), 2);
+        let bottom = hunk_at_row(&diff, row_of(&diff, "+BOTTOM")).unwrap();
+        assert_eq!(bottom.index, 1);
+        apply(dir, &bottom.patch, &["apply", "--cached"]).await;
+        let staged = git_in(dir, &["show", ":a.txt"]).await;
+        let staged: Vec<&str> = staged.split('\n').collect();
+        assert_eq!((staged[1], staged[27]), ("line 2", "BOTTOM"));
+
+        let staged_diff = git_in(
+            dir,
+            &["diff", "--no-ext-diff", "--cached", "-U3", "--", "a.txt"],
+        )
+        .await;
+        let first = &split_patch_hunks(&staged_diff)[0];
+        apply(dir, &first.patch, &["apply", "--cached", "--reverse"]).await;
+        assert_eq!(
+            git_in(dir, &["show", ":a.txt"]).await,
+            format!("{}\n", base.join("\n"))
+        );
+
+        let top = hunk_at_row(&diff, row_of(&diff, "+TOP")).unwrap();
+        apply(dir, &top.patch, &["apply", "--reverse"]).await;
+        let worktree = std::fs::read_to_string(&file).unwrap();
+        let worktree: Vec<&str> = worktree.split('\n').collect();
+        assert_eq!((worktree[1], worktree[27]), ("line 2", "BOTTOM"));
     }
 
     async fn git_in(dir: &std::path::Path, args: &[&str]) -> String {
