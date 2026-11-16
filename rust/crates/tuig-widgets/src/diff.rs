@@ -197,19 +197,19 @@ impl DiffDocument {
             document.unified.push(Some(target), content);
             match kind {
                 DiffLineKind::Removed => {
-                    old += 1;
+                    old = old.saturating_add(1);
                     removed.push((target, content));
                 }
                 DiffLineKind::Added => {
-                    new += 1;
+                    new = new.saturating_add(1);
                     added.push((target, content));
                 }
                 DiffLineKind::Context => {
                     flush(&mut document, &mut removed, &mut added);
                     document.old.push_numbered(Some(target), Some(old), content);
                     document.new.push(Some(target), content);
-                    old += 1;
-                    new += 1;
+                    old = old.saturating_add(1);
+                    new = new.saturating_add(1);
                 }
             }
         }

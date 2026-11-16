@@ -242,12 +242,12 @@ impl Shell {
 
     /// A refresh re-reads a working-tree diff, as `refresh` does in TS.
     pub(crate) fn diff_after_refresh(&mut self, app: &App) {
-        if self.diff.working() && !self.tasks.diff.busy() {
+        if self.diff.working() {
             self.load_diff(app, false);
         }
     }
 
-    pub(crate) fn diff_input(&mut self, app: &App, event: DiffEvent) {
+    pub(crate) fn diff_input(&mut self, event: DiffEvent) {
         match event {
             DiffEvent::Press {
                 target,
@@ -259,7 +259,6 @@ impl Shell {
             DiffEvent::Drag { target } => self.diff_drag(target),
             DiffEvent::Release => self.diff.drag_anchor = None,
             DiffEvent::Copied(_) => {
-                let _ = app;
                 self.notice = Some("Copied selection".to_owned());
             }
         }
@@ -279,6 +278,11 @@ impl Shell {
             return;
         };
         if !self.diff.working() {
+            return;
+        }
+        // After a mutation the shown document is outdated until the reload finishes. Selecting rows now would
+        // bind them to the old patch.
+        if self.diff.mutation.is_some() || self.tasks.diff.busy() {
             return;
         }
         let raw = target.raw_row;
@@ -364,6 +368,14 @@ impl Shell {
         ) else {
             return self.clear_line_selection(true);
         };
+        if discard && staged {
+            self.notice = Some("Only unstaged lines can be discarded".to_owned());
+            return;
+        }
+        if let Some(running) = &self.diff.mutation {
+            self.notice = Some(format!("{running} is still running"));
+            return;
+        }
         let preserve = if discard || staged {
             Preserve::New
         } else {
@@ -413,6 +425,21 @@ impl Shell {
         reason = "the right-click diff menu waits for the popup port"
     )]
     pub(crate) fn hunk_action(&mut self, app: &App, action: HunkAction, patch: String) {
+        let source = self.diff.file.as_ref().map(|file| file.source.clone());
+        let (needed, text) = match action {
+            HunkAction::Stage | HunkAction::Revert => (
+                FileSource::WorkingUnstaged,
+                "Only unstaged hunks can be staged or reverted",
+            ),
+            HunkAction::Unstage => (
+                FileSource::WorkingStaged,
+                "Only staged hunks can be unstaged",
+            ),
+        };
+        if source != Some(needed) {
+            self.notice = Some(text.to_owned());
+            return;
+        }
         let repo = self.repo.clone();
         let label = match action {
             HunkAction::Stage => "Staging hunk…",
@@ -431,10 +458,16 @@ impl Shell {
     /// Ports `stageFirstHunk`: stages, or for a staged file unstages, the first hunk of a fresh three-line diff.
     pub(crate) fn stage_first_hunk(&mut self, app: &App) {
         let Some(file) = self
-            .diff
-            .file
+            .files
+            .selected
             .clone()
             .filter(|file| file.source.is_working())
+            .or_else(|| {
+                self.diff
+                    .file
+                    .clone()
+                    .filter(|file| file.source.is_working())
+            })
         else {
             return;
         };

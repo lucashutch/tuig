@@ -337,7 +337,7 @@ impl Shell {
                     self.blame_loaded(result);
                 }
             }
-            Msg::DiffInput(event) => self.diff_input(app, event),
+            Msg::DiffInput(event) => self.diff_input(event),
             Msg::Diff(id, result) => {
                 if self.tasks.diff.finish(id) {
                     self.diff_loaded(result);

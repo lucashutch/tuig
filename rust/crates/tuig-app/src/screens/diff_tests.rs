@@ -222,6 +222,37 @@ fn a_selection_change_does_not_cancel_a_running_mutation() {
     assert_eq!(h.index(), "ONE\ntwo\nthree\n");
 }
 
+#[test]
+fn h_stages_the_first_hunk_of_the_selected_file_while_the_diff_is_closed() {
+    let h = Harness::new();
+    h.wait("the first selection", |shell| {
+        shell.files.selected.is_some()
+    });
+    assert!(!h.shell.borrow().diff.is_open());
+    h.update(Msg::Key(KeyEvent::from(opentui::input::KeyCode::Char('h'))));
+    h.wait("the mutation", |shell| {
+        shell.diff.mutation.is_none() && !shell.tasks.mutation.busy()
+    });
+    assert_eq!(h.index(), "ONE\ntwo\nTHREE\n");
+}
+
+#[test]
+fn discarding_lines_from_a_staged_diff_is_rejected() {
+    let h = Harness::new();
+    git(&h.repo.0, &["add", "a.txt"]);
+    h.show("a.txt", FileSource::WorkingStaged);
+    let document = h.wait_for_document("a.txt");
+    h.press(&document, "+ONE", false);
+    h.shell.borrow_mut().apply_selected_lines(h.app.app(), true);
+    assert!(h.shell.borrow().diff.mutation.is_none());
+    assert_eq!(
+        std::fs::read_to_string(h.repo.0.join("a.txt")).unwrap(),
+        "ONE\ntwo\nTHREE\n"
+    );
+    assert_eq!(h.index(), "ONE\ntwo\nTHREE\n");
+    assert_eq!(h.shell.borrow().diff.selected_rows.len(), 1);
+}
+
 fn open_file(h: &Harness, row: usize) {
     h.update(Msg::FileClick {
         section: tuig_widgets::files::ListKind::Unstaged,

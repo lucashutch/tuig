@@ -60,12 +60,20 @@ pub fn split_patch_hunks(patch: &str) -> Vec<DiffHunk> {
 
 /// The hunk that contains a zero-based row of `patch.split('\n')`, or `None` for rows before the first hunk.
 pub fn hunk_at_row(patch: &str, row: usize) -> Option<DiffHunk> {
-    let headers = patch
-        .split('\n')
-        .take(row.saturating_add(1))
-        .filter(|line| line.starts_with("@@ "))
-        .count();
-    let index = headers.checked_sub(1)?;
+    // Find the byte offset of the row, then count the hunk starts that `split_patch_hunks` uses.
+    let offset = if row == 0 {
+        0
+    } else {
+        patch
+            .match_indices('\n')
+            .nth(row - 1)
+            .map(|(at, _)| at + 1)?
+    };
+    let index = hunk_starts(patch)
+        .iter()
+        .filter(|&&start| start <= offset)
+        .count()
+        .checked_sub(1)?;
     split_patch_hunks(patch).into_iter().nth(index)
 }
 
@@ -312,6 +320,21 @@ mod tests {
         let worktree = std::fs::read_to_string(&file).unwrap();
         let worktree: Vec<&str> = worktree.split('\n').collect();
         assert_eq!((worktree[1], worktree[27]), ("line 2", "BOTTOM"));
+    }
+
+    #[test]
+    fn a_lone_carriage_return_before_a_hunk_marker_does_not_shift_the_hunk_index() {
+        let patch = "diff --git a/a.txt b/a.txt\n--- a/a.txt\n+++ b/a.txt\n@@ -1,2 +1,2 @@\n-a\r@@ not a header\n+b\n x\n@@ -10,2 +10,2 @@\n-c\n+d\n y\n";
+        let hunks = split_patch_hunks(patch);
+        assert_eq!(hunks.len(), 3, "JS multiline `^` also starts after \\r");
+        let row = |line: &str| row_of(patch, line);
+        assert_eq!(hunk_at_row(patch, row("+b")).unwrap().index, 1);
+        assert_eq!(hunk_at_row(patch, row("+d")).unwrap().index, 2);
+        assert_eq!(
+            hunk_at_row(patch, row("@@ -10,2 +10,2 @@")).unwrap().index,
+            2
+        );
+        assert!(hunk_at_row(patch, 1).is_none());
     }
 
     async fn git_in(dir: &std::path::Path, args: &[&str]) -> String {
