@@ -364,7 +364,7 @@ impl Shell {
 
     /// Ports `focusCommit`: selects the commit and centers it once it is loaded. Until then `load_more` pages
     /// history. The wait ends when history is complete or paging gives up, and the selection stays as it is.
-    fn focus_head(&mut self) {
+    pub(crate) fn focus_head(&mut self) {
         let Some(sha) = self.history.focus_sha.clone() else {
             return;
         };

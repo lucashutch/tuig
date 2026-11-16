@@ -5,6 +5,7 @@ use crate::screens::composer::ComposerWidgets;
 use crate::screens::details::DetailsView;
 use crate::screens::files::FilesWidgets;
 use crate::screens::popup::{OverlayMsg, OverlayWidgets};
+use crate::screens::sidebar::SidebarWidgets;
 use crate::shell::{Dirty, Inbox, Msg, PANE_TOP, Shell};
 use opentui::prelude::*;
 use opentui::widget::View;
@@ -12,7 +13,6 @@ use std::rc::Rc;
 use tuig_ui_model::color::Rgba;
 use tuig_ui_model::theme::Theme;
 use tuig_widgets::diff::DiffPane;
-use tuig_widgets::divider::Divider;
 use tuig_widgets::footer::Footer;
 use tuig_widgets::history::{HistoryEvent, HistoryList};
 
@@ -28,15 +28,13 @@ pub struct Widgets {
     pub diff: Custom<DiffPane>,
     /// Tab strip and toolbar rows.
     header: View,
-    sidebar: View,
+    pub sidebar: SidebarWidgets,
     details: View,
     pub files: FilesWidgets,
     pub composer: ComposerWidgets,
     pub details_view: DetailsView,
     /// Key hints and the message on the bottom row.
     pub footer: Custom<Footer>,
-    /// The bar between the history pane and the details pane.
-    details_divider: Custom<Divider>,
     /// Menus, the palette and the prompts, above everything else.
     pub overlay: OverlayWidgets,
 }
@@ -92,25 +90,24 @@ impl Widgets {
             history,
             diff: crate::screens::diff::diff_widget(app, theme, inbox),
             header: placeholder(app, theme),
-            sidebar: placeholder(app, theme),
+            sidebar: SidebarWidgets::new(app, theme, inbox),
             details,
             files,
             composer,
             details_view,
             footer: Custom::new(app, Footer::new(theme.clone())).absolute(),
-            details_divider: Custom::new(app, Divider::new(theme.clone())).absolute(),
             overlay: OverlayWidgets::new(app, theme, inbox),
         };
         app.root()
             .bg(color(theme.bg))
             .add(&widgets.backdrop)
             .add(&widgets.header)
-            .add(&widgets.sidebar)
+            .add(&widgets.sidebar.pane)
             .add(&widgets.history)
             .add(&widgets.diff)
             .add(&widgets.details)
-            .add(&widgets.details_divider)
             .add(&widgets.footer);
+        widgets.sidebar.attach_overlays(&app.root());
         widgets.overlay.attach(&app.root());
         widgets.history.focus();
         widgets
@@ -136,13 +133,6 @@ impl Shell {
             place(&widgets.backdrop, 0, 0, width, height);
             place(&widgets.header, 0, 0, width, top);
             place(
-                &widgets.sidebar,
-                0,
-                top,
-                panes.sidebar_width,
-                panes.divider_height,
-            );
-            place(
                 &widgets.details,
                 panes.details_left,
                 top,
@@ -161,13 +151,6 @@ impl Shell {
                 .footer
                 .update(|footer| footer.set_panes(sidebar, details));
             place(
-                &widgets.details_divider,
-                panes.right_divider_bar_left,
-                top,
-                1,
-                panes.divider_height,
-            );
-            place(
                 &widgets.history,
                 panes.history_content_left,
                 top,
@@ -175,6 +158,10 @@ impl Shell {
                 panes.history_text_height,
             );
         }
+        if self.dirty.contains(Dirty::LAYOUT) {
+            self.place_sidebar();
+        }
+        self.sync_sidebar();
         // `settle_history` can move the viewport start without a dirty flag, so compare with the widget's window.
         let stale = self.history.window.as_ref().is_none_or(|window| {
             window.start != self.history.viewport.start || window.total() != self.history_total()

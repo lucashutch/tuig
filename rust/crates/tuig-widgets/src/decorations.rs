@@ -112,6 +112,21 @@ impl RefIndex {
     }
 }
 
+impl RefIndex {
+    /// The marker before a sidebar branch row. `branchPresenceIcon`: the checked-out branch gets `◉`, a ref that
+    /// exists locally and remotely `◆`, a remote-only ref `◌`, and any other `○`.
+    pub fn presence_icon(&self, branch: &BranchRef) -> &'static str {
+        if branch.current {
+            return HEAD_ICON;
+        }
+        match self.presence(branch) {
+            (true, true) => "◆",
+            (false, true) => "◌",
+            _ => "○",
+        }
+    }
+}
+
 /// Ports `formatBranchDecoration`.
 pub fn format_branch_decoration(label: &str, refs: &[BranchRef], index: &RefIndex) -> String {
     if label == "refs/stash" || label == "stash" {

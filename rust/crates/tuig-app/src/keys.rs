@@ -30,6 +30,12 @@ pub enum Command {
     OpenPalette,
     /// `c`: moves the keyboard to the commit summary.
     Compose,
+    /// `/`: opens the branch filter in the sidebar.
+    FilterBranches,
+    /// `[`: collapses or expands the sidebar.
+    ToggleLeftPanel,
+    /// `]`: collapses or expands the details pane.
+    ToggleDetailsPanel,
 }
 
 /// The command for a key that the focused widget did not take. `None` for keys the ported screens do not use.
@@ -67,6 +73,12 @@ pub fn command_for(key: &KeyEvent) -> Option<Command> {
         Command::LoadLargeDiff
     } else if key.matches("c") {
         Command::Compose
+    } else if key.matches("/") {
+        Command::FilterBranches
+    } else if key.matches("[") {
+        Command::ToggleLeftPanel
+    } else if key.matches("]") {
+        Command::ToggleDetailsPanel
     } else {
         return None;
     };

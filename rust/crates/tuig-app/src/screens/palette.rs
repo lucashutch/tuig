@@ -578,16 +578,8 @@ impl Shell {
                 self.dirty |= Dirty::FILES | Dirty::HISTORY;
             }
             "navigation.changes" => self.focus_changes(),
-            "view.sidebar" => {
-                self.layout
-                    .set_collapsed(!self.layout.left_collapsed, self.layout.details_collapsed);
-                self.dirty |= Dirty::all();
-            }
-            "view.details" => {
-                self.layout
-                    .set_collapsed(self.layout.left_collapsed, !self.layout.details_collapsed);
-                self.dirty |= Dirty::all();
-            }
+            "view.sidebar" => self.toggle_left_panel(app),
+            "view.details" => self.toggle_details_panel(app),
             "settings.avatars" => {
                 self.set_avatars_enabled(!self.avatars.enabled);
                 self.notify(if self.avatars.enabled {
@@ -599,12 +591,9 @@ impl Shell {
             "theme.change" | "theme.mode" => self.notify("Themes are not available yet"),
             "repository.open" => self.notify("Repository tabs are not available yet"),
             "changes.commit" => self.focus_composer(),
-            "navigation.filter-branches" => self.notify("The branch filter is not available yet"),
+            "navigation.filter-branches" => self.start_branch_filter(app),
             "pull-requests.refresh" => self.load_pull_requests(app),
-            // Opening a pull request is ported with the sidebar panel, which lists them.
-            "pull-requests.open-current" => {
-                self.notify("Opening pull requests is not available yet")
-            }
+            "pull-requests.open-current" => self.open_current_pull_request(app),
             _ => {}
         }
     }

@@ -18,6 +18,7 @@ use crate::screens::graph_avatars::{AvatarLoaded, AvatarState, PhotoLoaded};
 use crate::screens::history::HistoryState;
 use crate::screens::popup::{OverlayMsg, OverlayState};
 use crate::screens::pull_requests::PullRequestsState;
+use crate::screens::sidebar::{SidebarMsg, SidebarState};
 use crate::selected_file::SelectedFile;
 use crate::services::Services;
 use crate::sync::Widgets;
@@ -87,6 +88,8 @@ pub enum Msg {
     DiffInput(DiffEvent),
     /// Menus, the palette and the prompts. See `screens/popup.rs`.
     Overlay(OverlayMsg),
+    /// The sidebar, the pane dividers and the branch filter. See `screens/sidebar.rs`.
+    Sidebar(SidebarMsg),
 
     Snapshot(ReqId, GitResult<RepositorySnapshot>),
     CommitPage(ReqId, GitResult<CommitPage>),
@@ -128,6 +131,7 @@ bitflags! {
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]
     pub struct Dirty: u16 {
         const LAYOUT = 1;
+        const SIDEBAR = 2;
         const HISTORY = 4;
         const FILES = 16;
         const DETAILS = 32;
@@ -180,44 +184,47 @@ pub struct LayoutState {
     /// The palette toggles these. `leftCollapsed` and `detailsCollapsed`.
     pub left_collapsed: bool,
     pub details_collapsed: bool,
+    /// Width of the sidebar when it is open. The divider drag and the saved layout set it. `leftWidth`.
+    pub left_width: i64,
+    pub details_width: i64,
+    /// The branch filter box is open, so it needs room in the layout. `branchFilterActive`.
+    pub branch_filter_active: bool,
 }
 
 impl LayoutState {
     fn new(width: u16, height: u16) -> Self {
-        Self {
+        let mut layout = Self {
             width,
             height,
-            panes: Self::panes(width, height, false, false),
+            panes: layout_panes(PaneInputs {
+                terminal_width: i64::from(width),
+                left_width: LEFT_WIDTH,
+                details_width: DETAILS_WIDTH,
+                left_collapsed: false,
+                details_collapsed: false,
+                content_height: Self::content_height_for(height),
+                branch_filter_active: false,
+            }),
             left_collapsed: false,
             details_collapsed: false,
-        }
-    }
-
-    fn panes(width: u16, height: u16, left_collapsed: bool, details_collapsed: bool) -> PaneLayout {
-        layout_panes(PaneInputs {
-            terminal_width: i64::from(width),
             left_width: LEFT_WIDTH,
             details_width: DETAILS_WIDTH,
-            left_collapsed,
-            details_collapsed,
-            content_height: Self::content_height_for(height),
             branch_filter_active: false,
-        })
+        };
+        layout.recompute();
+        layout
     }
 
-    fn recompute(&mut self) {
-        self.panes = Self::panes(
-            self.width,
-            self.height,
-            self.left_collapsed,
-            self.details_collapsed,
-        );
-    }
-
-    pub fn set_collapsed(&mut self, left: bool, details: bool) {
-        self.left_collapsed = left;
-        self.details_collapsed = details;
-        self.recompute();
+    pub(crate) fn recompute(&mut self) {
+        self.panes = layout_panes(PaneInputs {
+            terminal_width: i64::from(self.width),
+            left_width: self.left_width,
+            details_width: self.details_width,
+            left_collapsed: self.left_collapsed,
+            details_collapsed: self.details_collapsed,
+            content_height: Self::content_height_for(self.height),
+            branch_filter_active: self.branch_filter_active,
+        });
     }
 
     fn resize(&mut self, width: u16, height: u16) {
@@ -226,7 +233,7 @@ impl LayoutState {
         self.recompute();
     }
 
-    fn content_height_for(height: u16) -> i64 {
+    pub(crate) fn content_height_for(height: u16) -> i64 {
         (i64::from(height) - i64::from(PANE_TOP)).max(1)
     }
 
@@ -251,6 +258,7 @@ pub struct Shell {
     pub tasks: Tasks,
     pub refresh: RefreshState,
     pub pr: PullRequestsState,
+    pub sidebar: SidebarState,
     pub avatars: AvatarState,
     /// The message for the footer row. It clears after six seconds. See `screens/footer.rs`.
     pub notice: Option<String>,
@@ -284,6 +292,7 @@ impl Shell {
         let (width, height) = app.size();
         let widgets = Widgets::new(app, &theme, &inbox);
         let key_guard = widgets.composer.key_guard();
+        let filter_guard = widgets.sidebar.key_guard();
         let shell = Rc::new(RefCell::new(Shell {
             repo,
             snapshot: None,
@@ -297,7 +306,8 @@ impl Shell {
             layout: LayoutState::new(width, height),
             tasks: Tasks::default(),
             refresh: RefreshState::default(),
-            pr: PullRequestsState::new(services.pull_requests.clone()),
+            pr: PullRequestsState::new(services.pull_requests.clone(), services.url_opener.clone()),
+            sidebar: SidebarState::new(&theme),
             avatars: AvatarState::new(services.avatars.clone(), services.avatars_enabled),
             notice: None,
             footer: FooterState::default(),
@@ -311,6 +321,7 @@ impl Shell {
             let inbox = inbox.clone();
             app.on_key(move |cx, key| {
                 key_guard.apply(cx, key);
+                filter_guard.apply(cx, key);
                 inbox.post(cx.app(), Msg::Key(*key));
             });
         }
@@ -324,6 +335,8 @@ impl Shell {
 
         {
             let mut shell = shell.borrow_mut();
+            shell.sidebar.prefs_path = services.layout_path.clone();
+            shell.restore_layout(&services.layout);
             shell.start_snapshot(app);
             shell.start_watch_paths(app);
             shell.start_pull_requests(app);
@@ -360,8 +373,8 @@ impl Shell {
                 if self.overlay_key(app, &key) {
                     return;
                 }
-                if self.composer_key(&key) {
-                    // A commit field has the keyboard.
+                if self.composer_key(&key) || self.branch_filter_key(app, &key) {
+                    // A text field has the keyboard.
                 } else if let Some(command) = keys::command_for(&key) {
                     self.command(app, command);
                 }
@@ -433,6 +446,7 @@ impl Shell {
             }
             Msg::DiffInput(event) => self.diff_input(event),
             Msg::Overlay(msg) => self.overlay_msg(app, msg),
+            Msg::Sidebar(msg) => self.sidebar_msg(app, msg),
             Msg::Diff(id, result) => {
                 if self.tasks.diff.finish(id) {
                     self.diff_loaded(result);
@@ -471,7 +485,10 @@ impl Shell {
 
     fn command(&mut self, app: &App, command: Command) {
         match command {
-            Command::Quit => app.quit(),
+            Command::Quit => {
+                self.flush_pending_layout(app);
+                app.quit()
+            }
             Command::MoveCommit(delta) if self.files.focus == Focus::Changes => {
                 self.move_file(delta)
             }
@@ -506,7 +523,20 @@ impl Shell {
                 }
             }
             Command::ToggleStaged => self.files_toggle_mode(),
+            // `c` clears a branch filter that Enter left applied.
+            Command::Compose
+                if self.files.focus == Focus::History && !self.sidebar.filter.is_empty() =>
+            {
+                self.cancel_branch_filter(app)
+            }
             Command::Compose => self.focus_composer(),
+            Command::FilterBranches => {
+                if self.files.focus == Focus::History {
+                    self.start_branch_filter(app);
+                }
+            }
+            Command::ToggleLeftPanel => self.toggle_panel_key(true),
+            Command::ToggleDetailsPanel => self.toggle_panel_key(false),
             Command::Refresh => self.request_refresh(app, false),
             Command::StageFirstHunk => self.stage_first_hunk(app),
             Command::ToggleDiffView => self.toggle_diff_view(),

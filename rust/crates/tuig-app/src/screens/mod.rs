@@ -10,5 +10,6 @@ pub mod history;
 pub mod palette;
 pub mod popup;
 pub mod pull_requests;
+pub mod sidebar;
 #[cfg(test)]
 pub mod test_support;

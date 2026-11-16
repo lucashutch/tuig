@@ -5,10 +5,11 @@
 //! [`ACTIVE_REFRESH`] while any check can still change, or [`IDLE_REFRESH`] when every check has settled. The old
 //! list stays on screen until the new answer arrives. A failure replaces it, so a signed-out `gh` hides the column.
 //!
-//! The spinner for running checks runs only while a visible history row shows one, so no timer runs when nothing
-//! animates. The command palette refreshes the list and finds the pull request for the current branch. Not ported yet
-//! because they need the sidebar: the sidebar panel, `select`, `open` and `openForCurrentBranch`. Their pure parts are in `tuig_widgets::pull_requests`.
+//! The spinner for running checks runs while a visible history or sidebar row shows one, so no timer runs when
+//! nothing animates. The sidebar panel, `select`, `open` and `openForCurrentBranch` are in `screens/sidebar.rs`.
+//! Their pure parts are in `tuig_widgets::pull_requests`.
 
+use crate::services::UrlOpener;
 use crate::shell::{Dirty, Msg, Shell};
 use opentui::prelude::*;
 use std::sync::Arc;
@@ -30,6 +31,8 @@ pub const SPINNER_INTERVAL: Duration = Duration::from_millis(100);
 pub struct PullRequestsState {
     /// `None` turns the feature off.
     pub service: Option<Arc<dyn PullRequestService>>,
+    /// Opens a pull request's page. `None` leaves the browser alone.
+    pub opener: Option<Arc<dyn UrlOpener>>,
     pub result: Option<PullRequestList>,
     /// Row matcher for the history column. `None` while the list is empty or unavailable.
     pub index: Option<PullRequestCommitIndex>,
@@ -40,9 +43,13 @@ pub struct PullRequestsState {
 }
 
 impl PullRequestsState {
-    pub fn new(service: Option<Arc<dyn PullRequestService>>) -> Self {
+    pub fn new(
+        service: Option<Arc<dyn PullRequestService>>,
+        opener: Option<Arc<dyn UrlOpener>>,
+    ) -> Self {
         Self {
             service,
+            opener,
             ..Self::default()
         }
     }
@@ -142,11 +149,14 @@ impl Shell {
 
     /// Starts or stops the spinner timer so it runs only while a visible row shows running checks. `spinnerShown`.
     pub(crate) fn sync_spinner(&mut self, app: &App) {
-        let running =
+        let in_history =
             !self.diff.is_open()
                 && self.history.window.as_ref().is_some_and(|window| {
                     window.running_checks_visible(self.layout.history_lines())
                 });
+        // The sidebar's spinner stops with the sidebar. `spinnerShown`.
+        let in_sidebar = self.sidebar.running_checks && !self.layout.left_collapsed;
+        let running = in_history || in_sidebar;
         match (running, self.pr.spinner_timer) {
             (true, None) => {
                 self.pr.spinner_frame = 0;
