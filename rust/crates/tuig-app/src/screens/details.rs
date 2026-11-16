@@ -19,6 +19,7 @@
 //! - TS drops an in-flight file history when a refresh replaces the snapshot. Here a result applies unless a newer
 //!   request or a close replaced it.
 
+use crate::screens::files::Contents;
 use crate::shell::{Dirty, GitResult, Inbox, Msg, PANE_TOP, Shell};
 use opentui::prelude::*;
 use opentui::widget::{ScrollBox, Text, View};
@@ -27,8 +28,8 @@ use tuig_git::types::{ChangedFile, Commit, LineBlame};
 use tuig_ui_model::color::Rgba;
 use tuig_ui_model::history_viewport::HistorySelection;
 use tuig_ui_model::runtime_layout::{
-    DetailsInputs, details, details_info_width, details_label_gap, details_text_width,
-    file_history_split, layout_details,
+    DetailsInputs, DetailsLayout, details, details_info_width, details_label_gap,
+    details_text_width, file_history_split, layout_details,
 };
 use tuig_ui_model::text_width::{fit_columns, string_width};
 use tuig_ui_model::theme::Theme;
@@ -69,12 +70,7 @@ impl FileHistory {
 
 #[derive(Default)]
 pub struct DetailsState {
-    /// The details pane shows a commit. TS `view === "commit"`.
-    pub commit_open: bool,
     pub file_history: Option<FileHistory>,
-    /// Row where the commit card ends, from the top of the details pane. The files pane starts its commit file
-    /// list there. `None` until a commit has been shown.
-    pub files_top: Option<i64>,
 }
 
 /// The result of a file or line history request, with what asked for it.
@@ -269,31 +265,22 @@ impl DetailsView {
         self.history_list.visible(false);
     }
 
-    /// Where the changed-file section starts, for the files pane. `DetailsLayout::files_top`.
-    pub fn show(&self, input: &DetailsInput<'_>) -> DetailsPlacement {
+    pub fn show(&self, input: &DetailsInput<'_>) {
         let theme = &self.theme;
         let width = input.pane_width.max(1);
-        let text = present_commit_text(input.commit);
-        let co_authors = parse_co_authors(input.commit.body.as_deref().unwrap_or(""));
-        let co_author_text = co_author_content(theme, &co_authors);
-        let co_author_plain = co_authors_plain(&co_authors);
-        let info_plain = text.info();
-        let text_width = details_text_width(width);
-        let banner_rows = if input.history.is_none() {
-            working_changes_banner_rows(input.working_files)
-        } else {
-            0
-        };
-        let mut layout = layout_details(DetailsInputs {
-            details_pane_width: width,
-            header_lines: wrapped_line_count(&text.header, text_width),
-            body_lines: wrapped_line_count(&text.body, text_width),
-            info_lines: wrapped_line_count(&info_plain, details_info_width(width)),
-            co_authors_lines: (!co_authors.is_empty())
-                .then(|| wrapped_line_count(&co_author_plain, text_width)),
-            co_authors_provider_visible: false,
+        let CommitLayout {
+            text,
+            co_authors,
             banner_rows,
-        });
+            mut layout,
+            ..
+        } = commit_layout(
+            input.commit,
+            input.working_files,
+            width,
+            input.history.is_some(),
+        );
+        let co_author_text = co_author_content(theme, &co_authors);
         let split = input
             .history
             .map(|_| file_history_split(input.content_height));
@@ -377,17 +364,49 @@ impl DetailsView {
                 self.history_list.visible(false);
             }
         }
-        DetailsPlacement {
-            files_top: layout.files_top,
-        }
     }
 }
 
-/// Where the commit card ends. The files pane starts its commit file list at `files_top`, in rows from the top of
-/// the details pane.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct DetailsPlacement {
-    pub files_top: i64,
+/// What the commit card shows and where it puts things, for a pane `width` columns wide.
+struct CommitLayout {
+    text: CommitText,
+    co_authors: Vec<CoAuthor>,
+    banner_rows: i64,
+    layout: DetailsLayout,
+}
+
+/// Runs `layout_details` for `commit`. The details pane paints from it, and the files pane starts its commit file
+/// list at `layout.files_top`.
+fn commit_layout(
+    commit: &Commit,
+    working_files: usize,
+    width: i64,
+    with_history: bool,
+) -> CommitLayout {
+    let text = present_commit_text(commit);
+    let co_authors = parse_co_authors(commit.body.as_deref().unwrap_or(""));
+    let text_width = details_text_width(width);
+    let banner_rows = if with_history {
+        0
+    } else {
+        working_changes_banner_rows(working_files)
+    };
+    let layout = layout_details(DetailsInputs {
+        details_pane_width: width,
+        header_lines: wrapped_line_count(&text.header, text_width),
+        body_lines: wrapped_line_count(&text.body, text_width),
+        info_lines: wrapped_line_count(&text.info(), details_info_width(width)),
+        co_authors_lines: (!co_authors.is_empty())
+            .then(|| wrapped_line_count(&co_authors_plain(&co_authors), text_width)),
+        co_authors_provider_visible: false,
+        banner_rows,
+    });
+    CommitLayout {
+        text,
+        co_authors,
+        banner_rows,
+        layout,
+    }
 }
 
 fn info_content(theme: &Theme, text: &CommitText) -> Vec<Span<'static>> {
@@ -448,10 +467,16 @@ impl Shell {
             .map_or(0, |snapshot| snapshot.files.len())
     }
 
+    /// The commit view is open: TS `view === "commit"`. The files pane owns the flag, so the two panes cannot
+    /// disagree about it.
+    pub fn commit_open(&self) -> bool {
+        self.files.contents == Contents::Commit
+    }
+
     /// The commit the pane shows: the open history's selection, else the selected history row, while the pane is
     /// open.
     pub fn details_commit(&self) -> Option<&Commit> {
-        if !self.details.commit_open {
+        if !self.commit_open() {
             return None;
         }
         match &self.details.file_history {
@@ -466,36 +491,53 @@ impl Shell {
         self.history.commits.get(index)
     }
 
-    /// Ports `openCommit`, without the changed-file load. The files pane starts that load from here.
+    /// Row where the commit card ends, from the top of the details pane (`DetailsLayout::files_top`). The files
+    /// pane starts its commit file list there. Only the commit view reads it, so it is 0 without a commit.
+    pub(crate) fn details_files_top(&self) -> i64 {
+        let Some(commit) = self.details_commit() else {
+            return 0;
+        };
+        commit_layout(
+            commit,
+            self.has_working_files(),
+            self.layout.panes.details_width.max(1),
+            self.details.file_history.is_some(),
+        )
+        .layout
+        .files_top
+    }
+
+    /// Ports `openCommit`. The files pane loads the commit's files when it sees the new view.
     pub fn open_commit(&mut self) {
         if self.selected_commit().is_none() {
             return;
         }
-        self.details.commit_open = true;
-        self.dirty |= Dirty::DETAILS;
+        self.files.contents = Contents::Commit;
+        self.dirty |= Dirty::DETAILS | Dirty::FILES;
     }
 
-    /// Ports `closeDiff` for a commit that was opened from the graph: back to the working changes.
+    /// Ports `closeDiff` for a commit view: back to the working changes with the working row selected.
     pub fn close_commit(&mut self) {
-        self.details.commit_open = false;
+        self.files.contents = Contents::Working;
         self.history.selection = HistorySelection::Working;
-        self.dirty |= Dirty::DETAILS | Dirty::HISTORY;
+        self.history.viewport.detached = false;
+        self.dirty |= Dirty::DETAILS | Dirty::FILES | Dirty::HISTORY;
     }
 
-    /// A click on the working row: `closeDiff` already ran in TS, so the pane leaves the commit view and the
-    /// selection stays on the working row.
+    /// The history selection moved onto the working row: `closeDiff` already ran in TS, so the pane leaves the
+    /// commit view and the selection stays on the working row.
     pub(crate) fn close_details_for_working(&mut self) {
         self.clear_file_history();
-        self.details.commit_open = false;
-        self.dirty |= Dirty::DETAILS;
+        self.files.contents = Contents::Working;
+        self.dirty |= Dirty::DETAILS | Dirty::FILES;
     }
 
-    /// Ports the Escape step for the details pane. Returns false when it had nothing to close.
+    /// Ports the Escape step for the commit view. Returns false when it had nothing to close.
     pub fn escape_details(&mut self) -> bool {
         if self.clear_file_history() {
             return true;
         }
-        if self.details.commit_open {
+        if self.commit_open() {
             self.close_commit();
             return true;
         }
@@ -607,8 +649,8 @@ impl Shell {
             start: 0,
             line: loaded.line,
         });
-        self.details.commit_open = true;
-        self.dirty |= Dirty::DETAILS;
+        self.files.contents = Contents::Commit;
+        self.dirty |= Dirty::DETAILS | Dirty::FILES;
     }
 
     /// Ports `clear`. Returns false when no history was open. The pane keeps the selected history commit.
@@ -666,14 +708,13 @@ impl Shell {
             self.widgets.details_view.hide();
             return;
         };
-        let placement = self.widgets.details_view.show(&DetailsInput {
+        self.widgets.details_view.show(&DetailsInput {
             commit: &commit,
             working_files: self.has_working_files(),
             pane_width: self.layout.panes.details_width,
             content_height: self.content_height(),
             history: self.details.file_history.as_ref(),
         });
-        self.details.files_top = Some(placement.files_top);
     }
 }
 

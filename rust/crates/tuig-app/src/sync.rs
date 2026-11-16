@@ -142,17 +142,22 @@ impl Shell {
                 list.set_graph_scroll(graph_scroll);
             });
         }
+        // The commit card height depends on the selected commit, and the files pane starts below the card.
+        if self.dirty.contains(Dirty::HISTORY) && self.commit_open() {
+            self.dirty |= Dirty::FILES;
+        }
+        // Details first: the files pane reads where the commit card ends from the same layout.
+        if self
+            .dirty
+            .intersects(Dirty::DETAILS | Dirty::LAYOUT | Dirty::HISTORY | Dirty::FILES)
+        {
+            self.sync_details();
+        }
         self.sync_files();
         let focused = self.files.focus == crate::screens::files::Focus::History;
         self.widgets
             .history
             .update(|list| list.set_focused(focused));
-        if self
-            .dirty
-            .intersects(Dirty::DETAILS | Dirty::LAYOUT | Dirty::HISTORY)
-        {
-            self.sync_details();
-        }
         self.sync_diff();
         self.dirty = Dirty::empty();
     }

@@ -1,7 +1,7 @@
 //! The changed-files pane against a real repository, driven through `TestApp` and messages.
 
 use super::*;
-use crate::selected::FileSource;
+use crate::selected_file::FileSource;
 use crate::shell::Msg;
 use opentui::testing::TestApp;
 use std::cell::RefCell;

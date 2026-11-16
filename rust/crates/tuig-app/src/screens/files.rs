@@ -9,7 +9,7 @@
 //!
 //! Other panes read `Shell::files.selected` and react to `Msg::FileSelected` and `Msg::FileOpened`.
 
-use crate::selected::{FileSource, SelectedFile};
+use crate::selected_file::{FileSource, SelectedFile};
 use crate::shell::{Dirty, GitResult, Inbox, Msg, PANE_TOP, Shell};
 use opentui::prelude::*;
 use opentui::widget::View;
@@ -146,9 +146,6 @@ pub struct FilesState {
     caches: [TreeCache; 3],
     pub preferred_unstaged_height: Option<i64>,
     pub preferred_composer_height: Option<i64>,
-    /// Row of the commit file list. The commit details pane sets it from its layout. Until then the pane assumes a
-    /// one-line commit message, which is right for the parity fixtures.
-    pub commit_files_top: Option<i64>,
     /// The selection last sent in `Msg::FileSelected`.
     announced: Option<SelectedFile>,
     pub debounce: Duration,
@@ -189,7 +186,6 @@ impl FilesState {
             caches: Default::default(),
             preferred_unstaged_height: None,
             preferred_composer_height: None,
-            commit_files_top: None,
             announced: None,
             debounce: COMMIT_FILES_DEBOUNCE,
             timer: None,
@@ -262,16 +258,6 @@ impl FilesState {
         self.expansion_version += 1;
     }
 
-    /// The selected file with its state and original path, from the active list. For the diff pane.
-    #[allow(dead_code)]
-    pub fn selected_changed_file(&self) -> Option<ChangedFile> {
-        let path = self.selected.as_ref()?.path.as_str();
-        self.files_of(self.active())
-            .iter()
-            .find(|file| file.path == path)
-            .cloned()
-    }
-
     /// Replaces the working lists when the snapshot's files differ.
     fn set_working_files(&mut self, files: &[ChangedFile]) {
         let unstaged: Vec<ChangedFile> = files.iter().filter(|f| f.unstaged).cloned().collect();
@@ -328,7 +314,17 @@ impl FilesState {
                 FileSection::Staged => FileSource::WorkingStaged,
             },
         };
-        Some(SelectedFile { path, source })
+        // A rename or copy needs its previous path to load the diff.
+        let original_path = self
+            .files_of(self.active())
+            .iter()
+            .find(|file| file.path == path)
+            .and_then(|file| file.original_path.clone());
+        Some(SelectedFile {
+            path,
+            original_path,
+            source,
+        })
     }
 }
 
@@ -465,10 +461,8 @@ impl Shell {
             preferred_composer_height: files.preferred_composer_height,
         });
         let working_files = self.snapshot.as_ref().map_or(0, |s| s.files.len());
-        // Banner 2 rows when the work tree has changes, then message card 5, a gap, details card 6, a gap.
-        let commit_files_top = files
-            .commit_files_top
-            .unwrap_or(13 + if working_files > 0 { 2 } else { 0 });
+        // Where the commit card ends, from the details layout (`layout_details`).
+        let commit_files_top = self.details_files_top();
         let commit_viewport =
             (file_viewport_size(ChangesView::Commit, height, commit_files_top) - 1).max(1);
         let changes = layout_changes(ChangesInputs {
@@ -673,15 +667,12 @@ impl Shell {
 
     // -- input
 
-    /// A left press on a history row. A commit opens in the pane. The working row returns to the working changes.
+    /// A left press on a history row. `history_click` already opened the commit or left the commit view. A press on
+    /// the working row also returns the changes pane to the unstaged list.
     pub(crate) fn files_history_clicked(&mut self) {
         self.files.focus = Focus::History;
-        match self.history.selection {
-            HistorySelection::Commit(_) => self.files.contents = Contents::Commit,
-            HistorySelection::Working => {
-                self.files.contents = Contents::Working;
-                self.files.mode = FileSection::Unstaged;
-            }
+        if self.history.selection == HistorySelection::Working {
+            self.files.mode = FileSection::Unstaged;
         }
         self.dirty |= Dirty::FILES | Dirty::HISTORY;
     }
@@ -708,23 +699,9 @@ impl Shell {
                 Some(file) => self.inbox.post(app, Msg::FileOpened(file)),
                 None => self.notice = Some("No file selected".to_string()),
             }
-        } else if self.files.contents == Contents::Working
-            && matches!(self.history.selection, HistorySelection::Commit(_))
-        {
-            self.files.contents = Contents::Commit;
-            self.dirty |= Dirty::FILES;
+        } else if !self.commit_open() {
+            self.open_commit();
         }
-    }
-
-    /// Esc in the commit view: back to the working changes, with the working row selected.
-    pub(crate) fn files_back(&mut self) {
-        if self.files.contents != Contents::Commit {
-            return;
-        }
-        self.files.contents = Contents::Working;
-        self.history.selection = HistorySelection::Working;
-        self.history.viewport.detached = false;
-        self.dirty |= Dirty::FILES | Dirty::HISTORY;
     }
 
     /// `t`: switches between the unstaged and staged lists.
@@ -867,10 +844,8 @@ impl Shell {
         if self.snapshot.is_none() {
             return;
         }
-        if self.files.contents == Contents::Commit
-            && self.history.selection == HistorySelection::Working
-        {
-            self.files.contents = Contents::Working;
+        if self.commit_open() && self.history.selection == HistorySelection::Working {
+            self.close_details_for_working();
         }
         let target = match self.files.contents {
             Contents::Commit => self.history.selected_sha().map(str::to_owned),

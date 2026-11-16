@@ -89,7 +89,7 @@ impl HistoryState {
 }
 
 impl Shell {
-    fn has_working(&self) -> bool {
+    pub(crate) fn has_working(&self) -> bool {
         self.snapshot
             .as_ref()
             .is_some_and(|snapshot| !snapshot.files.is_empty())
@@ -274,7 +274,7 @@ impl Shell {
             .moved(delta, has_working, history.commits.len());
         self.dirty |= Dirty::HISTORY;
         // TS keeps the commit view on a working selection and paints stale details. Leave the view instead.
-        if self.history.selection == HistorySelection::Working && self.details.commit_open {
+        if self.history.selection == HistorySelection::Working && self.commit_open() {
             self.close_details_for_working();
         }
     }

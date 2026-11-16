@@ -12,7 +12,7 @@ use crate::screens::details::{DetailsAction, DetailsState, HistoryLoaded};
 use crate::screens::diff::DiffState;
 use crate::screens::files::{ChangesAction, FilesState, Focus, Split};
 use crate::screens::history::HistoryState;
-use crate::selected::SelectedFile;
+use crate::selected_file::SelectedFile;
 use crate::sync::Widgets;
 use crate::tasks::{ReqId, Slot, Tasks};
 use bitflags::bitflags;
@@ -83,17 +83,15 @@ pub enum Msg {
     CommitFiles(ReqId, GitResult<Vec<ChangedFile>>),
     CommitFilesDue,
 
-    /// The highlighted file changed. Posted once per change, with `None` when no file is selected.
-    #[allow(dead_code)] // Read by the diff pane.
+    /// The highlighted file changed. Posted once per change, with `None` when no file is selected. An open diff
+    /// follows it. A closed diff stays closed, as in TS.
     FileSelected(Option<SelectedFile>),
     /// The user opened a file: a click on a file row, or Enter in the changes pane. The diff pane shows it.
-    #[allow(dead_code)] // Read by the diff pane.
     FileOpened(SelectedFile),
     FileHistory(ReqId, HistoryLoaded),
     Blame(ReqId, GitResult<LineBlame>),
     Diff(ReqId, GitResult<DiffDocument>),
     Mutation(ReqId, GitResult<()>),
-    PreviewFiles(ReqId, GitResult<(String, Vec<ChangedFile>)>),
 
     ScrollFlush,
     ScrollSettled,
@@ -283,7 +281,6 @@ impl Shell {
             } => {
                 self.history_click(row, column, clicks);
                 self.files_history_clicked();
-                self.preview_selection(app);
             }
             Msg::FileClick { section, row } => self.file_click(app, section, row),
             Msg::FileWheel { section, delta } => self.file_wheel(section, delta),
@@ -326,8 +323,8 @@ impl Shell {
                 }
             }
             Msg::CommitFilesDue => self.commit_files_due(app),
-            // The diff pane reacts to these two.
-            Msg::FileSelected(_) | Msg::FileOpened(_) => {}
+            Msg::FileSelected(file) => self.file_selected(app, file),
+            Msg::FileOpened(file) => self.show_file_diff(app, Some(file)),
             Msg::Details(action) => self.details_action(app, action),
             Msg::FileHistoryClick(index) => self.select_file_history(index),
             Msg::FileHistory(id, loaded) => {
@@ -351,11 +348,6 @@ impl Shell {
                     self.mutation_done(app, result);
                 }
             }
-            Msg::PreviewFiles(id, result) => {
-                if self.tasks.preview_files.finish(id) {
-                    self.preview_files_loaded(app, result);
-                }
-            }
             Msg::ScrollFlush => self.flush_history_scroll(),
             Msg::ScrollSettled => self.history_settled(),
             Msg::Poll => self.request_refresh(app, true),
@@ -371,6 +363,8 @@ impl Shell {
             Command::MoveCommit(delta) if self.files.focus == Focus::Changes => {
                 self.move_file(delta)
             }
+            // The diff covers the history pane, and `moveCommit` ignores keys while it is visible.
+            Command::MoveCommit(_) if self.diff.is_open() => {}
             Command::MoveCommit(delta) => {
                 if !self.scroll_file_history(delta) {
                     self.move_commit(delta);
@@ -391,8 +385,8 @@ impl Shell {
                 }
             }
             Command::Back => {
-                if !self.diff_escape() && !self.escape_details() {
-                    self.files_back();
+                if !self.diff_escape() {
+                    self.escape_details();
                 }
             }
             Command::ToggleStaged => self.files_toggle_mode(),

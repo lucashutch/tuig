@@ -72,6 +72,4 @@ pub struct Tasks {
     pub diff: Slot,
     /// Index and working-tree changes. Selection changes never cancel it.
     pub mutation: Slot,
-    /// Commit files for the `TUIG_DIFF_PREVIEW` hook.
-    pub preview_files: Slot,
 }

@@ -221,3 +221,91 @@ fn a_selection_change_does_not_cancel_a_running_mutation() {
     h.wait("the mutation", |shell| shell.diff.mutation.is_none());
     assert_eq!(h.index(), "ONE\ntwo\nthree\n");
 }
+
+fn open_file(h: &Harness, row: usize) {
+    h.update(Msg::FileClick {
+        section: tuig_widgets::files::ListKind::Unstaged,
+        row,
+    });
+}
+
+#[test]
+fn selecting_a_file_leaves_the_diff_closed_until_it_is_opened() {
+    let h = Harness::new();
+    h.wait("the first selection", |shell| {
+        shell.files.selected.is_some()
+    });
+    // Tab moves the focus to the changes pane, where Down steps through the files.
+    h.update(Msg::Key(KeyEvent::from(opentui::input::KeyCode::Tab)));
+    h.update(Msg::Key(KeyEvent::from(opentui::input::KeyCode::Down)));
+    h.wait("the file selection to move", |shell| {
+        shell
+            .files
+            .selected
+            .as_ref()
+            .is_some_and(|file| file.path == "b.txt")
+    });
+    assert!(!h.shell.borrow().diff.is_open());
+    open_file(&h, 0);
+    h.wait("the diff of the clicked file", |shell| {
+        shell
+            .diff
+            .file
+            .as_ref()
+            .is_some_and(|file| file.path == "a.txt" && file.source == FileSource::WorkingUnstaged)
+    });
+    h.wait_for_document("a.txt");
+}
+
+#[test]
+fn an_open_diff_follows_the_file_selection_and_escape_returns_to_the_working_row() {
+    let h = Harness::new();
+    h.wait("the first selection", |shell| {
+        shell.files.selected.is_some()
+    });
+    open_file(&h, 0);
+    h.wait_for_document("a.txt");
+    h.update(Msg::Key(KeyEvent::from(opentui::input::KeyCode::Down)));
+    h.wait_for_document("b.txt");
+
+    // The history pane is under the diff. Its keys do nothing.
+    let before = h.shell.borrow().history.selection;
+    assert_ne!(before, HistorySelection::Working, "HEAD starts selected");
+    h.update(Msg::Key(KeyEvent::from(opentui::input::KeyCode::Tab)));
+    h.update(Msg::Key(KeyEvent::from(opentui::input::KeyCode::Down)));
+    assert_eq!(h.shell.borrow().history.selection, before);
+
+    h.update(Msg::Key(KeyEvent::from(opentui::input::KeyCode::Escape)));
+    assert!(!h.shell.borrow().diff.is_open());
+    assert_eq!(
+        h.shell.borrow().history.selection,
+        HistorySelection::Working
+    );
+}
+
+#[test]
+fn moving_the_history_selection_onto_the_working_row_closes_the_commit_view_in_both_panes() {
+    let h = Harness::new();
+    // Row 0 is the working row, row 1 the newest commit.
+    h.update(Msg::HistoryClick {
+        row: 1,
+        column: 0,
+        clicks: 1,
+    });
+    h.wait("the commit files", |shell| {
+        shell.commit_open() && shell.files.commit.files.is_some()
+    });
+    assert_eq!(
+        h.shell.borrow().files.contents,
+        crate::screens::files::Contents::Commit
+    );
+    h.update(Msg::Key(KeyEvent::from(opentui::input::KeyCode::Up)));
+    let shell = h.shell.borrow();
+    assert_eq!(shell.history.selection, HistorySelection::Working);
+    assert!(!shell.commit_open());
+    assert_eq!(
+        shell.files.contents,
+        crate::screens::files::Contents::Working
+    );
+    assert!(shell.details_commit().is_none());
+}

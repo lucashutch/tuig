@@ -2,9 +2,9 @@
 //! `src/ui/runtime-diff-selection.ts`, `runHunkAction` and `stageFirstHunk` in `src/ui/runtime-commands.ts`, and
 //! the mutation guard of `perform`.
 //!
-//! The pane shows the diff of [`DiffState::file`]. The files pane sets it once it is ported. Until then the
-//! `TUIG_DIFF_PREVIEW` environment variable turns on a test hook: a click on a commit row shows that commit's first
-//! file, and a click on the working row shows the first changed file of the working tree.
+//! The pane shows the diff of [`DiffState::file`]. It opens when the user opens a file in the files pane
+//! (`Msg::FileOpened`: a click or Enter). Moving the file selection while the pane is open shows the new file
+//! (`Msg::FileSelected`), as `moveFile` does in TS. With the pane closed, selecting a file loads nothing.
 //!
 //! Mutations run in their own task slot, so a selection change never cancels them. After a mutation the shell
 //! refreshes the snapshot and reloads the diff.
@@ -18,7 +18,7 @@ use std::future::Future;
 use std::rc::Rc;
 use tuig_git::hunks::{Preserve, hunk_at_row, select_patch_lines, split_patch_hunks};
 use tuig_git::process::GitError;
-use tuig_git::types::{ChangedFile, DiffRequest};
+use tuig_git::types::DiffRequest;
 use tuig_ui_model::diff_lines::{DiffLineKind, DiffLineTarget};
 use tuig_ui_model::diff_policy::{DIFF_DISPLAY_MAX_BYTES, can_highlight_diff};
 use tuig_ui_model::history_viewport::HistorySelection;
@@ -59,15 +59,12 @@ pub struct DiffState {
     pub drag_selecting: bool,
     /// The label of the running mutation. `mutationBusy`.
     pub mutation: Option<String>,
-    /// The `TUIG_DIFF_PREVIEW` test hook is on.
-    pub preview: bool,
 }
 
 impl DiffState {
     pub fn new() -> Self {
         Self {
             side_by_side: true,
-            preview: std::env::var_os("TUIG_DIFF_PREVIEW").is_some(),
             ..Self::default()
         }
     }
@@ -136,6 +133,18 @@ impl Shell {
         }
         self.diff.file = file;
         self.load_diff(app, false);
+    }
+
+    /// A new file is highlighted. `moveFile` reloads the diff only while it is open. TS opens it on a click or
+    /// Enter, which arrive as `Msg::FileOpened`.
+    pub(crate) fn file_selected(&mut self, app: &App, file: Option<SelectedFile>) {
+        if !self.diff.is_open() || self.diff.file == file {
+            return;
+        }
+        match file {
+            Some(file) => self.show_file_diff(app, Some(file)),
+            None => self.close_diff(),
+        }
     }
 
     /// Ports `closeDiff`: hides the pane and shows the history again.
@@ -481,7 +490,14 @@ impl Shell {
             return true;
         }
         if self.diff.is_open() {
+            let working = self.diff.working();
             self.close_diff();
+            // A diff of working changes came from the history view, so `closeDiff` selects the working row.
+            // A commit diff returns to the commit view, which stays as it is.
+            if working && self.has_working() {
+                self.history.selection = HistorySelection::Working;
+                self.history.viewport.detached = false;
+            }
             return true;
         }
         false
@@ -490,70 +506,6 @@ impl Shell {
     pub(crate) fn toggle_diff_view(&mut self) {
         self.diff.side_by_side = !self.diff.side_by_side;
         self.dirty |= Dirty::DIFF;
-    }
-
-    /// The `TUIG_DIFF_PREVIEW` hook: after a history click, shows the first file of the selected row.
-    pub(crate) fn preview_selection(&mut self, app: &App) {
-        if !self.diff.preview {
-            return;
-        }
-        match self.history.selection {
-            HistorySelection::Working => {
-                let files = self
-                    .snapshot
-                    .as_ref()
-                    .map(|snapshot| snapshot.files.clone())
-                    .unwrap_or_default();
-                let file = files
-                    .iter()
-                    .find(|file| file.unstaged)
-                    .map(|file| (file, FileSource::WorkingUnstaged))
-                    .or_else(|| files.first().map(|file| (file, FileSource::WorkingStaged)));
-                if let Some((file, source)) = file {
-                    let selected = SelectedFile {
-                        path: file.path.clone(),
-                        original_path: file.original_path.clone(),
-                        source,
-                    };
-                    self.show_file_diff(app, Some(selected));
-                }
-            }
-            HistorySelection::Commit(_) => {
-                let Some(sha) = self.history.selected_sha().map(str::to_owned) else {
-                    return;
-                };
-                let repo = self.repo.clone();
-                self.spawn(
-                    app,
-                    |tasks| &mut tasks.preview_files,
-                    async move {
-                        let files = repo.commit_files(&sha, None).await;
-                        files.map(|files| (sha, files))
-                    },
-                    Msg::PreviewFiles,
-                );
-            }
-        }
-    }
-
-    pub(crate) fn preview_files_loaded(
-        &mut self,
-        app: &App,
-        result: GitResult<(String, Vec<ChangedFile>)>,
-    ) {
-        match result {
-            Ok((sha, files)) => {
-                if let Some(file) = files.first() {
-                    let selected = SelectedFile {
-                        path: file.path.clone(),
-                        original_path: file.original_path.clone(),
-                        source: FileSource::Commit(sha),
-                    };
-                    self.show_file_diff(app, Some(selected));
-                }
-            }
-            Err(error) => self.notice = Some(error.to_string()),
-        }
     }
 
     /// Pushes diff state into the pane and shows it over the history pane, as the TS app does.

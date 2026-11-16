@@ -112,7 +112,7 @@ fn clicking_a_commit_opens_its_details_and_the_selection_keeps_them_current() {
     // painted frame for its hit grid.
     h.app.render();
     h.app.click(60, 3 + 2);
-    h.wait("the details pane", |shell| shell.details.commit_open);
+    h.wait("the details pane", |shell| shell.commit_open());
     let screen = h.app.text();
     assert!(screen.contains("COMMIT MESSAGE"), "{screen}");
     assert!(screen.contains("shout line two"), "{screen}");
@@ -131,7 +131,7 @@ fn clicking_a_commit_opens_its_details_and_the_selection_keeps_them_current() {
 
     // Escape leaves the commit view and goes back to the working row.
     h.app.press("escape");
-    h.wait("the pane to close", |shell| !shell.details.commit_open);
+    h.wait("the pane to close", |shell| !shell.commit_open());
     assert!(!h.app.text().contains("COMMIT MESSAGE"));
 }
 
@@ -202,12 +202,9 @@ fn file_history_drives_the_details_and_escape_closes_it_before_the_pane() {
     h.wait("the history to close", |shell| {
         shell.details.file_history.is_none()
     });
-    assert!(
-        h.read(|shell| shell.details.commit_open),
-        "the commit pane stays"
-    );
+    assert!(h.read(|shell| shell.commit_open()), "the commit pane stays");
     h.app.press("escape");
-    h.wait("the pane to close", |shell| !shell.details.commit_open);
+    h.wait("the pane to close", |shell| !shell.commit_open());
 }
 
 #[test]
