@@ -958,7 +958,7 @@ impl Shell {
             Ok(files) => self.files.commit.files = Some(files.into()),
             Err(error) => {
                 self.files.commit.error = Some(error.to_string());
-                self.notice = Some(error.to_string());
+                self.notify_error(error.to_string());
             }
         }
         self.dirty |= Dirty::FILES;

@@ -139,7 +139,7 @@ impl Shell {
     pub(crate) fn snapshot_loaded(&mut self, app: &App, result: GitResult<RepositorySnapshot>) {
         match result {
             Ok(snapshot) => self.apply_snapshot(snapshot),
-            Err(error) => self.notice = Some(error.to_string()),
+            Err(error) => self.notify_error(error.to_string()),
         }
         self.snapshot_finished(app);
     }
@@ -227,7 +227,7 @@ impl Shell {
             Err(error) => {
                 // History on screen stays usable. Repeated failures stop paging.
                 self.history.page_failures += 1;
-                self.notice = Some(error.to_string());
+                self.notify_error(error.to_string());
                 return;
             }
         };

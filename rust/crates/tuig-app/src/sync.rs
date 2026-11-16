@@ -12,6 +12,8 @@ use std::rc::Rc;
 use tuig_ui_model::color::Rgba;
 use tuig_ui_model::theme::Theme;
 use tuig_widgets::diff::DiffPane;
+use tuig_widgets::divider::Divider;
+use tuig_widgets::footer::Footer;
 use tuig_widgets::history::{HistoryEvent, HistoryList};
 
 fn color(color: Rgba) -> Color {
@@ -19,6 +21,9 @@ fn color(color: Rgba) -> Color {
 }
 
 pub struct Widgets {
+    /// The screen background. `renderer.setBackgroundColor` in TS. The root view does not fill its background, so a
+    /// full-size view behind every pane does.
+    backdrop: View,
     pub history: Custom<HistoryList>,
     pub diff: Custom<DiffPane>,
     /// Tab strip and toolbar rows.
@@ -28,8 +33,10 @@ pub struct Widgets {
     pub files: FilesWidgets,
     pub composer: ComposerWidgets,
     pub details_view: DetailsView,
-    /// Key hints on the bottom row.
-    hints: View,
+    /// Key hints and the message on the bottom row.
+    pub footer: Custom<Footer>,
+    /// The bar between the history pane and the details pane.
+    details_divider: Custom<Divider>,
     /// Menus, the palette and the prompts, above everything else.
     pub overlay: OverlayWidgets,
 }
@@ -81,6 +88,7 @@ impl Widgets {
         let details_view = DetailsView::new(app, theme, inbox);
         details_view.attach(&details);
         let widgets = Self {
+            backdrop: placeholder(app, theme),
             history,
             diff: crate::screens::diff::diff_widget(app, theme, inbox),
             header: placeholder(app, theme),
@@ -89,17 +97,20 @@ impl Widgets {
             files,
             composer,
             details_view,
-            hints: placeholder(app, theme),
+            footer: Custom::new(app, Footer::new(theme.clone())).absolute(),
+            details_divider: Custom::new(app, Divider::new(theme.clone())).absolute(),
             overlay: OverlayWidgets::new(app, theme, inbox),
         };
         app.root()
             .bg(color(theme.bg))
+            .add(&widgets.backdrop)
             .add(&widgets.header)
             .add(&widgets.sidebar)
             .add(&widgets.history)
             .add(&widgets.diff)
             .add(&widgets.details)
-            .add(&widgets.hints);
+            .add(&widgets.details_divider)
+            .add(&widgets.footer);
         widgets.overlay.attach(&app.root());
         widgets.history.focus();
         widgets
@@ -122,6 +133,7 @@ impl Shell {
             let top = i64::from(PANE_TOP);
             let (width, height) = (i64::from(self.layout.width), i64::from(self.layout.height));
             let widgets = &self.widgets;
+            place(&widgets.backdrop, 0, 0, width, height);
             place(&widgets.header, 0, 0, width, top);
             place(
                 &widgets.sidebar,
@@ -137,7 +149,24 @@ impl Shell {
                 panes.details_width,
                 panes.divider_height,
             );
-            place(&widgets.hints, 0, height - 1, width, 1);
+            place(&widgets.footer, 0, height - 1, width, 1);
+            let cells = |value: i64| u32::try_from(value.max(0)).unwrap_or(0);
+            let sidebar = panes
+                .sidebar_visible
+                .then(|| (0, cells(panes.sidebar_width)));
+            let details = panes
+                .details_visible
+                .then(|| (cells(panes.details_left), cells(panes.details_width)));
+            widgets
+                .footer
+                .update(|footer| footer.set_panes(sidebar, details));
+            place(
+                &widgets.details_divider,
+                panes.right_divider_bar_left,
+                top,
+                1,
+                panes.divider_height,
+            );
             place(
                 &widgets.history,
                 panes.history_content_left,
@@ -196,6 +225,7 @@ impl Shell {
         }
         self.sync_author_photo(app);
         self.sync_spinner(app);
+        self.sync_footer(app);
         self.dirty = Dirty::empty();
     }
 }

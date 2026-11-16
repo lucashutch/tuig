@@ -4,6 +4,7 @@ pub mod context_menu;
 pub mod details;
 pub mod diff;
 pub mod files;
+pub mod footer;
 pub mod graph_avatars;
 pub mod history;
 pub mod palette;

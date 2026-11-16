@@ -13,6 +13,7 @@ use crate::screens::composer::{ComposerAction, ComposerState};
 use crate::screens::details::{DetailsAction, DetailsState, HistoryLoaded};
 use crate::screens::diff::DiffState;
 use crate::screens::files::{ChangesAction, FilesState, Focus, Split};
+use crate::screens::footer::FooterState;
 use crate::screens::graph_avatars::{AvatarLoaded, AvatarState, PhotoLoaded};
 use crate::screens::history::HistoryState;
 use crate::screens::popup::{OverlayMsg, OverlayState};
@@ -110,6 +111,8 @@ pub enum Msg {
 
     PullRequestsDue,
     SpinnerTick,
+    /// The message in the footer has been up for its six seconds. Carries the generation of the timer.
+    NoticeExpired(u64),
     BackgroundFetch,
     ScrollFlush,
     ScrollSettled,
@@ -249,8 +252,9 @@ pub struct Shell {
     pub refresh: RefreshState,
     pub pr: PullRequestsState,
     pub avatars: AvatarState,
-    /// The last error, for the footer once it is ported.
+    /// The message for the footer row. It clears after six seconds. See `screens/footer.rs`.
     pub notice: Option<String>,
+    pub(crate) footer: FooterState,
     pub(crate) dirty: Dirty,
     pub(crate) widgets: Widgets,
     pub(crate) inbox: Rc<Inbox>,
@@ -296,6 +300,7 @@ impl Shell {
             pr: PullRequestsState::new(services.pull_requests.clone()),
             avatars: AvatarState::new(services.avatars.clone(), services.avatars_enabled),
             notice: None,
+            footer: FooterState::default(),
             dirty: Dirty::all(),
             widgets,
             inbox: inbox.clone(),
@@ -447,6 +452,7 @@ impl Shell {
             Msg::AuthorPhoto(loaded) => self.author_photo_loaded(app, loaded),
             Msg::PullRequestsDue => self.pull_requests_due(app),
             Msg::SpinnerTick => self.spinner_tick(),
+            Msg::NoticeExpired(generation) => self.notice_expired(generation),
             Msg::BackgroundFetch => self.background_fetch(app),
             Msg::ScrollFlush => self.flush_history_scroll(),
             Msg::ScrollSettled => self.history_settled(),

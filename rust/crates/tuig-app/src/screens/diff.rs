@@ -9,6 +9,7 @@
 //! Mutations run in their own task slot, so a selection change never cancels them. After a mutation the shell
 //! refreshes the snapshot and reloads the diff.
 
+use crate::screens::footer::NoticeTone;
 use crate::selected_file::{FileSource, SelectedFile};
 use crate::shell::{Dirty, GitResult, Inbox, Msg, PANE_TOP, Shell};
 use opentui::prelude::*;
@@ -231,7 +232,7 @@ impl Shell {
             Err(error) => {
                 self.diff.document = None;
                 self.diff.message = "Failed to load diff.".to_owned();
-                self.notice = Some(error.to_string());
+                self.notify_error(error.to_string());
             }
         }
     }
@@ -486,7 +487,7 @@ impl Shell {
             return;
         }
         self.diff.mutation = Some(label.to_owned());
-        self.notice = Some(label.to_owned());
+        self.notify_tone(NoticeTone::Busy, label);
         self.spawn(app, |tasks| &mut tasks.mutation, future, Msg::Mutation);
     }
 
@@ -499,7 +500,7 @@ impl Shell {
             Err(GitError::Aborted(_)) => {
                 self.notice = Some(format!("Cancelled {}", label.to_lowercase()));
             }
-            Err(error) => self.notice = Some(error.to_string()),
+            Err(error) => self.notify_error(error.to_string()),
         }
         self.request_refresh(app, false);
         if self.diff.working() {

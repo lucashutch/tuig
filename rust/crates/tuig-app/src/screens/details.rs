@@ -21,6 +21,7 @@
 
 use crate::screens::composer::ComposerAction;
 use crate::screens::files::Contents;
+use crate::screens::footer::NoticeTone;
 use crate::shell::{Dirty, GitResult, Inbox, Msg, PANE_TOP, Shell};
 use opentui::native::{Image, ImageFit};
 use opentui::prelude::*;
@@ -544,6 +545,7 @@ impl Shell {
             return;
         }
         self.files.contents = Contents::Commit;
+        self.notice = Some("Commit selected · click a changed file for its diff".to_owned());
         self.dirty |= Dirty::DETAILS | Dirty::FILES;
     }
 
@@ -592,7 +594,10 @@ impl Shell {
     #[allow(dead_code)] // Called from the graph menu and the files pane once those are ported.
     /// Ports `showFile`. `start` is the commit to start from, or HEAD.
     pub fn show_file_history(&mut self, app: &App, file: ChangedFile, start: Option<String>) {
-        self.notice = Some(format!("Loading history for {}…", file.path));
+        self.notify_tone(
+            NoticeTone::Busy,
+            format!("Loading history for {}…", file.path),
+        );
         let repo = self.repo.clone();
         self.spawn(
             app,
@@ -618,7 +623,10 @@ impl Shell {
         line: usize,
         start: Option<String>,
     ) {
-        self.notice = Some(format!("Loading history for {}:{line}…", file.path));
+        self.notify_tone(
+            NoticeTone::Busy,
+            format!("Loading history for {}:{line}…", file.path),
+        );
         let repo = self.repo.clone();
         self.spawn(
             app,
@@ -648,22 +656,24 @@ impl Shell {
     }
 
     pub(crate) fn blame_loaded(&mut self, result: GitResult<LineBlame>) {
-        self.notice = Some(match result {
-            Ok(blame) => format!(
-                "{} · {} · {}",
-                short_sha(&blame.commit.sha),
-                blame.commit.author,
-                blame.commit.subject
-            ),
-            Err(error) => error.to_string(),
-        });
+        match result {
+            Ok(blame) => {
+                self.notice = Some(format!(
+                    "{} · {} · {}",
+                    short_sha(&blame.commit.sha),
+                    blame.commit.author,
+                    blame.commit.subject
+                ));
+            }
+            Err(error) => self.notify_error(error.to_string()),
+        }
     }
 
     pub(crate) fn file_history_loaded(&mut self, loaded: HistoryLoaded) {
         let commits = match loaded.result {
             Ok(commits) => commits,
             Err(error) => {
-                self.notice = Some(error.to_string());
+                self.notify_error(error.to_string());
                 return;
             }
         };

@@ -19,6 +19,7 @@
 //! - TS also leaves the composer when a repository tab closes (`runtime-tabs.ts`). There are no tabs yet.
 //! - An Escape that cancels a running mutation (`cancelMutation`) is not ported.
 
+use crate::screens::footer::NoticeTone;
 use crate::shell::{Dirty, Inbox, Msg, Shell};
 use crate::sync::place;
 use opentui::prelude::*;
@@ -387,13 +388,13 @@ impl Shell {
                 None => repo.commit(&message).await,
             }
         });
-        self.notice = Some(
+        self.notify_tone(
+            NoticeTone::Busy,
             if saves {
                 "Saving message…"
             } else {
                 "Committing…"
-            }
-            .to_owned(),
+            },
         );
         self.dirty |= Dirty::COMPOSER;
     }

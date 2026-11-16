@@ -120,7 +120,7 @@ impl Shell {
             Ok(Some(paths)) => paths,
             Ok(None) => return self.poll_every(app, FALLBACK_REFRESH_INTERVAL),
             Err(error) => {
-                self.notice = Some(error.to_string());
+                self.notify_error(error.to_string());
                 return self.poll_every(app, FALLBACK_REFRESH_INTERVAL);
             }
         };
@@ -137,7 +137,7 @@ impl Shell {
                 self.poll_every(app, WATCHED_REFRESH_INTERVAL);
             }
             Err(error) => {
-                self.notice = Some(error.to_string());
+                self.notify_error(error.to_string());
                 self.poll_every(app, FALLBACK_REFRESH_INTERVAL);
             }
         }
@@ -186,7 +186,7 @@ impl Shell {
             WatchSignal::Changed { at } => self.watched_change(app, at),
             WatchSignal::Failed(error) => {
                 self.refresh.watcher = None;
-                self.notice = Some(error);
+                self.notify_error(error);
                 self.poll_every(app, FALLBACK_REFRESH_INTERVAL);
             }
         }
