@@ -141,6 +141,13 @@ impl Component for Footer {
         for (left, pane) in [self.sidebar, self.details].into_iter().flatten() {
             painter.fill(left as i32, 0, pane, 1, to_color(self.theme.panel));
         }
+        // The hints start at column 1. TS leaves column 0 to the sidebar, which paints it with the text color.
+        if self
+            .sidebar
+            .is_some_and(|(left, width)| left == 0 && width > 0)
+        {
+            painter.cell(0, 0, ' ', Style::new().fg(to_color(self.theme.text)));
+        }
         let total = i64::from(width);
         // `notify` clips the message to half the row, but at least 20 columns.
         let limit = (total / 2).max(20);

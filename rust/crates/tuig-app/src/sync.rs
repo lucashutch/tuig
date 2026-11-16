@@ -1,5 +1,5 @@
-//! Pushes shell state into widgets, once per drained inbox. Panes that are not ported yet are empty views placed
-//! where `runtime-layout.ts` puts them, so the history pane has the same size and position as in the TS app.
+//! Pushes shell state into widgets, once per drained inbox. Widgets are placed where `runtime-layout.ts` puts
+//! them.
 
 use crate::screens::composer::ComposerWidgets;
 use crate::screens::details::DetailsView;

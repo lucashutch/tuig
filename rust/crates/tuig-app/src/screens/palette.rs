@@ -2,9 +2,8 @@
 //! `tuig_ui_model::command_palette`.
 //!
 //! The command list is rebuilt on every repaint, so availability follows the repository. A command is a
-//! [`PaletteCommand`] with an id. [`Shell::run_palette_command`] maps the id to its action. Commands whose feature
-//! is not ported yet show a notice when run: themes, opening a pull request, the branch filter and the layout
-//! preferences. Replace the notice with the real action when the feature arrives.
+//! [`PaletteCommand`] with an id. [`Shell::run_palette_command`] maps the id to its action. The theme commands are
+//! not ported yet and show a notice when run.
 
 use crate::screens::files::Focus;
 use crate::shell::{Dirty, Shell};

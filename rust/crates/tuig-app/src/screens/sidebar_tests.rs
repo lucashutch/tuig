@@ -226,3 +226,43 @@ fn a_pull_request_row_opens_on_a_second_click() {
     h.wait("the browser", |_| !opener.0.lock().unwrap().is_empty());
     assert_eq!(opener.0.lock().unwrap()[0], "https://example.com/pull/7");
 }
+
+#[test]
+fn a_worktree_row_opens_its_repository_in_a_tab_on_a_second_click() {
+    let repo = repository(3);
+    let linked = TempDir::new("linked");
+    let path = linked.0.join("wt");
+    git(
+        &repo.0,
+        &[
+            "worktree",
+            "add",
+            "-q",
+            "-b",
+            "side",
+            path.to_str().unwrap(),
+        ],
+    );
+    let h = Harness::start(repo, Services::default());
+    h.wait("the worktrees", |shell| {
+        shell
+            .snapshot
+            .as_ref()
+            .is_some_and(|snapshot| snapshot.worktrees.len() == 2)
+    });
+    h.app.render();
+    let row = h.read(|shell| {
+        let index = shell
+            .snapshot
+            .as_ref()
+            .unwrap()
+            .worktrees
+            .iter()
+            .position(|worktree| std::path::Path::new(&worktree.path).ends_with("wt"));
+        3 + shell.sidebar_rects()[Section::Worktrees].content_top as u16 + 2 * index.unwrap() as u16
+    });
+    h.app.click(5, row);
+    assert_eq!(h.read(|shell| shell.header.tabs.len()), 1);
+    h.app.click(5, row);
+    h.wait("the new tab", |shell| shell.header.tabs.len() == 2);
+}

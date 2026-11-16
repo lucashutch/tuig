@@ -280,7 +280,7 @@ impl Shell {
                 self.flush_layout();
             }
             SidebarMsg::OpenFailed(number) => {
-                self.notify(format!("Could not open #{number} in a browser"))
+                self.notify_error(format!("Could not open #{number} in a browser"))
             }
         }
     }

@@ -14,8 +14,10 @@
 //! - Directory suggestions are read on the UI thread.
 //! - The terminal title is not set.
 
+use crate::screens::footer::NoticeTone;
 use crate::services::PullRequestServiceFor;
 use crate::shell::{Dirty, GitResult, Inbox, Msg, Shell};
+
 use opentui::prelude::*;
 use opentui::widget::{Input, View};
 use std::collections::BTreeMap;
@@ -375,12 +377,12 @@ impl Shell {
     /// starts meanwhile.
     fn start_undo(&mut self, app: &App) {
         if let Some(running) = &self.diff.mutation {
-            self.notify(format!("{running} is still running"));
+            self.notify_error(format!("{running} is still running"));
             return;
         }
         let label = "Checking undo…";
         self.diff.mutation = Some(label.to_owned());
-        self.notify(label);
+        self.notify_tone(NoticeTone::Busy, label);
         let repo = self.repo.clone();
         let inbox = self.inbox.clone();
         app.spawn(
@@ -393,7 +395,7 @@ impl Shell {
         self.diff.mutation = None;
         let preview = match result {
             Ok(preview) => preview,
-            Err(error) => return self.notify(error.to_string()),
+            Err(error) => return self.notify_error(error.to_string()),
         };
         self.notice = None;
         let repo = self.repo.clone();
@@ -564,7 +566,7 @@ impl Shell {
                     }
                     _ => error.to_string(),
                 };
-                return self.notify(text);
+                return self.notify_error(text);
             }
         };
         let root = repository.root().to_owned();
