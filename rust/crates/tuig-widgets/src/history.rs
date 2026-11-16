@@ -14,16 +14,17 @@
 //!
 //! - Branch hints.
 //! - The `A ` comparison marker.
-//! - The PR column and its spinner.
+//! - The PR number is not a terminal hyperlink: `Painter` has no hyperlink support.
 //! - Divider hover and drag colors.
-//! - Avatars.
 //! - Click hits on the SHA and on labels, and the scrollbar drag.
 
 use crate::decorations::{RefIndex, summarise_decorations};
+use crate::pull_requests::{PullRequestCommitIndex, SPINNER_FRAMES, pull_request_history_cell};
 use opentui::prelude::*;
 use std::cell::Cell;
 use std::rc::Rc;
 use std::time::{Duration, Instant};
+use tuig_git::pull_request_types::{CheckRollup, PullRequest};
 use tuig_git::types::{BranchRef, Commit};
 use tuig_ui_model::color::Rgba;
 use tuig_ui_model::graph::{GraphCell, GraphRow};
@@ -51,6 +52,8 @@ pub struct HistoryRow {
     pub label: String,
     /// Refs on the commit beyond the primary one, shown as `+N`.
     pub extra: usize,
+    /// Open pull requests that match the commit, newest first. Empty without pull request data.
+    pub pull_requests: Vec<PullRequest>,
 }
 
 /// The part of the history the widget paints, built by [`history_window`].
@@ -66,6 +69,8 @@ pub struct HistoryWindow {
     pub commits_complete: bool,
     /// Graph lanes across all loaded commits, so the column layout does not change while scrolling.
     pub graph_columns: usize,
+    /// Whether pull request data exists, so the PR column can show.
+    pub pr_column: bool,
     /// Commit rows from the first commit on screen, at least as many as the body has lines.
     pub rows: Vec<HistoryRow>,
 }
@@ -74,6 +79,22 @@ impl HistoryWindow {
     /// Display rows: the working row, if any, then one per commit.
     pub fn total(&self) -> usize {
         self.commits + usize::from(self.working_files > 0)
+    }
+
+    /// Whether a row in the first `lines` body lines shows running checks, so the spinner must animate.
+    pub fn running_checks_visible(&self, lines: usize) -> bool {
+        if !self.pr_column {
+            return false;
+        }
+        let working_line = usize::from(self.working_files > 0 && self.start == 0);
+        self.rows
+            .iter()
+            .take(lines.saturating_sub(working_line))
+            .any(|row| {
+                row.pull_requests
+                    .first()
+                    .is_some_and(|pr| pr.checks == CheckRollup::Running)
+            })
     }
 }
 
@@ -85,6 +106,8 @@ pub struct HistorySource<'a> {
     pub colors: &'a [String],
     pub working_files: usize,
     pub commits_complete: bool,
+    /// Pull request matcher. `None` hides the PR column.
+    pub pull_requests: Option<&'a PullRequestCommitIndex>,
 }
 
 /// Builds the rows for `lines` body lines from display row `start`. The graph rows come from `index`, which keeps
@@ -109,6 +132,10 @@ pub fn history_window(
                 commit: commit.clone(),
                 label,
                 extra,
+                pull_requests: source
+                    .pull_requests
+                    .map(|index| index.for_commit(commit).into_iter().cloned().collect())
+                    .unwrap_or_default(),
             }
         })
         .collect();
@@ -118,6 +145,7 @@ pub fn history_window(
         commits: source.commits.len(),
         commits_complete: source.commits_complete,
         graph_columns: index.columns,
+        pr_column: source.pull_requests.is_some(),
         rows,
     }
 }
@@ -128,6 +156,25 @@ pub struct Span {
     pub text: String,
     pub fg: Rgba,
     pub bg: Option<Rgba>,
+}
+
+/// One commit graph dot that an avatar image can cover. See [`HistoryList::avatar_slots`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AvatarSlot {
+    /// Body line. The shell keeps one image widget per line.
+    pub line: usize,
+    pub sha: String,
+    pub author_email: String,
+    /// The lane color, for the avatar's ring.
+    pub color: Rgba,
+    /// The row background, for the avatar's corners.
+    pub background: Rgba,
+    pub continues_above: bool,
+    pub continues_below: bool,
+    /// Left cell of the three-cell image, relative to the widget.
+    pub left: i64,
+    /// Row of the image, relative to the widget. Row 0 is the header.
+    pub top: i64,
 }
 
 /// Mouse input for the shell. Rows are display rows and columns are cells from the widget's left edge.
@@ -160,6 +207,8 @@ pub struct HistoryList {
     graph_scroll: usize,
     focused: bool,
     hovered_line: Option<usize>,
+    /// Index into [`SPINNER_FRAMES`] for running checks.
+    spinner: usize,
     last_press: Option<(usize, Instant)>,
     /// The width of the last paint, for the label hit test.
     width: Cell<u32>,
@@ -180,6 +229,7 @@ impl HistoryList {
             graph_scroll: 0,
             focused: false,
             hovered_line: None,
+            spinner: 0,
             last_press: None,
             width: Cell::new(0),
             on_event: None,
@@ -210,6 +260,11 @@ impl HistoryList {
 
     pub fn set_columns(&mut self, columns: HistoryColumns) {
         self.columns = columns;
+    }
+
+    /// The spinner frame for running checks, as an index into [`SPINNER_FRAMES`].
+    pub fn set_spinner_frame(&mut self, frame: usize) {
+        self.spinner = frame % SPINNER_FRAMES.len();
     }
 
     pub fn set_focused(&mut self, focused: bool) {
@@ -251,10 +306,86 @@ impl HistoryList {
         else {
             return false;
         };
-        let columns = visible_history_columns(self.columns, false);
+        let columns = visible_history_columns(self.columns, data.pr_column);
         let geometry =
             history_column_layout(i64::from(self.width.get()), data.graph_columns, columns);
         !entry.label.is_empty() && column >= 0 && i64::from(column) < geometry.branch_width
+    }
+
+    /// A left press at widget line `line` and column `column`. Counts double clicks and emits
+    /// [`HistoryEvent::Click`]. Avatar images lie over the list and pass their presses here. Returns false when
+    /// no row is under the line.
+    pub fn press(&mut self, cx: &mut Cx<'_>, line: i32, column: i32) -> bool {
+        let Some(row) = self.row_at_line(line) else {
+            return false;
+        };
+        let now = cx.app().now();
+        let doubled = self
+            .last_press
+            .is_some_and(|(last, at)| last == row && now.duration_since(at) < DOUBLE_CLICK);
+        self.last_press = if doubled { None } else { Some((row, now)) };
+        self.emit(
+            cx,
+            HistoryEvent::Click {
+                row,
+                column: u16::try_from(column.max(0)).unwrap_or(u16::MAX),
+                clicks: if doubled { 2 } else { 1 },
+            },
+        );
+        true
+    }
+
+    /// The commit graph dots that an avatar can cover, for a widget of `width` by `height` cells. Slots are body
+    /// lines, so an image keeps its terminal row while commits scroll under it. Rows whose lane is scrolled out of
+    /// view have no slot. The background ignores hover, which the shell does not see.
+    pub fn avatar_slots(&self, width: u32, height: u32) -> Vec<AvatarSlot> {
+        let theme = &self.theme;
+        let data = &*self.window;
+        let columns = visible_history_columns(self.columns, data.pr_column);
+        let geometry = history_column_layout(i64::from(width), data.graph_columns, columns);
+        let visible = geometry.graph_columns;
+        let scroll =
+            clamp_graph_scroll(self.graph_scroll as i64, data.graph_columns, visible) as i64;
+        let lines = (height as usize).saturating_sub(1).max(1);
+        let has_working = data.working_files > 0;
+        let first_row = data.start.max(usize::from(has_working && data.start == 0));
+        let leading = usize::from(has_working);
+        let window_from = first_row.saturating_sub(leading);
+        let backgrounds = [theme.bg, theme.panel_raised];
+        let first_line = usize::from(has_working && data.start == 0);
+        let mut slots = Vec::new();
+        for (line, row_index) in (first_line..lines).zip(first_row..data.total()) {
+            let commit_index = row_index - leading;
+            let Some(entry) = data.rows.get(commit_index - window_from) else {
+                break;
+            };
+            let row = &entry.graph;
+            let lane = row.lane as i64;
+            if lane >= scroll && lane < scroll + visible as i64 {
+                let selected = self.selected == Some(row_index);
+                slots.push(AvatarSlot {
+                    line,
+                    sha: entry.commit.sha.clone(),
+                    author_email: entry.commit.author_email.clone(),
+                    color: row
+                        .color_at(row.lane)
+                        .and_then(Rgba::parse)
+                        .unwrap_or(theme.accent),
+                    background: interaction_background(
+                        theme,
+                        backgrounds[commit_index % 2],
+                        false,
+                        selected,
+                        false,
+                    ),
+                    continues_above: row.continues_above,
+                    continues_below: !entry.commit.parents.is_empty(),
+                    left: geometry.branch_width + 2 + (lane - scroll) * 2 - 1,
+                    top: line as i64 + 1,
+                });
+            }
+        }
+        slots
     }
 
     /// The rows the widget draws at `width` by `height` cells, one span list per line.
@@ -269,7 +400,7 @@ impl HistoryList {
         let total = data.total();
         let start = data.start;
         let graph_columns = data.graph_columns;
-        let columns = visible_history_columns(self.columns, false);
+        let columns = visible_history_columns(self.columns, data.pr_column);
         let geometry = history_column_layout(width, graph_columns, columns);
         let label_width = geometry.branch_width;
         let visible_graph = geometry.graph_columns;
@@ -328,6 +459,14 @@ impl HistoryList {
             line.push(separator(" │ "));
             line.push(span(
                 fit_columns("Committer", geometry.committer_width, false),
+                header,
+                None,
+            ));
+        }
+        if columns.show_pr == Some(true) {
+            line.push(separator(" │ "));
+            line.push(span(
+                fit_columns("PR", geometry.pr_width, false),
                 header,
                 None,
             ));
@@ -411,6 +550,13 @@ impl HistoryList {
                 line.push(span(
                     " ".repeat(geometry.committer_width.max(0) as usize),
                     theme.muted,
+                    bg,
+                ));
+            }
+            if columns.show_pr == Some(true) {
+                line.push(span(
+                    format!("   {}", " ".repeat(geometry.pr_width.max(0) as usize)),
+                    theme.border,
                     bg,
                 ));
             }
@@ -503,6 +649,20 @@ impl HistoryList {
                     bg,
                 ));
             }
+            if columns.show_pr == Some(true) {
+                line.push(span("   ".to_string(), theme.border, bg));
+                let matches: Vec<&PullRequest> = entry.pull_requests.iter().collect();
+                let frame = SPINNER_FRAMES[self.spinner];
+                let cell = pull_request_history_cell(
+                    &matches,
+                    geometry.pr_width.max(0) as usize,
+                    theme,
+                    frame,
+                );
+                for part in cell {
+                    line.push(span(part.text, part.color, bg));
+                }
+            }
             if columns.show_sha {
                 line.push(span("   ".to_string(), theme.border, bg));
                 line.push(span(commit.sha.chars().take(8).collect(), theme.accent, bg));
@@ -583,21 +743,7 @@ impl Component for HistoryList {
                     y: event.y,
                 }
             }
-            MouseEventKind::Down(MouseButton::Left) => {
-                let Some(row) = self.row_at_line(local.1) else {
-                    return false;
-                };
-                let now = cx.app().now();
-                let doubled = self
-                    .last_press
-                    .is_some_and(|(last, at)| last == row && now.duration_since(at) < DOUBLE_CLICK);
-                self.last_press = if doubled { None } else { Some((row, now)) };
-                HistoryEvent::Click {
-                    row,
-                    column: u16::try_from(local.0.max(0)).unwrap_or(u16::MAX),
-                    clicks: if doubled { 2 } else { 1 },
-                }
-            }
+            MouseEventKind::Down(MouseButton::Left) => return self.press(cx, local.1, local.0),
             _ => return false,
         };
         self.emit(cx, event);

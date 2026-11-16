@@ -306,3 +306,29 @@ rust/crates/
 - Graph avatars use one `ImageRenderable` per visible row in TS. Check that OpenTUI Rust `Image` can be placed over a `Custom` painter row and replaced without flicker in Kitty-protocol terminals.
 - Background tabs: TS watches only the active tab and reads a fresh snapshot on switch. Keep that, or keep per-tab snapshots in memory?
 - Text width for painters: `Painter::text_width` exists. Check whether it agrees with `Bun.stringWidth` before choosing a separate crate for item 3's open text-width task.
+
+## Pull requests, avatars and auto-refresh (item 7)
+
+Where each TS module went:
+
+| TS source | Rust |
+| --- | --- |
+| `src/ui/pull-requests.ts` | `tuig-widgets/src/pull_requests.rs`: icons, grouping, branch matching, the history PR cell |
+| `src/ui/runtime-pull-requests.ts` | `tuig-app/src/screens/pull_requests.rs`: load, refresh timing, spinner |
+| `src/ui/avatars.ts` | `tuig-app/src/avatars.rs`: URLs, cache, decode, circle mask |
+| `updateGraphAvatars`, `showCommitMeta` photo | `tuig-app/src/screens/graph_avatars.rs` |
+| `src/ui/auto-refresh.ts`, `remoteFetchTimer` | `tuig-app/src/refresh.rs` |
+| `RuntimePullRequestsOptions.factory` and friends | `tuig-app/src/services.rs` |
+
+- `Services` holds the parts that reach outside the repository. `Shell::start_with` takes it. A default `Services` turns
+  pull requests, avatars and the background fetch off, so tests never touch the network. Tests that need them pass
+  fakes: a `PullRequestService`, or an `AvatarFetcher` for avatars.
+- The PR list loads into its own task slot. The history window carries the matched pull requests for each row, and
+  `HistoryList` draws the PR column and takes the spinner frame as a plain index. The spinner timer runs only while a
+  visible row shows running checks.
+- Graph avatars are `ImageView` widgets on the root, one per body line, placed over the history list. They pass
+  clicks and wheel events to the list. The shell hides them while a diff covers the history pane and during a wheel
+  gesture. Decoding and the circle mask run in the avatar task, and the UI thread only wraps the pixels in an image.
+- The background fetch runs through the mutation slot, so a staging action and a fetch never overlap. It skips while
+  a snapshot reads, and while `GitRepository::auth_blocked` is set. That flag clears when a fetch, pull or push
+  succeeds, so a credential failure pauses fetching until then.

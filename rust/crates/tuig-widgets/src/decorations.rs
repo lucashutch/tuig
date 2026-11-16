@@ -91,7 +91,8 @@ impl RefIndex {
         index
     }
 
-    fn get<'r>(&self, refs: &'r [BranchRef], alias: &str) -> Option<&'r BranchRef> {
+    /// The ref a decoration alias names. The first ref with that alias wins.
+    pub fn get<'r>(&self, refs: &'r [BranchRef], alias: &str) -> Option<&'r BranchRef> {
         self.aliases.get(alias).and_then(|&at| refs.get(at))
     }
 

@@ -13,9 +13,12 @@ use crate::screens::composer::{ComposerAction, ComposerState};
 use crate::screens::details::{DetailsAction, DetailsState, HistoryLoaded};
 use crate::screens::diff::DiffState;
 use crate::screens::files::{ChangesAction, FilesState, Focus, Split};
+use crate::screens::graph_avatars::{AvatarLoaded, AvatarState, PhotoLoaded};
 use crate::screens::history::HistoryState;
 use crate::screens::popup::{OverlayMsg, OverlayState};
+use crate::screens::pull_requests::PullRequestsState;
 use crate::selected_file::SelectedFile;
+use crate::services::Services;
 use crate::sync::Widgets;
 use crate::tasks::{ReqId, Slot, Tasks};
 use bitflags::bitflags;
@@ -26,6 +29,7 @@ use std::future::Future;
 use std::rc::{Rc, Weak};
 use std::sync::Arc;
 use tuig_git::process::GitError;
+use tuig_git::pull_request_types::PullRequestList;
 use tuig_git::repository::GitRepository;
 use tuig_git::types::{
     ChangedFile, CommitPage, LineBlame, RepositorySnapshot, RepositoryWatchPaths,
@@ -98,7 +102,15 @@ pub enum Msg {
     Blame(ReqId, GitResult<LineBlame>),
     Diff(ReqId, GitResult<DiffDocument>),
     Mutation(ReqId, GitResult<()>),
+    PullRequests(ReqId, PullRequestList),
+    /// A loaded avatar. It carries its own slot and claim token instead of a `ReqId`, because every graph row has
+    /// its own task.
+    GraphAvatar(AvatarLoaded),
+    AuthorPhoto(PhotoLoaded),
 
+    PullRequestsDue,
+    SpinnerTick,
+    BackgroundFetch,
     ScrollFlush,
     ScrollSettled,
     Poll,
@@ -119,6 +131,8 @@ bitflags! {
         const DIFF = 64;
         const OVERLAY = 128;
         const COMPOSER = 256;
+        /// Graph avatars need another look: a wheel gesture ended or the terminal reported its graphics support.
+        const AVATARS = 1024;
     }
 }
 
@@ -234,6 +248,8 @@ pub struct Shell {
     pub layout: LayoutState,
     pub tasks: Tasks,
     pub refresh: RefreshState,
+    pub pr: PullRequestsState,
+    pub avatars: AvatarState,
     /// The last error, for the footer once it is ported.
     pub notice: Option<String>,
     pub(crate) dirty: Dirty,
@@ -242,8 +258,20 @@ pub struct Shell {
 }
 
 impl Shell {
-    /// Builds the widgets, starts the first snapshot and the watcher, and wires input into the inbox.
+    /// Builds the widgets, starts the first snapshot and the watcher, and wires input into the inbox. The app uses
+    /// [`Shell::start_with`]. This form runs with no outside services, so tests never reach the network.
+    #[cfg(test)]
     pub fn start(app: &App, repo: Arc<dyn GitRepository>) -> Rc<RefCell<Shell>> {
+        Self::start_with(app, repo, Services::default())
+    }
+
+    /// Like [`Shell::start`], with the services that reach outside the repository: pull requests, avatars and the
+    /// background fetch.
+    pub fn start_with(
+        app: &App,
+        repo: Arc<dyn GitRepository>,
+        services: Services,
+    ) -> Rc<RefCell<Shell>> {
         let theme = one_dark_theme();
         let inbox = Rc::new(Inbox {
             queue: RefCell::new(VecDeque::new()),
@@ -267,6 +295,8 @@ impl Shell {
             layout: LayoutState::new(width, height),
             tasks: Tasks::default(),
             refresh: RefreshState::default(),
+            pr: PullRequestsState::new(services.pull_requests.clone()),
+            avatars: AvatarState::new(services.avatars.clone(), services.avatars_enabled),
             notice: None,
             dirty: Dirty::all(),
             widgets,
@@ -293,6 +323,10 @@ impl Shell {
             let mut shell = shell.borrow_mut();
             shell.start_snapshot(app);
             shell.start_watch_paths(app);
+            shell.start_pull_requests(app);
+            if let Some(interval) = services.fetch_interval {
+                shell.start_background_fetch(app, interval);
+            }
         }
         inbox.drain(app);
         shell
@@ -406,6 +440,16 @@ impl Shell {
                     self.mutation_done(app, result);
                 }
             }
+            Msg::PullRequests(id, list) => {
+                if self.tasks.pull_requests.finish(id) {
+                    self.pull_requests_loaded(app, list);
+                }
+            }
+            Msg::GraphAvatar(loaded) => self.graph_avatar_loaded(app, loaded),
+            Msg::AuthorPhoto(loaded) => self.author_photo_loaded(app, loaded),
+            Msg::PullRequestsDue => self.pull_requests_due(app),
+            Msg::SpinnerTick => self.spinner_tick(),
+            Msg::BackgroundFetch => self.background_fetch(app),
             Msg::ScrollFlush => self.flush_history_scroll(),
             Msg::ScrollSettled => self.history_settled(),
             Msg::Poll => {

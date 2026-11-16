@@ -116,7 +116,7 @@ pub(crate) fn place(widget: &impl Widget, left: i64, top: i64, width: i64, heigh
 }
 
 impl Shell {
-    pub fn sync(&mut self, _app: &App) {
+    pub fn sync(&mut self, app: &App) {
         if self.dirty.contains(Dirty::LAYOUT) {
             let panes = self.layout.panes;
             let top = i64::from(PANE_TOP);
@@ -182,8 +182,20 @@ impl Shell {
             .update(|list| list.set_focused(focused));
         self.sync_diff();
         if self.dirty.intersects(Dirty::OVERLAY | Dirty::LAYOUT) {
-            self.sync_overlay(_app);
+            self.sync_overlay(app);
         }
+        let spinner = self.pr.spinner_frame;
+        self.widgets
+            .history
+            .update(|list| list.set_spinner_frame(spinner));
+        if self
+            .dirty
+            .intersects(Dirty::HISTORY | Dirty::LAYOUT | Dirty::DIFF | Dirty::AVATARS)
+        {
+            self.sync_graph_avatars(app);
+        }
+        self.sync_author_photo(app);
+        self.sync_spinner(app);
         self.dirty = Dirty::empty();
     }
 }

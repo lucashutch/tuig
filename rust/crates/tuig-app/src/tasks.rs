@@ -66,6 +66,7 @@ pub struct Tasks {
     pub snapshot: Slot,
     pub page: Slot,
     pub watch_paths: Slot,
+    pub pull_requests: Slot,
     pub commit_files: Slot,
     pub file_history: Slot,
     pub blame: Slot,

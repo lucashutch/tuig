@@ -3,10 +3,12 @@
 //! Usage: `tuig [options] [path]` and `tuig update`. Argument parsing, the update command and the start-up
 //! repositories come from the `tuig-cli` crate.
 
+mod avatars;
 mod keys;
 mod refresh;
 mod screens;
 mod selected_file;
+mod services;
 mod shell;
 mod sync;
 mod tasks;
@@ -18,6 +20,7 @@ use tuig_cli::{
     parse_args, report_error, update_tuig, version_line,
 };
 use tuig_git::repository::{GitRepository, GitRepositoryService};
+use tuig_ui_model::preferences::{layout_preferences_path, load_layout_preferences};
 
 /// Runs `tuig update` on a plain tokio runtime, because it must not start the terminal UI.
 fn update() -> Result<(), CliError> {
@@ -54,7 +57,11 @@ fn run(request: &StartRequest) -> Result<(), CliError> {
     };
     let repo = active_repository(start.repositories, start.active_repository.as_deref())
         .expect("a successful start opens at least one repository");
-    let _shell = shell::Shell::start(&app, Arc::new(repo));
+    let services = services::Services::system(
+        repo.root(),
+        &load_layout_preferences(&layout_preferences_path()),
+    );
+    let _shell = shell::Shell::start_with(&app, Arc::new(repo), services);
     app.run()
         .map_err(|error| CliError::Other(error.to_string()))
 }

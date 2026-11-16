@@ -2,10 +2,12 @@
 
 use super::*;
 use crate::decorations::{RefIndex, resolve_head_sha};
+use crate::pull_requests::pull_request_commit_index;
 use opentui::testing::TestApp;
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
+use tuig_git::pull_request_types::PullRequestState;
 use tuig_ui_model::theme::one_dark_theme;
 
 /// `tools/parity/golden/initial-load/loaded.snap`, recorded from the TypeScript app on the `demo` fixture.
@@ -81,6 +83,15 @@ struct HistoryData {
 
 /// The window the shell would build for `lines` body lines from display row `start`.
 fn window(data: &HistoryData, start: usize, lines: usize) -> Rc<HistoryWindow> {
+    window_with(data, start, lines, None)
+}
+
+fn window_with(
+    data: &HistoryData,
+    start: usize,
+    lines: usize,
+    pull_requests: Option<&PullRequestCommitIndex>,
+) -> Rc<HistoryWindow> {
     let theme = one_dark_theme();
     let colors: Vec<String> = theme.graph.iter().map(|color| color.to_hex()).collect();
     let head = resolve_head_sha(&data.branches, &data.commits);
@@ -97,6 +108,7 @@ fn window(data: &HistoryData, start: usize, lines: usize) -> Rc<HistoryWindow> {
         colors: &colors,
         working_files: data.working_files,
         commits_complete: data.commits_complete,
+        pull_requests,
     };
     Rc::new(history_window(&mut index, &source, start, lines))
 }
@@ -286,4 +298,116 @@ fn columns_after_a_wide_subject_stay_aligned() {
     };
     // Line 1 holds the wide subject and line 2 a plain one.
     assert_eq!(committer_x(1), committer_x(2), "{}", capture.text());
+}
+
+fn pull_request(number: u64, branch: &str, checks: CheckRollup) -> PullRequest {
+    PullRequest {
+        number,
+        title: String::new(),
+        url: String::new(),
+        state: PullRequestState::Open,
+        checks,
+        author: String::new(),
+        head_branch: branch.to_string(),
+        head_sha: None,
+        from_fork: false,
+        mine: false,
+        review_requested: false,
+        updated_at: String::new(),
+    }
+}
+
+#[test]
+fn the_pr_column_shows_matches_beside_their_branch_commits_and_keeps_columns_aligned() {
+    let data = demo();
+    let list = [
+        pull_request(42, "feature/login", CheckRollup::Failed),
+        pull_request(7, "fix/typo", CheckRollup::Running),
+    ];
+    let index = pull_request_commit_index(&list, &data.branches);
+    let mut painted = HistoryList::new(one_dark_theme());
+    painted.set_window(window_with(&data, 0, usize::from(HEIGHT) - 1, Some(&index)));
+    painted.set_spinner_frame(3);
+    let (app, _widget) = paint(painted);
+    let screen = app.render();
+    let text = screen.text();
+    let lines: Vec<&str> = text.lines().collect();
+    assert!(lines[0].contains("│ PR "), "{text}");
+    let login = lines.iter().find(|l| l.contains("feat: normal")).unwrap();
+    assert!(login.contains("#42 ✗"), "{login}");
+    let typo = lines.iter().find(|l| l.contains("docs: link")).unwrap();
+    assert!(typo.contains("#7 ⠸"), "the spinner frame is drawn: {typo}");
+    // The SHA column starts at the same cell with or without a pull request.
+    let sha_at = |commit: &Commit| {
+        let line = lines.iter().find(|l| l.contains(&commit.sha[..8])).unwrap();
+        let byte = line.find(&commit.sha[..8]).unwrap();
+        line[..byte].chars().count()
+    };
+    let by_subject = |subject: &str| {
+        data.commits
+            .iter()
+            .find(|c| c.subject.contains(subject))
+            .unwrap()
+    };
+    assert_eq!(
+        sha_at(by_subject("normalise")),
+        sha_at(by_subject("add login"))
+    );
+}
+
+#[test]
+fn running_checks_count_only_on_visible_rows() {
+    let data = demo();
+    let list = [pull_request(7, "feature/login", CheckRollup::Running)];
+    let index = pull_request_commit_index(&list, &data.branches);
+    // The feature/login commit is commit 6: display row 7 with the working row.
+    let near = window_with(&data, 0, 9, Some(&index));
+    assert!(near.running_checks_visible(9));
+    assert!(!near.running_checks_visible(6), "row 7 is below six lines");
+    assert!(
+        !window(&data, 0, 9).running_checks_visible(9),
+        "no data, no spinner"
+    );
+}
+
+#[test]
+fn avatar_slots_follow_the_graph_dot_and_skip_hidden_lanes() {
+    let data = demo();
+    let mut list = HistoryList::new(one_dark_theme());
+    list.set_window(window(&data, 0, 9));
+    list.set_selected(Some(1));
+    let slots = list.avatar_slots(u32::from(WIDTH), 10);
+    // Line 0 is the working row. Commit rows follow, one slot per line.
+    assert_eq!(slots[0].line, 1);
+    assert_eq!(
+        slots[0].top, 2,
+        "row 0 is the header and line 0 is the working row"
+    );
+    assert_eq!(slots[0].sha, data.commits[0].sha);
+    // The dot sits two cells after the branch column. The image is three cells wide and centred on it.
+    let columns = visible_history_columns(list.columns, false);
+    let geometry = history_column_layout(i64::from(WIDTH), list.window().graph_columns, columns);
+    assert_eq!(slots[0].left, geometry.branch_width + 1);
+    assert!(
+        slots[0].continues_above,
+        "HEAD continues up to the working row"
+    );
+    assert!(slots[0].continues_below);
+    assert!(slots.iter().all(|slot| slot.top == slot.line as i64 + 1));
+    let selected = slots
+        .iter()
+        .find(|slot| slot.sha == data.commits[0].sha)
+        .unwrap();
+    let other = slots
+        .iter()
+        .find(|slot| slot.sha == data.commits[1].sha)
+        .unwrap();
+    assert_ne!(
+        selected.background, other.background,
+        "the selected row has its own background"
+    );
+
+    list.set_graph_scroll(1);
+    let scrolled = list.avatar_slots(u32::from(WIDTH), 10);
+    assert!(scrolled.iter().all(|slot| slot.left >= 0));
 }

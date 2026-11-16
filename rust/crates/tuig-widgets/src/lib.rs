@@ -10,3 +10,4 @@ pub mod files;
 pub mod grammars;
 pub mod history;
 pub mod popup;
+pub mod pull_requests;

@@ -115,6 +115,7 @@ impl Shell {
             colors: &history.colors,
             working_files: snapshot.files.len(),
             commits_complete: history.complete,
+            pull_requests: self.pr.index.as_ref(),
         };
         Some(history_window(
             &mut history.index,
@@ -181,6 +182,8 @@ impl Shell {
             self.history.focus_sha = snapshot.head_sha.clone().or(head);
         }
         self.snapshot = Some(snapshot);
+        // The branches may have moved under the pull requests.
+        self.rebuild_pull_request_index();
         self.dirty |= Dirty::HISTORY;
     }
 
@@ -339,12 +342,13 @@ impl Shell {
     pub(crate) fn history_settled(&mut self) {
         self.history.settle_timer = None;
         self.history.scrolling = false;
+        self.dirty |= Dirty::AVATARS;
     }
 
     /// Ports `scrollGraphColumns`. Returns false when the graph fits, so the key can do something else.
     pub(crate) fn scroll_graph(&mut self, delta: i64) -> bool {
         let width = self.layout.panes.history_content_width;
-        let columns = visible_history_columns(self.history.columns, false);
+        let columns = visible_history_columns(self.history.columns, self.pr_column_available());
         let lanes = self.history.index.columns;
         let visible = history_column_layout(width, lanes, columns).graph_columns;
         if lanes <= visible {

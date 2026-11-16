@@ -44,6 +44,8 @@ pub struct RefreshState {
     pub pending_change: Option<Instant>,
     /// A refresh asked for while one was running.
     pub pending_refresh: bool,
+    /// The periodic background fetch. `remoteFetchTimer`.
+    pub fetch_timer: Option<TimerId>,
 }
 
 /// Turns watcher messages from the forwarder into [`Msg::Watch`].
@@ -139,6 +141,28 @@ impl Shell {
                 self.poll_every(app, FALLBACK_REFRESH_INTERVAL);
             }
         }
+    }
+
+    /// Starts the periodic `git fetch --prune`. `start` in `src/ui/runtime.ts`.
+    pub(crate) fn start_background_fetch(&mut self, app: &App, interval: Duration) {
+        let inbox = self.inbox.clone();
+        self.refresh.fetch_timer = Some(app.set_interval(interval, move |cx| {
+            inbox.post(cx.app(), Msg::BackgroundFetch)
+        }));
+    }
+
+    /// Fetches in the background unless the user is busy or a credential failure paused it. `auth_blocked` clears
+    /// itself when a fetch, pull or push succeeds, so fetching resumes then. The TS timer also skips while a
+    /// commit message editor has focus, which waits for the composer. The fetch does not re-list pull requests: it
+    /// runs every minute by default, which would override their refresh timing.
+    pub(crate) fn background_fetch(&mut self, app: &App) {
+        if self.diff.mutation.is_some() || self.tasks.snapshot.busy() || self.repo.auth_blocked() {
+            return;
+        }
+        let repo = self.repo.clone();
+        self.perform(app, "Fetching remote changes…", async move {
+            repo.fetch(None, None).await
+        });
     }
 
     fn poll_every(&mut self, app: &App, interval: Duration) {

@@ -12,8 +12,8 @@
 //!
 //! Gaps against the TS app:
 //!
-//! - The author photo, the provider badge for co-authors and the gravatar fetch. The badge text shows instead,
-//!   which is what TS shows while the photo loads or when graphics are off.
+//! - The provider badge for co-authors. The author photo is in `graph_avatars.rs`. Its initials badge shows while the
+//!   photo loads and when graphics are off, as in TS.
 //! - The message card scrolls with the wheel, but the scrollbar of its `ScrollBox` is not checked against TS.
 //! - Compare mode (`openComparison`) does nothing yet. "Edit Message" opens the composer (`screens/composer.rs`).
 //! - TS drops an in-flight file history when a refresh replaces the snapshot. Here a result applies unless a newer
@@ -22,8 +22,9 @@
 use crate::screens::composer::ComposerAction;
 use crate::screens::files::Contents;
 use crate::shell::{Dirty, GitResult, Inbox, Msg, PANE_TOP, Shell};
+use opentui::native::{Image, ImageFit};
 use opentui::prelude::*;
-use opentui::widget::{ScrollBox, Text, View};
+use opentui::widget::{ImageView, ScrollBox, Text, View};
 use std::rc::Rc;
 use tuig_git::types::{ChangedFile, Commit, LineBlame};
 use tuig_ui_model::color::Rgba;
@@ -116,6 +117,7 @@ pub struct DetailsView {
     info_box: View,
     info_label: Text,
     info: Text,
+    photo: ImageView,
     badge: Text,
     co_authors: Text,
     history_label: Text,
@@ -204,12 +206,22 @@ impl DetailsView {
             .width(cells(badge_width))
             .height(cells(badge_height))
             .wrap(WrapMode::None);
+        let (photo_left, photo_top, photo_width, photo_height) = details::AUTHOR_PHOTO;
+        let photo = ImageView::new(app)
+            .absolute()
+            .position(Edge::Left, cells(photo_left))
+            .position(Edge::Top, cells(photo_top))
+            .width(cells(photo_width))
+            .height(cells(photo_height))
+            .fit(ImageFit::Cover)
+            .visible(false);
         let co_authors = text("", theme.muted)
             .absolute()
             .height(1u32)
             .wrap(WrapMode::Word);
         info_box
             .add(&info_label)
+            .add(&photo)
             .add(&badge)
             .add(&co_authors)
             .add(&info);
@@ -248,6 +260,7 @@ impl DetailsView {
             info_box,
             info_label,
             info,
+            photo,
             badge,
             co_authors,
             history_label,
@@ -262,6 +275,17 @@ impl DetailsView {
             .add(&self.message_box)
             .add(&self.history_label)
             .add(&self.history_list);
+    }
+
+    #[cfg(test)]
+    pub fn photo_shown(&self) -> bool {
+        self.photo.is_visible() && !self.badge.is_visible()
+    }
+
+    /// Shows the author photo in place of the initials badge, or the badge again for `None`.
+    pub fn set_photo(&self, image: Option<&Image>) {
+        self.photo.image(image.cloned()).visible(image.is_some());
+        self.badge.visible(image.is_none());
     }
 
     pub fn hide(&self) {
