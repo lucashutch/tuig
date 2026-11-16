@@ -193,9 +193,15 @@ impl Shell {
             }
             // TODO: `openComparison` needs the comparison diff in the commit view.
             A::CompareWithSelected => self.notify("Comparing two commits is not available yet"),
-            // TODO: repository tabs.
-            A::OpenSubmodule | A::OpenWorktree => {
-                self.notify("Repository tabs are not available yet")
+            A::OpenSubmodule => {
+                if let Some(submodule) = target.submodule {
+                    self.open_submodule(app, submodule);
+                }
+            }
+            A::OpenWorktree => {
+                if let Some(worktree) = target.worktree {
+                    self.open_worktree(app, worktree);
+                }
             }
             A::CopyPath => {
                 let path = target

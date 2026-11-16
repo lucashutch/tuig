@@ -14,6 +14,7 @@ mod sync;
 mod tasks;
 
 use opentui::prelude::*;
+use screens::header::TabsInit;
 use std::sync::Arc;
 use tuig_cli::{
     CliAction, CliError, CurlFetcher, HELP, StartRequest, VERSION, open_start_repositories,
@@ -21,6 +22,7 @@ use tuig_cli::{
 };
 use tuig_git::repository::{GitRepository, GitRepositoryService};
 use tuig_ui_model::preferences::{layout_preferences_path, load_layout_preferences};
+use tuig_ui_model::session_preferences::session_preferences_path;
 
 /// Runs `tuig update` on a plain tokio runtime, because it must not start the terminal UI.
 fn update() -> Result<(), CliError> {
@@ -31,17 +33,12 @@ fn update() -> Result<(), CliError> {
     runtime.block_on(update_tuig(VERSION, &CurlFetcher))
 }
 
-/// The repository to show. Tabs are not built, so this opens the active repository only: the one named by
-/// the path argument or the saved session, else the first that opened. The other saved repositories are dropped.
-// TODO: pass every repository to the shell when repository tabs exist.
-fn active_repository(
-    repositories: Vec<GitRepositoryService>,
-    active: Option<&str>,
-) -> Option<GitRepositoryService> {
-    let at = active
+/// The position of the repository to show first: the one named by the path argument or the saved session, else the
+/// first that opened.
+fn active_position(repositories: &[GitRepositoryService], active: Option<&str>) -> usize {
+    active
         .and_then(|root| repositories.iter().position(|repo| repo.root() == root))
-        .unwrap_or(0);
-    repositories.into_iter().nth(at)
+        .unwrap_or(0)
 }
 
 fn run(request: &StartRequest) -> Result<(), CliError> {
@@ -55,13 +52,28 @@ fn run(request: &StartRequest) -> Result<(), CliError> {
             return Err(error);
         }
     };
-    let repo = active_repository(start.repositories, start.active_repository.as_deref())
+    let at = active_position(&start.repositories, start.active_repository.as_deref());
+    let repositories: Vec<Arc<dyn GitRepository>> = start
+        .repositories
+        .into_iter()
+        .map(|repo| Arc::new(repo) as Arc<dyn GitRepository>)
+        .collect();
+    let repo = repositories
+        .get(at)
+        .cloned()
         .expect("a successful start opens at least one repository");
     let services = services::Services::system(
         repo.root(),
         &load_layout_preferences(&layout_preferences_path()),
     );
-    let _shell = shell::Shell::start_with(&app, Arc::new(repo), services);
+    let shell = shell::Shell::start_with(&app, repo, services);
+    shell.borrow_mut().restore_tabs(TabsInit {
+        repositories,
+        submodules: start.submodules.unwrap_or_default().into_iter().collect(),
+        recent: start.recent_repositories,
+        session_path: Some(session_preferences_path()),
+    });
+    let _shell = shell;
     app.run()
         .map_err(|error| CliError::Other(error.to_string()))
 }

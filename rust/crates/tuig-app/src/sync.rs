@@ -4,6 +4,7 @@
 use crate::screens::composer::ComposerWidgets;
 use crate::screens::details::DetailsView;
 use crate::screens::files::FilesWidgets;
+use crate::screens::header::HeaderWidgets;
 use crate::screens::popup::{OverlayMsg, OverlayWidgets};
 use crate::screens::sidebar::SidebarWidgets;
 use crate::shell::{Dirty, Inbox, Msg, PANE_TOP, Shell};
@@ -27,7 +28,7 @@ pub struct Widgets {
     pub history: Custom<HistoryList>,
     pub diff: Custom<DiffPane>,
     /// Tab strip and toolbar rows.
-    header: View,
+    pub header: HeaderWidgets,
     pub sidebar: SidebarWidgets,
     details: View,
     pub files: FilesWidgets,
@@ -89,7 +90,7 @@ impl Widgets {
             backdrop: placeholder(app, theme),
             history,
             diff: crate::screens::diff::diff_widget(app, theme, inbox),
-            header: placeholder(app, theme),
+            header: HeaderWidgets::new(app, theme, inbox),
             sidebar: SidebarWidgets::new(app, theme, inbox),
             details,
             files,
@@ -101,13 +102,13 @@ impl Widgets {
         app.root()
             .bg(color(theme.bg))
             .add(&widgets.backdrop)
-            .add(&widgets.header)
             .add(&widgets.sidebar.pane)
             .add(&widgets.history)
             .add(&widgets.diff)
             .add(&widgets.details)
             .add(&widgets.footer);
         widgets.sidebar.attach_overlays(&app.root());
+        widgets.header.attach(&app.root());
         widgets.overlay.attach(&app.root());
         widgets.history.focus();
         widgets
@@ -131,7 +132,7 @@ impl Shell {
             let (width, height) = (i64::from(self.layout.width), i64::from(self.layout.height));
             let widgets = &self.widgets;
             place(&widgets.backdrop, 0, 0, width, height);
-            place(&widgets.header, 0, 0, width, top);
+            widgets.header.place(width, top);
             place(
                 &widgets.details,
                 panes.details_left,
@@ -213,6 +214,7 @@ impl Shell {
         self.sync_author_photo(app);
         self.sync_spinner(app);
         self.sync_footer(app);
+        self.sync_header(app);
         self.dirty = Dirty::empty();
     }
 }

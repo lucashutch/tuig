@@ -54,7 +54,6 @@ impl Shell {
     }
 
     /// The text of a running operation, for the toolbar.
-    #[allow(dead_code)] // The header reads it once the header is ported.
     pub(crate) fn busy_notice(&self) -> Option<&str> {
         (self.notice_tone() == NoticeTone::Busy)
             .then_some(self.notice.as_deref())

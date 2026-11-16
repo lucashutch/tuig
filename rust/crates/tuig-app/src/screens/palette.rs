@@ -3,8 +3,8 @@
 //!
 //! The command list is rebuilt on every repaint, so availability follows the repository. A command is a
 //! [`PaletteCommand`] with an id. [`Shell::run_palette_command`] maps the id to its action. Commands whose feature
-//! is not ported yet show a notice when run: themes, repository tabs, opening a pull request, the branch filter
-//! and the layout preferences. Replace the notice with the real action when the feature arrives.
+//! is not ported yet show a notice when run: themes, opening a pull request, the branch filter and the layout
+//! preferences. Replace the notice with the real action when the feature arrives.
 
 use crate::screens::files::Focus;
 use crate::shell::{Dirty, Shell};
@@ -14,9 +14,6 @@ use tuig_ui_model::command_palette::{
     next_enabled_command,
 };
 use tuig_widgets::popup::{PaletteRowView, PaletteView};
-
-/// Repository tabs are not ported. The palette treats the app as having one tab.
-const TAB_COUNT: usize = 1;
 
 #[derive(Default)]
 pub struct PaletteState {
@@ -121,6 +118,7 @@ impl Shell {
         });
         let has_upstream = snapshot.is_some_and(|snapshot| snapshot.upstream.is_some());
         let stashes = snapshot.map_or(0, |snapshot| snapshot.stashes.len());
+        let tab_count = self.header.tabs.len();
         let mut commands = vec![
             command("theme.change", "Change theme", Settings),
             command("theme.mode", "Change theme mode", Settings),
@@ -207,7 +205,7 @@ impl Shell {
                 &[],
                 Some("Ctrl+W"),
             ),
-            TAB_COUNT > 1,
+            tab_count > 1,
             "Cannot close the only repository tab",
         ));
         let mut compose = with(
@@ -287,7 +285,7 @@ impl Shell {
                 &[],
                 Some("Ctrl+Tab"),
             ),
-            TAB_COUNT > 1,
+            tab_count > 1,
             "Only one repository tab is open",
         ));
         commands.push(availability(
@@ -300,7 +298,7 @@ impl Shell {
                 &[],
                 Some("Ctrl+Shift+Tab"),
             ),
-            TAB_COUNT > 1,
+            tab_count > 1,
             "Only one repository tab is open",
         ));
         commands.push(with(
@@ -516,7 +514,7 @@ impl Shell {
         self.run_palette_command(app, &id);
     }
 
-    fn run_palette_command(&mut self, app: &App, id: &str) {
+    pub(crate) fn run_palette_command(&mut self, app: &App, id: &str) {
         let repo = self.repo.clone();
         match id {
             "repository.refresh" => self.request_refresh(app, false),
@@ -589,7 +587,13 @@ impl Shell {
                 });
             }
             "theme.change" | "theme.mode" => self.notify("Themes are not available yet"),
-            "repository.open" => self.notify("Repository tabs are not available yet"),
+            "repository.open" => self.show_repository_picker(app),
+            "repository.close" => {
+                let active = self.header.active.clone();
+                self.close_tab(app, &active)
+            }
+            "navigation.next-tab" => self.activate_relative_tab(app, 1),
+            "navigation.previous-tab" => self.activate_relative_tab(app, -1),
             "changes.commit" => self.focus_composer(),
             "navigation.filter-branches" => self.start_branch_filter(app),
             "pull-requests.refresh" => self.load_pull_requests(app),

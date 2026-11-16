@@ -16,7 +16,7 @@
 //! - The key hints row is not ported, so it does not switch to `↵ commit  ·  ⇥ summary/description  ·  esc cancel`.
 //! - The command palette entry "Compose commit" does not exist yet. [`Shell::focus_composer`] is its entry point.
 //! - Hover and press colors on the two buttons (`tuig_widgets::composer`).
-//! - TS also leaves the composer when a repository tab closes (`runtime-tabs.ts`). There are no tabs yet.
+//! - TS also leaves the composer when a repository tab closes (`runtime-tabs.ts`). A tab switch resets the composer (`switch_repository` in `header.rs`).
 //! - An Escape that cancels a running mutation (`cancelMutation`) is not ported.
 
 use crate::screens::footer::NoticeTone;

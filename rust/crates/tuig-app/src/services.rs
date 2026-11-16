@@ -29,10 +29,15 @@ impl UrlOpener for SystemOpener {
 /// Minutes between background fetches when no preference sets it. `DEFAULT_REMOTE_FETCH_INTERVAL_MINUTES`.
 pub const DEFAULT_REMOTE_FETCH_INTERVAL_MINUTES: f64 = 1.0;
 
+/// Builds the pull request service for a repository root.
+pub type PullRequestServiceFor = fn(&str) -> Arc<dyn PullRequestService>;
+
 #[derive(Clone, Default)]
 pub struct Services {
     /// Without it the pull request panel, column and spinner stay off.
     pub pull_requests: Option<Arc<dyn PullRequestService>>,
+    /// Builds the pull request service for another repository root, for repository tabs. `None` with `pull_requests`.
+    pub pull_requests_for: Option<PullRequestServiceFor>,
     /// Without it graph avatars stay off.
     pub avatars: Option<Arc<AvatarService>>,
     /// Whether the saved preferences allow avatars. `avatarsEnabled`.
@@ -47,6 +52,10 @@ pub struct Services {
     pub layout_path: Option<PathBuf>,
 }
 
+fn pull_request_service(root: &str) -> Arc<dyn PullRequestService> {
+    Arc::new(GhPullRequestService::new(root))
+}
+
 impl Services {
     /// The real services for the repository at `root`, configured by the saved layout preferences.
     pub fn system(root: &str, preferences: &LayoutPreferences) -> Self {
@@ -54,7 +63,8 @@ impl Services {
             .remote_fetch_interval_minutes
             .unwrap_or(DEFAULT_REMOTE_FETCH_INTERVAL_MINUTES);
         Self {
-            pull_requests: Some(Arc::new(GhPullRequestService::new(root))),
+            pull_requests: Some(pull_request_service(root)),
+            pull_requests_for: Some(pull_request_service),
             avatars: Some(Arc::new(AvatarService::new(Arc::new(SystemFetcher)))),
             avatars_enabled: preferences.avatars_enabled.unwrap_or(true),
             fetch_interval: (minutes > 0.0).then(|| Duration::from_secs_f64(minutes * 60.0)),

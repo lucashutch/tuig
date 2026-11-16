@@ -15,6 +15,7 @@ use crate::screens::diff::DiffState;
 use crate::screens::files::{ChangesAction, FilesState, Focus, Split};
 use crate::screens::footer::FooterState;
 use crate::screens::graph_avatars::{AvatarLoaded, AvatarState, PhotoLoaded};
+use crate::screens::header::{HeaderMsg, HeaderState};
 use crate::screens::history::HistoryState;
 use crate::screens::popup::{OverlayMsg, OverlayState};
 use crate::screens::pull_requests::PullRequestsState;
@@ -90,6 +91,8 @@ pub enum Msg {
     Overlay(OverlayMsg),
     /// The sidebar, the pane dividers and the branch filter. See `screens/sidebar.rs`.
     Sidebar(SidebarMsg),
+    /// The tab strip, the toolbar and the repository picker. See `screens/header.rs`.
+    Header(HeaderMsg),
 
     Snapshot(ReqId, GitResult<RepositorySnapshot>),
     CommitPage(ReqId, GitResult<CommitPage>),
@@ -260,6 +263,7 @@ pub struct Shell {
     pub pr: PullRequestsState,
     pub sidebar: SidebarState,
     pub avatars: AvatarState,
+    pub header: HeaderState,
     /// The message for the footer row. It clears after six seconds. See `screens/footer.rs`.
     pub notice: Option<String>,
     pub(crate) footer: FooterState,
@@ -294,7 +298,7 @@ impl Shell {
         let key_guard = widgets.composer.key_guard();
         let filter_guard = widgets.sidebar.key_guard();
         let shell = Rc::new(RefCell::new(Shell {
-            repo,
+            repo: repo.clone(),
             snapshot: None,
             history: HistoryState::new(&theme),
             files: FilesState::new(),
@@ -309,6 +313,7 @@ impl Shell {
             pr: PullRequestsState::new(services.pull_requests.clone(), services.url_opener.clone()),
             sidebar: SidebarState::new(&theme),
             avatars: AvatarState::new(services.avatars.clone(), services.avatars_enabled),
+            header: HeaderState::new(repo.clone(), services.pull_requests_for),
             notice: None,
             footer: FooterState::default(),
             dirty: Dirty::all(),
@@ -370,7 +375,7 @@ impl Shell {
     pub fn update(&mut self, app: &App, msg: Msg) {
         match msg {
             Msg::Key(key) => {
-                if self.overlay_key(app, &key) {
+                if self.overlay_key(app, &key) || self.header_key(app, &key) {
                     return;
                 }
                 if self.composer_key(&key) || self.branch_filter_key(app, &key) {
@@ -447,6 +452,7 @@ impl Shell {
             Msg::DiffInput(event) => self.diff_input(event),
             Msg::Overlay(msg) => self.overlay_msg(app, msg),
             Msg::Sidebar(msg) => self.sidebar_msg(app, msg),
+            Msg::Header(msg) => self.header_msg(app, msg),
             Msg::Diff(id, result) => {
                 if self.tasks.diff.finish(id) {
                     self.diff_loaded(result);

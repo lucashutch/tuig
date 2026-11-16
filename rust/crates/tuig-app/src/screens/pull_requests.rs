@@ -36,8 +36,8 @@ pub struct PullRequestsState {
     pub result: Option<PullRequestList>,
     /// Row matcher for the history column. `None` while the list is empty or unavailable.
     pub index: Option<PullRequestCommitIndex>,
-    refresh_timer: Option<TimerId>,
-    spinner_timer: Option<TimerId>,
+    pub(crate) refresh_timer: Option<TimerId>,
+    pub(crate) spinner_timer: Option<TimerId>,
     /// Index into [`SPINNER_FRAMES`].
     pub spinner_frame: usize,
 }

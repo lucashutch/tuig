@@ -74,3 +74,21 @@ pub struct Tasks {
     /// Index and working-tree changes. Selection changes never cancel it.
     pub mutation: Slot,
 }
+
+impl Tasks {
+    /// Aborts every load, for a switch to another repository. The mutation slot stays: a tab switch waits for it.
+    pub fn cancel_loads(&mut self) {
+        for slot in [
+            &mut self.snapshot,
+            &mut self.page,
+            &mut self.watch_paths,
+            &mut self.pull_requests,
+            &mut self.commit_files,
+            &mut self.file_history,
+            &mut self.blame,
+            &mut self.diff,
+        ] {
+            slot.cancel();
+        }
+    }
+}
