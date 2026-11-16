@@ -152,11 +152,15 @@ impl Shell {
     }
 
     /// Fetches in the background unless the user is busy or a credential failure paused it. `auth_blocked` clears
-    /// itself when a fetch, pull or push succeeds, so fetching resumes then. The TS timer also skips while a
-    /// commit message editor has focus, which waits for the composer. The fetch does not re-list pull requests: it
-    /// runs every minute by default, which would override their refresh timing.
+    /// itself when a fetch, pull or push succeeds, so fetching resumes then. A focused commit message field also skips
+    /// it, as in TS. The fetch does not re-list pull requests: it runs every minute by default, which would override
+    /// their refresh timing.
     pub(crate) fn background_fetch(&mut self, app: &App) {
-        if self.diff.mutation.is_some() || self.tasks.snapshot.busy() || self.repo.auth_blocked() {
+        if self.diff.mutation.is_some()
+            || self.tasks.snapshot.busy()
+            || self.composing()
+            || self.repo.auth_blocked()
+        {
             return;
         }
         let repo = self.repo.clone();

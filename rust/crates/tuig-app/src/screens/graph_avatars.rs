@@ -301,7 +301,6 @@ impl Shell {
     }
 
     /// Releases every in-flight load and hides the images, for the avatar toggle. `cancelGraphAvatars`.
-    #[allow(dead_code)]
     pub(crate) fn clear_graph_avatars(&mut self) {
         for line in 0..self.avatars.slots.len() {
             self.release_avatar_slot(line);
@@ -398,3 +397,14 @@ async fn load_graph_avatar(
 #[cfg(test)]
 #[path = "graph_avatars_tests.rs"]
 mod tests;
+
+impl Shell {
+    /// The avatar toggle. Off releases the graph images and drops the author photo, on loads them again.
+    pub(crate) fn set_avatars_enabled(&mut self, enabled: bool) {
+        self.avatars.enabled = enabled;
+        if !enabled {
+            self.clear_graph_avatars();
+        }
+        self.dirty |= Dirty::AVATARS | Dirty::HISTORY | Dirty::DETAILS;
+    }
+}

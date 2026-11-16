@@ -6,8 +6,8 @@
 //! list stays on screen until the new answer arrives. A failure replaces it, so a signed-out `gh` hides the column.
 //!
 //! The spinner for running checks runs only while a visible history row shows one, so no timer runs when nothing
-//! animates. Not ported yet because they need the sidebar, the menus and the command palette: the sidebar panel,
-//! `select`, `open` and `openForCurrentBranch`. Their pure parts are in `tuig_widgets::pull_requests`.
+//! animates. The command palette refreshes the list and finds the pull request for the current branch. Not ported yet
+//! because they need the sidebar: the sidebar panel, `select`, `open` and `openForCurrentBranch`. Their pure parts are in `tuig_widgets::pull_requests`.
 
 use crate::shell::{Dirty, Msg, Shell};
 use opentui::prelude::*;
@@ -15,7 +15,8 @@ use std::sync::Arc;
 use std::time::Duration;
 use tuig_git::pull_request_types::{PullRequest, PullRequestList, PullRequestService};
 use tuig_widgets::pull_requests::{
-    PullRequestCommitIndex, SPINNER_FRAMES, is_unsettled, pull_request_commit_index,
+    PullRequestCommitIndex, SPINNER_FRAMES, is_unsettled, pull_request_branch,
+    pull_request_commit_index,
 };
 
 /// Re-list interval while some check can still change. `PULL_REQUEST_ACTIVE_REFRESH_MS`.
@@ -106,6 +107,22 @@ impl Shell {
             async move { service.list(None).await },
             Msg::PullRequests,
         );
+    }
+
+    /// The open pull request whose head is the checked-out branch, newest first. `forCurrentBranch`.
+    pub(crate) fn pull_request_for_current_branch(&self) -> Option<&PullRequest> {
+        let snapshot = self.snapshot.as_ref()?;
+        let current = snapshot
+            .branches
+            .iter()
+            .find(|branch| branch.current && !branch.remote);
+        let mut candidates: Vec<&PullRequest> = self.pr.pull_requests().iter().collect();
+        candidates.sort_by_key(|pr| std::cmp::Reverse(pr.number));
+        candidates.into_iter().find(|pr| {
+            current.is_some_and(|current| {
+                pull_request_branch(pr, &snapshot.branches).is_some_and(|branch| branch == current)
+            }) || (pr.head_sha.is_some() && pr.head_sha == snapshot.head_sha)
+        })
     }
 
     pub(crate) fn pull_requests_loaded(&mut self, app: &App, result: PullRequestList) {

@@ -206,7 +206,7 @@ Wiring:
 2. A forwarder task (`app.runtime().spawn`) reads the receiver and calls `proxy.send(WatchMsg { generation, event })`. `on_message::<WatchMsg>` turns each one into `Msg::Watch`. The task ends when the channel closes. On `ProxyError::Full` it keeps the newest event of any kind, because one refresh covers every change before it and a failure is the last event.
 3. `update` drops events from an old generation. This replaces the `generation` counter in `auto-refresh.ts`.
 4. On `Changed { at }`, the shell applies `refreshForWatchedChange` (`runtime.ts:1056`) in the same order:
-   1. If a snapshot read is running, store `pending_change = Some(at)`. This is the TS "return false, ask again" case. When the snapshot finishes, the shell checks `pending_change` and runs these steps again. The check covers snapshots only for now. The composer-open and mutation-busy checks join it once those features exist.
+   1. If a snapshot read is running, store `pending_change = Some(at)`. This is the TS "return false, ask again" case. When the snapshot finishes, the shell checks `pending_change` and runs these steps again. A focused composer field and a running mutation hold the change the same way. Leaving the composer runs these steps again, and a mutation ends with a refresh of its own.
    2. Otherwise, if a snapshot read started after `at`, skip. That read already includes the change.
    3. Otherwise, start a refresh.
 5. On `Failed`, it drops the watcher and polls every 10 s (`FALLBACK_REFRESH_INTERVAL_MS`). The shell does not restart a failed watcher, and polling covers it. With a live watcher it polls every 30 s. Both use `set_interval`.
@@ -329,6 +329,10 @@ Where each TS module went:
 - Graph avatars are `ImageView` widgets on the root, one per body line, placed over the history list. They pass
   clicks and wheel events to the list. The shell hides them while a diff covers the history pane and during a wheel
   gesture. Decoding and the circle mask run in the avatar task, and the UI thread only wraps the pixels in an image.
+  The palette avatar toggle sets `AvatarState::enabled` for this session. Off releases the images and the author
+  photo.
+- The palette refreshes pull requests through `Shell::load_pull_requests`. Opening a pull request waits for the
+  sidebar panel, so its palette entry shows a notice.
 - The background fetch runs through the mutation slot, so a staging action and a fetch never overlap. It skips while
-  a snapshot reads, and while `GitRepository::auth_blocked` is set. That flag clears when a fetch, pull or push
+  a snapshot reads, while a composer field has focus, and while `GitRepository::auth_blocked` is set. That flag clears when a fetch, pull or push
   succeeds, so a credential failure pauses fetching until then.

@@ -88,9 +88,17 @@ impl Harness {
     }
 
     fn act(&self, action: ComposerAction) {
+        self.act_msg(Msg::Composer(action));
+    }
+
+    fn act_msg(&self, msg: Msg) {
         let inbox = self.read(|shell| shell.inbox.clone());
-        inbox.post(self.app.app(), Msg::Composer(action));
+        inbox.post(self.app.app(), msg);
         self.app.advance(Duration::ZERO);
+    }
+
+    fn act_overlay(&self, msg: crate::screens::popup::OverlayMsg) {
+        self.act_msg(Msg::Overlay(msg));
     }
 
     /// Opens the history's selected commit and draws it.
@@ -313,4 +321,30 @@ fn a_watched_change_waits_until_the_user_leaves_the_composer() {
         shell.tasks.snapshot.started_at() != before
     });
     assert_eq!(h.summary(), "half a mes");
+}
+
+#[test]
+fn the_palette_compose_command_focuses_the_summary() {
+    use crate::screens::popup::OverlayMsg;
+    let h = Harness::new(&["base"], true);
+    h.shell.borrow_mut().toggle_palette(h.app.app());
+    h.read(|shell| {
+        shell
+            .widgets
+            .overlay
+            .palette_input
+            .set_value("compose commit")
+    });
+    h.act_overlay(OverlayMsg::PaletteQuery);
+    h.act_overlay(OverlayMsg::PaletteSubmit);
+    assert!(h.read(|shell| shell.composing()));
+}
+
+#[test]
+fn the_background_fetch_waits_while_a_message_field_has_focus() {
+    let h = Harness::new(&["base"], false);
+    h.wait("the first read", |shell| !shell.tasks.snapshot.busy());
+    h.app.press("c");
+    h.act_msg(Msg::BackgroundFetch);
+    assert!(h.read(|shell| shell.diff.mutation.is_none()));
 }

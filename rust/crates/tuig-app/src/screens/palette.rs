@@ -3,8 +3,8 @@
 //!
 //! The command list is rebuilt on every repaint, so availability follows the repository. A command is a
 //! [`PaletteCommand`] with an id. [`Shell::run_palette_command`] maps the id to its action. Commands whose feature
-//! is not ported yet show a notice when run: themes, repository tabs, the composer, pull requests, the branch
-//! filter and the layout preferences. Replace the notice with the real action when the feature arrives.
+//! is not ported yet show a notice when run: themes, repository tabs, opening a pull request, the branch filter
+//! and the layout preferences. Replace the notice with the real action when the feature arrives.
 
 use crate::screens::files::Focus;
 use crate::shell::{Dirty, Shell};
@@ -171,25 +171,27 @@ impl Shell {
                 "No stash to pop",
             ),
         ];
-        // TODO: pull requests. TS lists these when pull request support is on.
-        commands.push(with(
-            command("pull-requests.refresh", "Refresh pull requests", Repository),
-            &["github", "pr", "checks"],
-            None,
-        ));
-        let mut open_pull_request = with(
-            command(
-                "pull-requests.open-current",
-                "Open pull request for current branch",
-                Repository,
-            ),
-            &["github", "pr", "browser"],
-            None,
-        );
-        open_pull_request.enabled = Some(false);
-        open_pull_request.disabled_reason =
-            Some("No open pull request for the current branch".to_owned());
-        commands.push(open_pull_request);
+        // TS lists these only when pull request support is on.
+        if self.pr.service.is_some() {
+            commands.push(with(
+                command("pull-requests.refresh", "Refresh pull requests", Repository),
+                &["github", "pr", "checks"],
+                None,
+            ));
+            let mut open_pull_request = with(
+                command(
+                    "pull-requests.open-current",
+                    "Open pull request for current branch",
+                    Repository,
+                ),
+                &["github", "pr", "browser"],
+                None,
+            );
+            open_pull_request.enabled = Some(self.pull_request_for_current_branch().is_some());
+            open_pull_request.disabled_reason =
+                Some("No open pull request for the current branch".to_owned());
+            commands.push(open_pull_request);
+        }
         commands.push(with(
             command("repository.open", "Open new repository tab", Repository),
             &["add tab", "open repository"],
@@ -208,12 +210,14 @@ impl Shell {
             TAB_COUNT > 1,
             "Cannot close the only repository tab",
         ));
-        // TODO: the composer. It is never active until it exists.
-        commands.push(with(
+        let mut compose = with(
             command("changes.commit", "Compose commit", Changes),
             &[],
             Some("c"),
-        ));
+        );
+        compose.enabled = Some(!self.composing());
+        compose.disabled_reason = Some("Commit composer is already active".to_owned());
+        commands.push(compose);
         commands.push(availability(
             with(
                 command("changes.stage-selected", "Stage selected file", Changes),
@@ -336,7 +340,7 @@ impl Shell {
                 "settings.avatars",
                 &format!(
                     "{} author avatars",
-                    if self.avatars_enabled {
+                    if self.avatars.enabled {
                         "Disable"
                     } else {
                         "Enable"
@@ -585,8 +589,8 @@ impl Shell {
                 self.dirty |= Dirty::all();
             }
             "settings.avatars" => {
-                self.avatars_enabled = !self.avatars_enabled;
-                self.notify(if self.avatars_enabled {
+                self.set_avatars_enabled(!self.avatars.enabled);
+                self.notify(if self.avatars.enabled {
                     "Author avatars on"
                 } else {
                     "Author avatars off"
@@ -594,9 +598,13 @@ impl Shell {
             }
             "theme.change" | "theme.mode" => self.notify("Themes are not available yet"),
             "repository.open" => self.notify("Repository tabs are not available yet"),
-            "changes.commit" => self.notify("The commit composer is not available yet"),
+            "changes.commit" => self.focus_composer(),
             "navigation.filter-branches" => self.notify("The branch filter is not available yet"),
-            "pull-requests.refresh" => self.notify("Pull requests are not available yet"),
+            "pull-requests.refresh" => self.load_pull_requests(app),
+            // Opening a pull request is ported with the sidebar panel, which lists them.
+            "pull-requests.open-current" => {
+                self.notify("Opening pull requests is not available yet")
+            }
             _ => {}
         }
     }
