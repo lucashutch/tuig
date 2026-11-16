@@ -132,7 +132,8 @@ fn clicking_a_commit_opens_its_details_and_the_selection_keeps_them_current() {
     // Escape leaves the commit view and goes back to the working row.
     h.app.press("escape");
     h.wait("the pane to close", |shell| !shell.commit_open());
-    assert!(!h.app.text().contains("COMMIT MESSAGE"));
+    // The composer's own label reads COMMIT MESSAGE too, so look for the card's button.
+    assert!(!h.app.text().contains("Edit Message"));
 }
 
 #[test]

@@ -167,8 +167,9 @@ impl Shell {
     /// Ports `refreshForWatchedChange`: wait while a refresh runs, skip when a read started after the change, and
     /// otherwise refresh.
     fn watched_change(&mut self, app: &App, at: Instant) {
-        // TODO: the composer-open and mutation-busy checks join this condition once those features exist.
-        if self.tasks.snapshot.busy() {
+        // Typing and running mutations hold the refresh back. The composer retries it when the user leaves it, and a
+        // mutation ends with a refresh of its own.
+        if self.tasks.snapshot.busy() || self.composing() || self.diff.mutation.is_some() {
             self.refresh.pending_change = Some(at);
             return;
         }
@@ -193,6 +194,13 @@ impl Shell {
             return;
         }
         self.start_snapshot(app);
+    }
+
+    /// Starts the refresh that a watched change asked for while the user typed.
+    pub(crate) fn retry_held_refresh(&mut self, app: &App) {
+        if let Some(at) = self.refresh.pending_change.take() {
+            self.watched_change(app, at);
+        }
     }
 
     /// Runs when a snapshot result was applied or failed, and starts any refresh that waited for it.

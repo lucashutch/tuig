@@ -28,6 +28,8 @@ pub enum Command {
     LoadLargeDiff,
     /// Ctrl+P: opens the command palette.
     OpenPalette,
+    /// `c`: moves the keyboard to the commit summary.
+    Compose,
 }
 
 /// The command for a key that the focused widget did not take. `None` for keys the ported screens do not use.
@@ -63,6 +65,8 @@ pub fn command_for(key: &KeyEvent) -> Option<Command> {
         Command::ToggleDiffView
     } else if key.matches("shift+l") {
         Command::LoadLargeDiff
+    } else if key.matches("c") {
+        Command::Compose
     } else {
         return None;
     };

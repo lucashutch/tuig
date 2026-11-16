@@ -1,0 +1,26 @@
+# Commit composer: type a summary and a description, toggle amend, leave the composer, then
+# edit a commit's message and cancel.
+fixture demo
+wait text "Working Changes"
+snapshot idle
+key c
+text "Fix login redirect"
+snapshot summary
+key tab
+text "Explain the change"
+snapshot description
+click 118 44
+wait text "[x] Amend previous commit"
+snapshot amend
+key esc
+snapshot left-composer
+click 60 11
+wait text "COMMIT FILES"
+click 146 5
+wait text "Save message"
+# The TS app leaves the hidden message box's scrollbar thumb on screen while the message is edited.
+mask 159 19 1 2
+snapshot edit-message
+key esc
+wait text "COMMIT FILES"
+snapshot edit-cancelled

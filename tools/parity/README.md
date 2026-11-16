@@ -54,6 +54,7 @@ Waits use screen quiet time, not sleeps. A wait ends when no cell has changed fo
 | --------------------------------------------------------------------------------- | ------- | -------------------------------------------------------------------------------------- |
 | `initial-load`, `select-commit`, `changed-files`, `command-palette`, `diff-click` | demo    | Basic panes, commit and file selection, palette, diff line selection                   |
 | `wheel-history`                                                                   | history | Wheel down 10 rows, to the end (loads the second page), up 10, and back to the top     |
+| `composer`                                                                        | demo    | Type a summary and description, toggle amend, edit a commit message, cancel            |
 | `diff-scroll`                                                                     | history | Wheel through a 151-line diff and back                                                 |
 | `syntax-highlight`                                                                | history | One diff per language, 13 snapshots, with a 600 ms quiet time so highlighting finishes |
 | `graph-menu`                                                                      | demo    | Right-click a commit: menu, submenu, confirmation, name prompt, branch label menu      |

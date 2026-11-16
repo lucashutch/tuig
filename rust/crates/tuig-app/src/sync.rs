@@ -1,6 +1,7 @@
 //! Pushes shell state into widgets, once per drained inbox. Panes that are not ported yet are empty views placed
 //! where `runtime-layout.ts` puts them, so the history pane has the same size and position as in the TS app.
 
+use crate::screens::composer::ComposerWidgets;
 use crate::screens::details::DetailsView;
 use crate::screens::files::FilesWidgets;
 use crate::screens::popup::{OverlayMsg, OverlayWidgets};
@@ -25,6 +26,7 @@ pub struct Widgets {
     sidebar: View,
     details: View,
     pub files: FilesWidgets,
+    pub composer: ComposerWidgets,
     pub details_view: DetailsView,
     /// Key hints on the bottom row.
     hints: View,
@@ -74,6 +76,8 @@ impl Widgets {
         let details = placeholder(app, theme).bg(color(theme.panel));
         let files = FilesWidgets::new(app, theme, inbox);
         files.attach(&details);
+        let composer = ComposerWidgets::new(app, theme, inbox);
+        composer.attach(&details);
         let details_view = DetailsView::new(app, theme, inbox);
         details_view.attach(&details);
         let widgets = Self {
@@ -83,6 +87,7 @@ impl Widgets {
             sidebar: placeholder(app, theme),
             details,
             files,
+            composer,
             details_view,
             hints: placeholder(app, theme),
             overlay: OverlayWidgets::new(app, theme, inbox),
@@ -170,6 +175,7 @@ impl Shell {
             self.sync_details();
         }
         self.sync_files();
+        self.sync_composer();
         let focused = self.files.focus == crate::screens::files::Focus::History;
         self.widgets
             .history

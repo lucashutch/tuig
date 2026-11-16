@@ -29,8 +29,8 @@ use tuig_ui_model::file_tree::{
 };
 use tuig_ui_model::history_viewport::HistorySelection;
 use tuig_ui_model::runtime_layout::{
-    ChangesGeometry, ChangesInputs, ChangesLayout, View as ChangesView, WorkingChangesGeometry,
-    layout_changes,
+    ChangesGeometry, ChangesInputs, ChangesLayout, ComposerLayout, View as ChangesView,
+    WorkingChangesGeometry, layout_changes,
 };
 use tuig_ui_model::text_width::string_width;
 use tuig_ui_model::theme::Theme;
@@ -192,6 +192,11 @@ impl FilesState {
             debounce: COMMIT_FILES_DEBOUNCE,
             timer: None,
         }
+    }
+
+    /// Files in the staged list. The commit button counts them.
+    pub fn staged_count(&self) -> usize {
+        self.staged.len()
     }
 
     /// The list the keys and the selection act on.
@@ -499,7 +504,7 @@ impl Shell {
             } else {
                 ChangesView::History
             },
-            editing_commit: false,
+            editing_commit: self.composer.editing(),
             diff_visible: false,
             history_filter_active: false,
             width,
@@ -563,6 +568,15 @@ impl Shell {
             ChangesGeometry::CommitDiff { .. } | ChangesGeometry::Editing(_) => {}
         }
         place
+    }
+
+    /// The composer's geometry in the details pane: the working view's, or the full pane while a message is edited.
+    pub(crate) fn composer_place(&self) -> Option<ComposerLayout> {
+        match self.files_place().changes.geometry {
+            ChangesGeometry::Working(working) => Some(working.composer),
+            ChangesGeometry::Editing(composer) => Some(composer),
+            ChangesGeometry::CommitFiles { .. } | ChangesGeometry::CommitDiff { .. } => None,
+        }
     }
 
     /// Builds the data for the list widget of `section` from the state.

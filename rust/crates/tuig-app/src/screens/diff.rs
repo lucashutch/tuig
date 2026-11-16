@@ -493,6 +493,7 @@ impl Shell {
     pub(crate) fn mutation_done(&mut self, app: &App, result: GitResult<()>) {
         self.commands.cancel = None;
         let label = self.diff.mutation.take().unwrap_or_default();
+        self.composer_mutation_done(result.is_ok());
         match result {
             Ok(()) => self.notice = None,
             Err(GitError::Aborted(_)) => {

@@ -1,4 +1,5 @@
 pub mod commands;
+pub mod composer;
 pub mod context_menu;
 pub mod details;
 pub mod diff;

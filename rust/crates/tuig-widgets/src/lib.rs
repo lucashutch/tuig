@@ -2,6 +2,7 @@
 //! app draws.
 
 pub mod commit_text;
+pub mod composer;
 pub mod decorations;
 pub mod diff;
 pub mod file_history;

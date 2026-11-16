@@ -9,6 +9,7 @@
 use crate::keys::{self, Command};
 use crate::refresh::{RefreshState, WatchSignal};
 use crate::screens::commands::CommandsState;
+use crate::screens::composer::{ComposerAction, ComposerState};
 use crate::screens::details::{DetailsAction, DetailsState, HistoryLoaded};
 use crate::screens::diff::DiffState;
 use crate::screens::files::{ChangesAction, FilesState, Focus, Split};
@@ -76,6 +77,7 @@ pub enum Msg {
     },
     Resize(u16, u16),
     Details(DetailsAction),
+    Composer(ComposerAction),
     FileHistoryClick(usize),
     DiffInput(DiffEvent),
     /// Menus, the palette and the prompts. See `screens/popup.rs`.
@@ -116,6 +118,7 @@ bitflags! {
         const DETAILS = 32;
         const DIFF = 64;
         const OVERLAY = 128;
+        const COMPOSER = 256;
     }
 }
 
@@ -227,6 +230,7 @@ pub struct Shell {
     pub overlay: OverlayState,
     pub commands: CommandsState,
     pub avatars_enabled: bool,
+    pub composer: ComposerState,
     pub layout: LayoutState,
     pub tasks: Tasks,
     pub refresh: RefreshState,
@@ -248,6 +252,7 @@ impl Shell {
         });
         let (width, height) = app.size();
         let widgets = Widgets::new(app, &theme, &inbox);
+        let key_guard = widgets.composer.key_guard();
         let shell = Rc::new(RefCell::new(Shell {
             repo,
             snapshot: None,
@@ -258,6 +263,7 @@ impl Shell {
             overlay: OverlayState::default(),
             commands: CommandsState::default(),
             avatars_enabled: true,
+            composer: ComposerState::default(),
             layout: LayoutState::new(width, height),
             tasks: Tasks::default(),
             refresh: RefreshState::default(),
@@ -270,7 +276,10 @@ impl Shell {
 
         {
             let inbox = inbox.clone();
-            app.on_key(move |cx, key| inbox.post(cx.app(), Msg::Key(*key)));
+            app.on_key(move |cx, key| {
+                key_guard.apply(cx, key);
+                inbox.post(cx.app(), Msg::Key(*key));
+            });
         }
         {
             let inbox = inbox.clone();
@@ -314,7 +323,9 @@ impl Shell {
                 if self.overlay_key(app, &key) {
                     return;
                 }
-                if let Some(command) = keys::command_for(&key) {
+                if self.composer_key(&key) {
+                    // A commit field has the keyboard.
+                } else if let Some(command) = keys::command_for(&key) {
                     self.command(app, command);
                 }
             }
@@ -371,6 +382,7 @@ impl Shell {
             Msg::FileSelected(file) => self.file_selected(app, file),
             Msg::FileOpened(file) => self.show_file_diff(app, Some(file)),
             Msg::Details(action) => self.details_action(app, action),
+            Msg::Composer(action) => self.composer_action(app, action),
             Msg::FileHistoryClick(index) => self.select_file_history(index),
             Msg::FileHistory(id, loaded) => {
                 if self.tasks.file_history.finish(id) {
@@ -396,11 +408,17 @@ impl Shell {
             }
             Msg::ScrollFlush => self.flush_history_scroll(),
             Msg::ScrollSettled => self.history_settled(),
-            Msg::Poll => self.request_refresh(app, true),
+            Msg::Poll => {
+                // The periodic refresh waits while the user types.
+                if !self.composing() {
+                    self.request_refresh(app, true);
+                }
+            }
             Msg::Watch { generation, event } => self.watch_event(app, generation, event),
         }
         self.settle_history(app);
         self.settle_files(app);
+        self.settle_composer(app);
     }
 
     fn command(&mut self, app: &App, command: Command) {
@@ -435,11 +453,12 @@ impl Shell {
                 if self.cancel_mutation() {
                     return;
                 }
-                if !self.diff_escape() {
+                if !self.composer_escape(app) && !self.diff_escape() {
                     self.escape_details();
                 }
             }
             Command::ToggleStaged => self.files_toggle_mode(),
+            Command::Compose => self.focus_composer(),
             Command::Refresh => self.request_refresh(app, false),
             Command::StageFirstHunk => self.stage_first_hunk(app),
             Command::ToggleDiffView => self.toggle_diff_view(),

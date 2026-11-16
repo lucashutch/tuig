@@ -15,10 +15,11 @@
 //! - The author photo, the provider badge for co-authors and the gravatar fetch. The badge text shows instead,
 //!   which is what TS shows while the photo loads or when graphics are off.
 //! - The message card scrolls with the wheel, but the scrollbar of its `ScrollBox` is not checked against TS.
-//! - Compare mode (`openComparison`) and "Edit Message" do nothing yet.
+//! - Compare mode (`openComparison`) does nothing yet. "Edit Message" opens the composer (`screens/composer.rs`).
 //! - TS drops an in-flight file history when a refresh replaces the snapshot. Here a result applies unless a newer
 //!   request or a close replaced it.
 
+use crate::screens::composer::ComposerAction;
 use crate::screens::files::Contents;
 use crate::shell::{Dirty, GitResult, Inbox, Msg, PANE_TOP, Shell};
 use opentui::prelude::*;
@@ -162,6 +163,12 @@ impl DetailsView {
         .width(16u32)
         .height(1u32)
         .wrap(WrapMode::None);
+        {
+            let inbox = inbox.clone();
+            edit_button.on_click(move |cx, _| {
+                inbox.post(cx.app(), Msg::Composer(ComposerAction::EditMessage));
+            });
+        }
         let header = flow(&text("", theme.muted)).wrap(WrapMode::Word);
         let body = flow(&text("", theme.text)).wrap(WrapMode::Word);
         message_box
@@ -704,7 +711,12 @@ impl Shell {
     }
 
     pub(crate) fn sync_details(&mut self) {
-        let Some(commit) = self.details_commit().cloned() else {
+        // The composer takes the pane while a commit message is edited.
+        let commit = self
+            .details_commit()
+            .cloned()
+            .filter(|_| !self.composer.editing());
+        let Some(commit) = commit else {
             self.widgets.details_view.hide();
             return;
         };
