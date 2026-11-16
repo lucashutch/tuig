@@ -29,10 +29,6 @@ use tuig_widgets::diff::{DiffDocument, DiffEvent, DiffPane, effective_diff_view}
 const DIFF_CONTEXT: u32 = 6;
 
 /// A hunk action from the diff menu. `runHunkAction`.
-#[expect(
-    dead_code,
-    reason = "the right-click diff menu that offers these waits for the popup port"
-)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum HunkAction {
     Stage,
@@ -73,20 +69,20 @@ impl DiffState {
         self.file.is_some()
     }
 
-    fn working(&self) -> bool {
+    pub(crate) fn working(&self) -> bool {
         self.file
             .as_ref()
             .is_some_and(|file| file.source.is_working())
     }
 
-    fn staged(&self) -> bool {
+    pub(crate) fn staged(&self) -> bool {
         self.file
             .as_ref()
             .is_some_and(|file| file.source == FileSource::WorkingStaged)
     }
 
     /// The selected rows still belong to the document on screen.
-    fn selection_current(&self) -> bool {
+    pub(crate) fn selection_current(&self) -> bool {
         match (&self.selection_document, &self.document) {
             (Some(selected), Some(shown)) => Rc::ptr_eq(selected, shown),
             _ => false,
@@ -254,8 +250,15 @@ impl Shell {
                 button,
                 ctrl,
                 alt,
-                ..
-            } => self.diff_press(target, button, ctrl, alt),
+                x,
+                y,
+            } => {
+                if button == MouseButton::Right {
+                    self.diff_context_menu(target, i64::from(x), i64::from(y));
+                } else {
+                    self.diff_press(target, button, ctrl, alt);
+                }
+            }
             DiffEvent::Drag { target } => self.diff_drag(target),
             DiffEvent::Release => self.diff.drag_anchor = None,
             DiffEvent::Copied(_) => {
@@ -315,12 +318,7 @@ impl Shell {
                     "Line selection cleared".to_owned()
                 });
             }
-            MouseButton::Right => {
-                if !self.diff.selection_current() || !self.diff.selected_rows.contains(&raw) {
-                    self.diff.selected_rows = HashSet::from([raw]);
-                    self.diff.selection_document = self.diff.document.clone();
-                }
-            }
+            // The right button opens a menu: `diff_context_menu`.
             _ => return,
         }
         self.dirty |= Dirty::DIFF;
@@ -407,10 +405,6 @@ impl Shell {
     }
 
     /// The hunk around a raw patch row of the diff on screen, for the hunk actions of the diff menu.
-    #[expect(
-        dead_code,
-        reason = "the right-click diff menu waits for the popup port"
-    )]
     pub(crate) fn hunk_patch_at(&self, raw_row: usize) -> Option<String> {
         if !self.diff.working() {
             return None;
@@ -420,10 +414,6 @@ impl Shell {
     }
 
     /// Ports `runHunkAction`. The TS app confirms a revert first; the caller owns that prompt.
-    #[expect(
-        dead_code,
-        reason = "the right-click diff menu waits for the popup port"
-    )]
     pub(crate) fn hunk_action(&mut self, app: &App, action: HunkAction, patch: String) {
         let source = self.diff.file.as_ref().map(|file| file.source.clone());
         let (needed, text) = match action {
@@ -487,7 +477,7 @@ impl Shell {
     }
 
     /// Ports `perform` for local index work: one mutation at a time, in its own slot.
-    fn perform<F>(&mut self, app: &App, label: &str, future: F)
+    pub(crate) fn perform<F>(&mut self, app: &App, label: &str, future: F)
     where
         F: Future<Output = GitResult<()>> + Send + 'static,
     {
@@ -501,6 +491,7 @@ impl Shell {
     }
 
     pub(crate) fn mutation_done(&mut self, app: &App, result: GitResult<()>) {
+        self.commands.cancel = None;
         let label = self.diff.mutation.take().unwrap_or_default();
         match result {
             Ok(()) => self.notice = None,

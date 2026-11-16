@@ -1,0 +1,27 @@
+# Right-click a commit row: the menu, a submenu, a confirmation popup, and a name prompt.
+fixture demo
+wait text "Working Changes"
+wait text "Unstage all"
+click 60 6 right
+wait text "Select for comparison"
+snapshot menu
+move 62 11
+wait text "Soft"
+snapshot submenu
+click 100 14
+wait text "Reset --hard"
+snapshot confirm
+key esc
+snapshot dismissed
+click 60 6 right
+wait text "Select for comparison"
+click 62 12
+wait text "Enter confirm"
+text "feature/menu"
+snapshot prompt
+key esc
+snapshot prompt-closed
+click 34 5 right
+wait text "Already on main"
+snapshot branch-menu
+key esc

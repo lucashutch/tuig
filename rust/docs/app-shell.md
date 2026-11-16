@@ -261,6 +261,23 @@ I prefer `Custom` painters over `Select` for lists. `Select` scrolls the selecti
 
 `HistoryList` is a `Custom<HistoryList>`. The shell owns `HistorySelection`, `HistoryViewport` (`tuig_ui_model::history_viewport`) and the `GraphIndex`. It builds a `HistoryWindow` (the commit rows on screen, their graph rows and ref labels) with `tuig_widgets::history::history_window` and passes it with `set_window`. The widget also has `set_selected(Option<usize>)`, `set_graph_scroll`, `set_columns` and `set_theme`. It reports `HistoryEvent::{Click { row, column, clicks }, Wheel(i32), ScrollGraph(i32)}` through `on_event`. The widget counts double clicks itself, so `HistoryState` has no `last_click`.
 
+## Popups, menus and the palette
+
+The overlay layer is `tuig_widgets::popup::PopupLayer`, one full-screen `Custom` at z-index 50. It paints the open menu (with an optional submenu) or the palette box and takes every mouse event while it is visible, as the TS `overlay-catcher` does. The name prompt and the palette search are `Input` widgets above it (z-index 80 and 102). `Shell::overlay` holds the state: `OverlayState { menu, palette }`. `Shell::sync_overlay` pushes it into the widgets when `Dirty::OVERLAY` is set. The widgets send `Msg::Overlay(OverlayMsg)`.
+
+Other screens use these `Shell` methods (`screens/popup.rs`):
+
+- `open_popup(MenuRequest { title, items, x, y, selected, on_select })` opens a menu at a terminal position. `on_select` is a `FnOnce(&mut Shell, &App, GraphMenuItem)` that runs after the popup closes, with the chosen item.
+- `confirm_then(ConfirmRequest, run)` shows lines and a confirm and a Cancel button. The confirm button starts highlighted.
+- `open_name_prompt(app, title, placeholder, run)` shows a one-line prompt. `run` gets the trimmed text. An empty text keeps the prompt open.
+- `open_graph_menu(x, y, GraphMenuTarget)` builds the menu with `tuig_ui_model::graph_menu::build_graph_menu` and runs the chosen action through `run_menu_action` (`screens/commands.rs`).
+- `toggle_palette(app)`, `close_popup(app)` and `dismiss_overlay(app)`.
+- `perform(app, label, future)` (`screens/diff.rs`) and `perform_remote` (`screens/commands.rs`) run one repository mutation at a time. Esc cancels a remote one.
+
+Keys go to `Shell::overlay_key` first. It uses the key when the palette is open, or when a menu is open and the key is Esc, Enter or Ctrl+P. The right-click entry points are `history_menu`, `file_menu` and `diff_context_menu` in `screens/context_menu.rs`.
+
+Add a palette command in `Shell::palette_commands` (`screens/palette.rs`) and handle its id in `run_palette_command`. A command whose feature is not ported shows a footer notice when run.
+
 ## Crate layout
 
 ```

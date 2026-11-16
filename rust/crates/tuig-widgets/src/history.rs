@@ -21,6 +21,7 @@
 
 use crate::decorations::{RefIndex, summarise_decorations};
 use opentui::prelude::*;
+use std::cell::Cell;
 use std::rc::Rc;
 use std::time::{Duration, Instant};
 use tuig_git::types::{BranchRef, Commit};
@@ -138,6 +139,14 @@ pub enum HistoryEvent {
     Wheel(i32),
     /// Horizontal wheel or shift with the vertical wheel, in graph columns.
     ScrollGraph(i32),
+    /// A right press on a row, for the context menu. `on_label` is set when the press landed on the ref label.
+    /// `x` and `y` are terminal cells.
+    Menu {
+        row: usize,
+        on_label: bool,
+        x: u16,
+        y: u16,
+    },
 }
 
 type EventHandler = Box<dyn FnMut(&mut Cx<'_>, HistoryEvent)>;
@@ -152,6 +161,8 @@ pub struct HistoryList {
     focused: bool,
     hovered_line: Option<usize>,
     last_press: Option<(usize, Instant)>,
+    /// The width of the last paint, for the label hit test.
+    width: Cell<u32>,
     on_event: Option<EventHandler>,
 }
 
@@ -170,6 +181,7 @@ impl HistoryList {
             focused: false,
             hovered_line: None,
             last_press: None,
+            width: Cell::new(0),
             on_event: None,
         }
     }
@@ -221,6 +233,28 @@ impl HistoryList {
         let body = usize::try_from(line.checked_sub(1)?).ok()?;
         let row = self.window.start + body;
         (row < self.window.total()).then_some(row)
+    }
+
+    /// Whether column `column` of display row `row` is on the ref label. The label column is as wide as the branch
+    /// column and has a hit only on rows that show a label.
+    fn on_label(&self, row: usize, column: i32) -> bool {
+        let data = &*self.window;
+        let Some(index) = row.checked_sub(usize::from(data.working_files > 0)) else {
+            return false;
+        };
+        let Some(entry) = index
+            .checked_sub(
+                data.start
+                    .saturating_sub(usize::from(data.working_files > 0)),
+            )
+            .and_then(|offset| data.rows.get(offset))
+        else {
+            return false;
+        };
+        let columns = visible_history_columns(self.columns, false);
+        let geometry =
+            history_column_layout(i64::from(self.width.get()), data.graph_columns, columns);
+        !entry.label.is_empty() && column >= 0 && i64::from(column) < geometry.branch_width
     }
 
     /// The rows the widget draws at `width` by `height` cells, one span list per line.
@@ -489,6 +523,7 @@ fn to_color(color: Rgba) -> Color {
 impl Component for HistoryList {
     fn paint(&self, painter: &mut Painter<'_>) {
         let (width, height) = painter.size();
+        self.width.set(width);
         painter.fill(0, 0, width, height, to_color(self.theme.bg));
         for (y, line) in self.render(width, height).into_iter().enumerate() {
             let mut x = 0;
@@ -537,7 +572,17 @@ impl Component for HistoryList {
             MouseEventKind::ScrollRight => HistoryEvent::ScrollGraph(1),
             MouseEventKind::ScrollUp => HistoryEvent::Wheel(-WHEEL_ROWS),
             MouseEventKind::ScrollDown => HistoryEvent::Wheel(WHEEL_ROWS),
-            // A right click does nothing here: the graph menu is not ported yet.
+            MouseEventKind::Down(MouseButton::Right) => {
+                let Some(row) = self.row_at_line(local.1) else {
+                    return false;
+                };
+                HistoryEvent::Menu {
+                    row,
+                    on_label: self.on_label(row, local.0),
+                    x: event.x,
+                    y: event.y,
+                }
+            }
             MouseEventKind::Down(MouseButton::Left) => {
                 let Some(row) = self.row_at_line(local.1) else {
                     return false;

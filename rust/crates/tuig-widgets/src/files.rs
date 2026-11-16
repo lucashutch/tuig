@@ -91,6 +91,12 @@ pub enum FileListEvent {
         row: usize,
         action: FileRowAction,
     },
+    /// A right press on `row`, for the context menu. `x` and `y` are terminal cells.
+    Menu {
+        row: usize,
+        x: u16,
+        y: u16,
+    },
 }
 
 type ListHandler = Box<dyn FnMut(&mut Cx<'_>, FileListEvent)>;
@@ -334,6 +340,16 @@ impl Component for FileList {
             }
             MouseEventKind::ScrollUp => FileListEvent::Wheel(-WHEEL_ROWS),
             MouseEventKind::ScrollDown => FileListEvent::Wheel(WHEEL_ROWS),
+            MouseEventKind::Down(MouseButton::Right) => {
+                let Some(index) = self.row_at_line(local.1) else {
+                    return false;
+                };
+                FileListEvent::Menu {
+                    row: self.data.start + index,
+                    x: event.x,
+                    y: event.y,
+                }
+            }
             MouseEventKind::Down(MouseButton::Left) if local.1 == 0 => FileListEvent::ToggleSection,
             MouseEventKind::Down(MouseButton::Left) => {
                 let Some(index) = self.row_at_line(local.1) else {

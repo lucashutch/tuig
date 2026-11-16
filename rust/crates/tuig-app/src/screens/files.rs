@@ -9,6 +9,8 @@
 //!
 //! Other panes read `Shell::files.selected` and react to `Msg::FileSelected` and `Msg::FileOpened`.
 
+use crate::screens::commands::FileAction;
+use crate::screens::popup::OverlayMsg;
 use crate::selected_file::{FileSource, SelectedFile};
 use crate::shell::{Dirty, GitResult, Inbox, Msg, PANE_TOP, Shell};
 use opentui::prelude::*;
@@ -202,7 +204,7 @@ impl FilesState {
     }
 
     /// The list a widget of `section` shows: the unstaged widget shows the commit's files in the commit view.
-    fn kind_of(&self, section: ListKind) -> ListKind {
+    pub(crate) fn kind_of(&self, section: ListKind) -> ListKind {
         match (self.contents, section) {
             (Contents::Commit, _) => ListKind::Commit,
             (_, section) => section,
@@ -251,6 +253,29 @@ impl FilesState {
             cache.rows_version = Some(*expansion_version);
         }
         &cache.rows
+    }
+
+    /// The files behind row `row` of the list `section` shows: the file itself, or every file under a directory
+    /// row. The flag tells whether the row is a directory.
+    pub(crate) fn row_files(
+        &mut self,
+        section: ListKind,
+        row: usize,
+    ) -> Option<(Vec<ChangedFile>, bool)> {
+        let kind = self.kind_of(section);
+        let entry = self.rows(kind).get(row)?.clone();
+        let files = self.files_of(kind);
+        if !entry.directory {
+            let file = files.iter().find(|file| file.path == entry.path)?;
+            return Some((vec![file.clone()], false));
+        }
+        let prefix = format!("{}/", entry.path);
+        let under = files
+            .iter()
+            .filter(|file| file.path.starts_with(&prefix))
+            .cloned()
+            .collect();
+        Some((under, true))
     }
 
     fn toggle_directory(&mut self, path: &str) {
@@ -370,6 +395,9 @@ impl FilesWidgets {
                         row,
                         action,
                     },
+                    FileListEvent::Menu { row, x, y } => {
+                        Msg::Overlay(OverlayMsg::FileMenu { section, row, x, y })
+                    }
                 };
                 inbox.post(cx.app(), msg);
             });
@@ -922,17 +950,31 @@ impl Shell {
         self.dirty |= Dirty::FILES;
     }
 
+    /// A hover action on a row: Stage, Discard or Unstage the row's files (`descendantFiles`).
     pub(crate) fn file_row_action(
         &mut self,
-        _section: ListKind,
-        _row: usize,
-        _action: FileRowAction,
+        app: &App,
+        section: ListKind,
+        row: usize,
+        action: FileRowAction,
     ) {
-        // The staging code applies Stage, Discard and Unstage to the row's files (`descendantFiles`).
+        let Some((files, directory)) = self.files.row_files(section, row) else {
+            return;
+        };
+        let action = match action {
+            FileRowAction::Stage => FileAction::Stage,
+            FileRowAction::Discard => FileAction::Discard,
+            FileRowAction::Unstage => FileAction::Unstage,
+        };
+        self.run_file_action(app, action, files, directory);
     }
 
-    pub(crate) fn changes_action(&mut self, _action: ChangesAction) {
-        // The staging code applies Discard all, Stage all and Unstage all.
+    pub(crate) fn changes_action(&mut self, app: &App, action: ChangesAction) {
+        match action {
+            ChangesAction::Discard => self.discard_all(app),
+            ChangesAction::Stage => self.stage_all(app),
+            ChangesAction::Unstage => self.unstage_all(app),
+        }
     }
 }
 

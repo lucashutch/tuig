@@ -8,3 +8,4 @@ pub mod file_history;
 pub mod files;
 pub mod grammars;
 pub mod history;
+pub mod popup;

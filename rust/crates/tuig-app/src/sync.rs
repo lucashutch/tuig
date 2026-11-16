@@ -3,6 +3,7 @@
 
 use crate::screens::details::DetailsView;
 use crate::screens::files::FilesWidgets;
+use crate::screens::popup::{OverlayMsg, OverlayWidgets};
 use crate::shell::{Dirty, Inbox, Msg, PANE_TOP, Shell};
 use opentui::prelude::*;
 use opentui::widget::View;
@@ -27,6 +28,8 @@ pub struct Widgets {
     pub details_view: DetailsView,
     /// Key hints on the bottom row.
     hints: View,
+    /// Menus, the palette and the prompts, above everything else.
+    pub overlay: OverlayWidgets,
 }
 
 fn placeholder(app: &App, theme: &Theme) -> View {
@@ -52,6 +55,17 @@ impl Widgets {
                     },
                     HistoryEvent::Wheel(delta) => Msg::HistoryWheel(delta),
                     HistoryEvent::ScrollGraph(delta) => Msg::HistoryScrollGraph(delta),
+                    HistoryEvent::Menu {
+                        row,
+                        on_label,
+                        x,
+                        y,
+                    } => Msg::Overlay(OverlayMsg::HistoryMenu {
+                        row,
+                        on_label,
+                        x,
+                        y,
+                    }),
                 };
                 inbox.post(cx.app(), msg);
             });
@@ -71,6 +85,7 @@ impl Widgets {
             files,
             details_view,
             hints: placeholder(app, theme),
+            overlay: OverlayWidgets::new(app, theme, inbox),
         };
         app.root()
             .bg(color(theme.bg))
@@ -80,6 +95,7 @@ impl Widgets {
             .add(&widgets.diff)
             .add(&widgets.details)
             .add(&widgets.hints);
+        widgets.overlay.attach(&app.root());
         widgets.history.focus();
         widgets
     }
@@ -159,6 +175,9 @@ impl Shell {
             .history
             .update(|list| list.set_focused(focused));
         self.sync_diff();
+        if self.dirty.intersects(Dirty::OVERLAY | Dirty::LAYOUT) {
+            self.sync_overlay(_app);
+        }
         self.dirty = Dirty::empty();
     }
 }

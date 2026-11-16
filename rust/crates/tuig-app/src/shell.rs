@@ -8,10 +8,12 @@
 
 use crate::keys::{self, Command};
 use crate::refresh::{RefreshState, WatchSignal};
+use crate::screens::commands::CommandsState;
 use crate::screens::details::{DetailsAction, DetailsState, HistoryLoaded};
 use crate::screens::diff::DiffState;
 use crate::screens::files::{ChangesAction, FilesState, Focus, Split};
 use crate::screens::history::HistoryState;
+use crate::screens::popup::{OverlayMsg, OverlayState};
 use crate::selected_file::SelectedFile;
 use crate::sync::Widgets;
 use crate::tasks::{ReqId, Slot, Tasks};
@@ -76,6 +78,8 @@ pub enum Msg {
     Details(DetailsAction),
     FileHistoryClick(usize),
     DiffInput(DiffEvent),
+    /// Menus, the palette and the prompts. See `screens/popup.rs`.
+    Overlay(OverlayMsg),
 
     Snapshot(ReqId, GitResult<RepositorySnapshot>),
     CommitPage(ReqId, GitResult<CommitPage>),
@@ -111,6 +115,7 @@ bitflags! {
         const FILES = 16;
         const DETAILS = 32;
         const DIFF = 64;
+        const OVERLAY = 128;
     }
 }
 
@@ -152,6 +157,9 @@ pub struct LayoutState {
     pub width: u16,
     pub height: u16,
     pub panes: PaneLayout,
+    /// The palette toggles these. `leftCollapsed` and `detailsCollapsed`.
+    pub left_collapsed: bool,
+    pub details_collapsed: bool,
 }
 
 impl LayoutState {
@@ -159,16 +167,43 @@ impl LayoutState {
         Self {
             width,
             height,
-            panes: layout_panes(PaneInputs {
-                terminal_width: i64::from(width),
-                left_width: LEFT_WIDTH,
-                details_width: DETAILS_WIDTH,
-                left_collapsed: false,
-                details_collapsed: false,
-                content_height: Self::content_height_for(height),
-                branch_filter_active: false,
-            }),
+            panes: Self::panes(width, height, false, false),
+            left_collapsed: false,
+            details_collapsed: false,
         }
+    }
+
+    fn panes(width: u16, height: u16, left_collapsed: bool, details_collapsed: bool) -> PaneLayout {
+        layout_panes(PaneInputs {
+            terminal_width: i64::from(width),
+            left_width: LEFT_WIDTH,
+            details_width: DETAILS_WIDTH,
+            left_collapsed,
+            details_collapsed,
+            content_height: Self::content_height_for(height),
+            branch_filter_active: false,
+        })
+    }
+
+    fn recompute(&mut self) {
+        self.panes = Self::panes(
+            self.width,
+            self.height,
+            self.left_collapsed,
+            self.details_collapsed,
+        );
+    }
+
+    pub fn set_collapsed(&mut self, left: bool, details: bool) {
+        self.left_collapsed = left;
+        self.details_collapsed = details;
+        self.recompute();
+    }
+
+    fn resize(&mut self, width: u16, height: u16) {
+        self.width = width;
+        self.height = height;
+        self.recompute();
     }
 
     fn content_height_for(height: u16) -> i64 {
@@ -189,6 +224,9 @@ pub struct Shell {
     pub files: FilesState,
     pub details: DetailsState,
     pub diff: DiffState,
+    pub overlay: OverlayState,
+    pub commands: CommandsState,
+    pub avatars_enabled: bool,
     pub layout: LayoutState,
     pub tasks: Tasks,
     pub refresh: RefreshState,
@@ -217,6 +255,9 @@ impl Shell {
             files: FilesState::new(),
             details: DetailsState::default(),
             diff: DiffState::new(),
+            overlay: OverlayState::default(),
+            commands: CommandsState::default(),
+            avatars_enabled: true,
             layout: LayoutState::new(width, height),
             tasks: Tasks::default(),
             refresh: RefreshState::default(),
@@ -270,6 +311,9 @@ impl Shell {
     pub fn update(&mut self, app: &App, msg: Msg) {
         match msg {
             Msg::Key(key) => {
+                if self.overlay_key(app, &key) {
+                    return;
+                }
                 if let Some(command) = keys::command_for(&key) {
                     self.command(app, command);
                 }
@@ -289,16 +333,17 @@ impl Shell {
                 section,
                 row,
                 action,
-            } => self.file_row_action(section, row, action),
-            Msg::ChangesAction(action) => self.changes_action(action),
+            } => self.file_row_action(app, section, row, action),
+            Msg::ChangesAction(action) => self.changes_action(app, action),
             Msg::SplitDrag { split, y } => self.split_drag(split, y),
             Msg::HistoryWheel(delta) => self.queue_history_scroll(app, delta),
             Msg::HistoryScrollGraph(delta) => {
                 self.scroll_graph(i64::from(delta));
             }
             Msg::Resize(width, height) => {
-                self.layout = LayoutState::new(width, height);
-                self.dirty |= Dirty::LAYOUT | Dirty::HISTORY | Dirty::DETAILS;
+                self.layout.resize(width, height);
+                self.dirty |= Dirty::LAYOUT | Dirty::HISTORY | Dirty::DETAILS | Dirty::OVERLAY;
+                self.repaint_palette_state();
             }
             Msg::Snapshot(id, result) => {
                 if self.tasks.snapshot.finish(id) {
@@ -338,6 +383,7 @@ impl Shell {
                 }
             }
             Msg::DiffInput(event) => self.diff_input(event),
+            Msg::Overlay(msg) => self.overlay_msg(app, msg),
             Msg::Diff(id, result) => {
                 if self.tasks.diff.finish(id) {
                     self.diff_loaded(result);
@@ -384,7 +430,11 @@ impl Shell {
                     self.apply_selected_lines(app, false);
                 }
             }
+            Command::OpenPalette => self.toggle_palette(app),
             Command::Back => {
+                if self.cancel_mutation() {
+                    return;
+                }
                 if !self.diff_escape() {
                     self.escape_details();
                 }

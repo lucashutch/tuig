@@ -56,6 +56,8 @@ Waits use screen quiet time, not sleeps. A wait ends when no cell has changed fo
 | `wheel-history`                                                                   | history | Wheel down 10 rows, to the end (loads the second page), up 10, and back to the top     |
 | `diff-scroll`                                                                     | history | Wheel through a 151-line diff and back                                                 |
 | `syntax-highlight`                                                                | history | One diff per language, 13 snapshots, with a 600 ms quiet time so highlighting finishes |
+| `graph-menu`                                                                      | demo    | Right-click a commit: menu, submenu, confirmation, name prompt, branch label menu      |
+| `diff-menu`                                                                       | demo    | Right-click in the diff: selected-lines menu and file menu                             |
 
 The whole suite takes about 1.5 minutes to record and about the same to compare.
 

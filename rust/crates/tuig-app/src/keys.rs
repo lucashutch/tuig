@@ -26,6 +26,8 @@ pub enum Command {
     ToggleDiffView,
     /// Shift+L: loads a diff past the display limit.
     LoadLargeDiff,
+    /// Ctrl+P: opens the command palette.
+    OpenPalette,
 }
 
 /// The command for a key that the focused widget did not take. `None` for keys the ported screens do not use.
@@ -33,7 +35,9 @@ pub fn command_for(key: &KeyEvent) -> Option<Command> {
     if key.kind == KeyEventKind::Release {
         return None;
     }
-    let command = if key.matches("q") || key.matches("ctrl+c") {
+    let command = if key.matches("ctrl+p") {
+        Command::OpenPalette
+    } else if key.matches("q") || key.matches("ctrl+c") {
         Command::Quit
     } else if key.matches("up") || key.matches("k") {
         Command::MoveCommit(-1)
