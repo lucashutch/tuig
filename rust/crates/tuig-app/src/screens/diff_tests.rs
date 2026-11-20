@@ -96,6 +96,21 @@ impl Harness {
             .show_file_diff(self.app.app(), Some(file));
     }
 
+    /// Waits until no load that could replace the diff is running. `diff_press` ignores presses while one runs.
+    fn wait_idle(&self) {
+        self.wait("the loads to finish", |shell| {
+            !shell.tasks.diff.busy() && !shell.tasks.snapshot.busy()
+        });
+    }
+
+    /// Waits for a started mutation and the refresh and diff reload that follow it.
+    fn wait_for_mutation(&self) {
+        self.wait("the mutation", |shell| {
+            shell.diff.mutation.is_none() && !shell.tasks.mutation.busy()
+        });
+        self.wait_idle();
+    }
+
     fn wait_for_document(&self, path: &str) -> Rc<DiffDocument> {
         let marker = format!("+++ b/{path}");
         self.wait("the diff", |shell| {
@@ -105,6 +120,7 @@ impl Harness {
                 .as_ref()
                 .is_some_and(|document| document.patch.contains(&marker))
         });
+        self.wait_idle();
         self.shell.borrow().diff.document.clone().unwrap()
     }
 
@@ -146,7 +162,7 @@ fn staging_selected_lines_changes_only_those_lines_in_the_index() {
     h.press(&document, "+ONE", true);
     assert_eq!(h.shell.borrow().diff.selected_rows.len(), 2);
     h.update(Msg::Key(KeyEvent::from(opentui::input::KeyCode::Enter)));
-    h.wait("the mutation", |shell| shell.diff.mutation.is_none());
+    h.wait_for_mutation();
     assert_eq!(h.index(), "ONE\ntwo\nthree\n");
 
     // The reloaded unstaged diff holds only the second change. Unstage it from the staged diff instead.
@@ -156,13 +172,20 @@ fn staging_selected_lines_changes_only_those_lines_in_the_index() {
             document.patch.contains("+ONE") && !document.patch.contains("+THREE")
         })
     });
+    // The refresh after the first mutation reloads the diff. A press during that reload selects nothing.
+    h.wait_idle();
     let staged = h.shell.borrow().diff.document.clone().unwrap();
     h.press(&staged, "-one", false);
     h.press(&staged, "+ONE", true);
+    assert_eq!(h.shell.borrow().diff.selected_rows.len(), 2);
     h.shell
         .borrow_mut()
         .apply_selected_lines(h.app.app(), false);
-    h.wait("the unstage", |shell| shell.diff.mutation.is_none());
+    assert!(
+        h.shell.borrow().diff.mutation.is_some(),
+        "the unstage must start"
+    );
+    h.wait_for_mutation();
     assert_eq!(h.index(), "one\ntwo\nthree\n");
     assert_eq!(
         std::fs::read_to_string(h.repo.0.join("a.txt")).unwrap(),
@@ -172,14 +195,36 @@ fn staging_selected_lines_changes_only_those_lines_in_the_index() {
 }
 
 #[test]
+fn a_press_while_the_diff_reloads_selects_nothing() {
+    let h = Harness::new();
+    h.show("a.txt", FileSource::WorkingUnstaged);
+    let document = h.wait_for_document("a.txt");
+    h.shell.borrow_mut().load_diff(h.app.app(), false);
+    assert!(h.shell.borrow().tasks.diff.busy());
+    h.press(&document, "-one", false);
+    assert!(
+        h.shell.borrow().diff.selected_rows.is_empty(),
+        "rows would bind to a patch that the reload may replace"
+    );
+    h.wait_idle();
+    h.press(&document, "-one", false);
+    assert_eq!(h.shell.borrow().diff.selected_rows.len(), 1);
+}
+
+#[test]
 fn discarding_selected_lines_restores_them_in_the_work_tree() {
     let h = Harness::new();
     h.show("a.txt", FileSource::WorkingUnstaged);
     let document = h.wait_for_document("a.txt");
     h.press(&document, "-three", true);
     h.press(&document, "+THREE", true);
+    assert_eq!(h.shell.borrow().diff.selected_rows.len(), 2);
     h.shell.borrow_mut().apply_selected_lines(h.app.app(), true);
-    h.wait("the discard", |shell| shell.diff.mutation.is_none());
+    assert!(
+        h.shell.borrow().diff.mutation.is_some(),
+        "the discard must start"
+    );
+    h.wait_for_mutation();
     assert_eq!(
         std::fs::read_to_string(h.repo.0.join("a.txt")).unwrap(),
         "ONE\ntwo\nthree\n"
