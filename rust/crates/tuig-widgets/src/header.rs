@@ -6,8 +6,8 @@
 //! One [`Component`] covers all three rows. The shell pushes a [`HeaderView`] and receives [`HeaderEvent`]s. The
 //! widget keeps only pointer state: the hovered and pressed button, and the tab being dragged.
 //!
-//! Known gap: OpenTUI reports no pointer-leave event, so a hover highlight stays until the pointer moves over
-//! another cell of the header.
+//! Known gap: `Widget::on_hover` reports `false` when the pointer leaves (with `MouseTracking::Motion`), but Rust does
+//! not use `on_hover(false)` yet. A hover highlight stays until the pointer moves over another cell of the header.
 
 use crate::decorations::display_branch_name;
 use opentui::prelude::*;

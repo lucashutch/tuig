@@ -6,8 +6,8 @@
 //! widget paints that view and reports raw pointer input as [`SidebarEvent`]. The shell decides what a press or a
 //! wheel notch means. The widget keeps the hit boxes that TS gives to its header and divider renderables.
 //!
-//! Known parity gap: the divider bars have no hover color. OpenTUI reports no pointer-leave event, so a hover could
-//! not be cleared.
+//! Known parity gap: the divider bars have no hover color. `Widget::on_hover` reports `false` when the pointer leaves
+//! (with `MouseTracking::Motion`), but Rust does not use `on_hover(false)` yet, so a hover could not be cleared.
 
 use crate::decorations::{
     HEAD_ICON, LAPTOP_BRANCH_ICON, REMOTE_BRANCH_ICON, RefIndex, display_branch_name,

@@ -3,7 +3,8 @@
 //! in `src/ui/runtime-theme.ts`.
 //!
 //! The press runs on release inside the button, as in TS. A hover handler on the widget sets the shared flag from
-//! [`ComposerButton::hover_flag`], because a custom widget gets no pointer-leave event of its own.
+//! [`ComposerButton::hover_flag`]. `Widget::on_hover` fires with `false` when the pointer leaves (with
+//! `MouseTracking::Motion`), which clears the flag.
 
 use opentui::prelude::*;
 use std::cell::Cell;

@@ -3,8 +3,8 @@
 
 Each case builds a fresh repo, runs one app on it under a PTY, plays the steps, closes the app and
 snapshots the repo (commits, refs, stashes, HEAD, index, status, work tree, remote refs). The two
-snapshots must be equal. SHAs are not compared because commit times differ; commits are compared by
-message, author, tree and parent subjects. Run from anywhere:
+snapshots must be equal. The commit dates are fixed in `session.py`, but SHAs are still not compared;
+commits are compared by message, author, committer, tree and parent subjects. Run from anywhere:
 
     python3 tools/parity/mutations.py [--ts CMD] [--rust CMD] [--list] [--screen] [case ...]
 
