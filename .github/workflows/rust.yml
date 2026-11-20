@@ -15,6 +15,7 @@ env:
 
 jobs:
   rust:
+    # The package built here is a CI artifact, not a release. ubuntu-latest has a newer glibc than a release host should have.
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -35,7 +36,7 @@ jobs:
         uses: actions/cache@v5
         with:
           path: rust/.opentui-native
-          key: opentui-native-${{ runner.os }}-${{ steps.opentui.outputs.rev }}
+          key: opentui-native-${{ runner.os }}-${{ steps.opentui.outputs.rev }}-${{ hashFiles('rust/scripts/build-opentui-native.sh') }}
       - run: sh scripts/build-opentui-native.sh
       - uses: Swatinem/rust-cache@v2
         with:

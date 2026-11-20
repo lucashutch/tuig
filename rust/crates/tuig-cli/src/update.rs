@@ -1,7 +1,6 @@
 use crate::error::CliError;
 use async_trait::async_trait;
 use sha2::{Digest, Sha256};
-use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use tokio::process::Command;
@@ -158,6 +157,27 @@ impl Drop for ScratchDir {
     }
 }
 
+/// Prefix of the scratch directories that `install_release` creates beside the executable.
+const SCRATCH_PREFIX: &str = ".tuig-update-";
+
+/// Removes the scratch directories that an interrupted update left in `dir` (SIGINT or SIGKILL
+/// skip `Drop`). It removes real directories with the scratch prefix only, never files or links.
+fn remove_stale_scratch_dirs(dir: &Path) {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let is_scratch = entry
+            .file_name()
+            .to_str()
+            .is_some_and(|name| name.starts_with(SCRATCH_PREFIX));
+        // `DirEntry::file_type` does not follow symbolic links.
+        if is_scratch && entry.file_type().is_ok_and(|kind| kind.is_dir()) {
+            let _ = std::fs::remove_dir_all(entry.path());
+        }
+    }
+}
+
 fn io_error(what: &str, error: std::io::Error) -> CliError {
     CliError::Other(format!("{what}: {error}"))
 }
@@ -171,7 +191,8 @@ fn sha256_hex(path: &Path) -> Result<String, CliError> {
 }
 
 /// Downloads the release package for `tag`, checks its SHA-256 sum, and replaces the executable
-/// at `exe` with the binary inside. The work happens in a directory beside `exe`, so the final
+/// at `exe` with the binary inside. The checksum comes from the same release as the archive, so it
+/// detects a damaged or incomplete download. It does not prove who published the archive. The work happens in a directory beside `exe`, so the final
 /// rename stays on one file system. Linux lets a running program be replaced by rename.
 pub async fn install_release(
     tag: &str,
@@ -182,7 +203,8 @@ pub async fn install_release(
     let dir = exe
         .parent()
         .ok_or_else(|| CliError::Other("the tuig executable has no directory".into()))?;
-    let scratch = ScratchDir(dir.join(format!(".tuig-update-{}", std::process::id())));
+    let scratch = ScratchDir(dir.join(format!("{SCRATCH_PREFIX}{}", std::process::id())));
+    remove_stale_scratch_dirs(dir);
     let _ = std::fs::remove_dir_all(&scratch.0);
     std::fs::create_dir(&scratch.0).map_err(|e| {
         io_error(
@@ -231,8 +253,19 @@ pub async fn install_release(
         )));
     }
     let binary = unpacked.join(&stem).join("tuig");
-    std::fs::set_permissions(&binary, std::fs::Permissions::from_mode(0o755))
-        .map_err(|e| io_error("could not unpack the download", e))?;
+    // `tar` would also extract a symbolic link or a device node under this name.
+    let is_file = std::fs::symlink_metadata(&binary).is_ok_and(|meta| meta.is_file());
+    if !is_file {
+        return Err(CliError::Other(
+            "the download does not contain a tuig program".into(),
+        ));
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&binary, std::fs::Permissions::from_mode(0o755))
+            .map_err(|e| io_error("could not unpack the download", e))?;
+    }
 
     // A binary for the wrong platform or a damaged one must not replace the working one.
     let check = Command::new(&binary)
@@ -243,6 +276,14 @@ pub async fn install_release(
         .map_err(|error| CliError::Other(format!("the new tuig does not start: {error}")))?;
     if !check.status.success() {
         return Err(CliError::Other("the new tuig does not start".into()));
+    }
+    let expected_line = crate::version_line(tag.strip_prefix('v').unwrap_or(tag));
+    let reported = String::from_utf8_lossy(&check.stdout);
+    let reported = reported.trim_end_matches('\n');
+    if reported != expected_line {
+        return Err(CliError::Other(format!(
+            "the new tuig reports \"{reported}\" instead of \"{expected_line}\""
+        )));
     }
 
     // The scratch directory is beside `exe`, so this rename stays on one file system.
@@ -371,13 +412,23 @@ mod tests {
         }
     }
 
-    /// A release package whose `tuig` is a script that prints a line and exits with `code`.
+    /// A release package whose `tuig` is a script that prints `tuig 0.2.0` and exits with `code`.
     fn build_package(dir: &Path, stem: &str, code: i32) -> (PathBuf, String) {
+        build_package_printing(dir, stem, "tuig 0.2.0", code)
+    }
+
+    /// Like [`build_package`], with the `--version` output chosen.
+    fn build_package_printing(
+        dir: &Path,
+        stem: &str,
+        printed: &str,
+        code: i32,
+    ) -> (PathBuf, String) {
         let root = dir.join("package");
         std::fs::create_dir_all(root.join(stem)).unwrap();
         std::fs::write(
             root.join(stem).join("tuig"),
-            format!("#!/bin/sh\necho new-binary\nexit {code}\n"),
+            format!("#!/bin/sh\necho \"{printed}\"\nexit {code}\n"),
         )
         .unwrap();
         let archive = dir.join("archive.tar.gz");
@@ -438,7 +489,7 @@ mod tests {
             .unwrap();
 
         let output = std::process::Command::new(&exe).output().unwrap();
-        assert_eq!(String::from_utf8_lossy(&output.stdout), "new-binary\n");
+        assert_eq!(String::from_utf8_lossy(&output.stdout), "tuig 0.2.0\n");
         let urls = release.urls.lock().unwrap();
         assert!(urls.contains(&package_url("v0.2.0", "x86_64-linux")));
         assert!(urls.contains(&format!("{}.sha256", package_url("v0.2.0", "x86_64-linux"))));
@@ -492,6 +543,100 @@ mod tests {
 
         assert_eq!(error.to_string(), "the new tuig does not start");
         assert_eq!(std::fs::read_to_string(&exe).unwrap(), "old-binary");
+    }
+
+    #[tokio::test]
+    async fn update_keeps_the_old_executable_when_the_new_version_differs() {
+        let temp = TempDir::new("mismatch");
+        let stem = package_stem("v0.2.0", "x86_64-linux");
+        let (archive, checksum) = build_package_printing(&temp.0, &stem, "tuig 0.1.9", 0);
+        let bin = temp.0.join("bin");
+        std::fs::create_dir(&bin).unwrap();
+        let exe = old_executable(&bin);
+        let release = Release {
+            archive,
+            checksum,
+            urls: Mutex::new(Vec::new()),
+        };
+
+        let error = update_tuig_at("0.1.21", &release, "x86_64-linux", &exe)
+            .await
+            .unwrap_err();
+
+        assert_eq!(
+            error.to_string(),
+            "the new tuig reports \"tuig 0.1.9\" instead of \"tuig 0.2.0\""
+        );
+        assert_eq!(std::fs::read_to_string(&exe).unwrap(), "old-binary");
+        assert_eq!(std::fs::read_dir(&bin).unwrap().count(), 1);
+    }
+
+    #[tokio::test]
+    async fn update_rejects_a_package_whose_tuig_is_a_symbolic_link() {
+        let temp = TempDir::new("symlink");
+        let stem = package_stem("v0.2.0", "x86_64-linux");
+        let root = temp.0.join("package");
+        std::fs::create_dir_all(root.join(&stem)).unwrap();
+        std::os::unix::fs::symlink("/bin/true", root.join(&stem).join("tuig")).unwrap();
+        let archive = temp.0.join("archive.tar.gz");
+        let status = std::process::Command::new("tar")
+            .arg("-czf")
+            .arg(&archive)
+            .arg("-C")
+            .arg(&root)
+            .arg(&stem)
+            .status()
+            .unwrap();
+        assert!(status.success());
+        let checksum = sha256_hex(&archive).unwrap();
+        let bin = temp.0.join("bin");
+        std::fs::create_dir(&bin).unwrap();
+        let exe = old_executable(&bin);
+        let release = Release {
+            archive,
+            checksum,
+            urls: Mutex::new(Vec::new()),
+        };
+
+        let error = update_tuig_at("0.1.21", &release, "x86_64-linux", &exe)
+            .await
+            .unwrap_err();
+
+        assert_eq!(
+            error.to_string(),
+            "the download does not contain a tuig program"
+        );
+        assert_eq!(std::fs::read_to_string(&exe).unwrap(), "old-binary");
+    }
+
+    #[tokio::test]
+    async fn update_removes_scratch_directories_left_by_an_interrupted_update() {
+        let temp = TempDir::new("stale");
+        let stem = package_stem("v0.2.0", "x86_64-linux");
+        let (archive, checksum) = build_package(&temp.0, &stem, 0);
+        let bin = temp.0.join("bin");
+        std::fs::create_dir(&bin).unwrap();
+        let exe = old_executable(&bin);
+        let stale = bin.join(".tuig-update-99999999");
+        std::fs::create_dir_all(stale.join("unpacked")).unwrap();
+        std::fs::write(stale.join("unpacked").join("partial.tar.gz"), "x").unwrap();
+        let other_dir = bin.join("other-dir");
+        std::fs::create_dir(&other_dir).unwrap();
+        let prefixed_file = bin.join(".tuig-update-note");
+        std::fs::write(&prefixed_file, "keep").unwrap();
+        let release = Release {
+            archive,
+            checksum,
+            urls: Mutex::new(Vec::new()),
+        };
+
+        update_tuig_at("0.1.21", &release, "x86_64-linux", &exe)
+            .await
+            .unwrap();
+
+        assert!(!stale.exists());
+        assert!(other_dir.exists());
+        assert_eq!(std::fs::read_to_string(&prefixed_file).unwrap(), "keep");
     }
 
     #[tokio::test]

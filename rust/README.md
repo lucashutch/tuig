@@ -56,7 +56,14 @@ The release profile in `Cargo.toml` uses fat LTO, one codegen unit and `strip = 
 so the terminal restores on a panic.
 
 `tuig update` downloads the archive of the latest GitHub release (`package_url` in `tuig-cli/src/update.rs`), checks the
-SHA-256 sum, runs the new binary with `--version`, and replaces the running executable.
+SHA-256 sum, runs the new binary with `--version` and requires the output `tuig <version>` of that release, and replaces
+the running executable. The sum finds a damaged download. It does not prove who published the archive.
+
+**Releases do not publish the Rust package yet.** `.github/workflows/release.yml` creates the GitHub release but builds
+and attaches no archive, so `tuig update` in the Rust binary fails with an HTTP 404 until a release job uploads
+`tuig-<version>-x86_64-linux.tar.gz` and its `.sha256` file. `package_url` carries a `TODO(hosting)` for this. The CI
+artifact from `rust.yml` is not a release: it builds on `ubuntu-latest`, which has a newer glibc than a release host
+should have.
 
 Other platforms:
 
