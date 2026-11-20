@@ -6,3 +6,4 @@ coverage/
 .claude/
 rust/target
 rust/.opentui-native
+rust/dist

@@ -5,9 +5,8 @@
 //! - The release request runs through `curl` (see [`CurlFetcher`]) with a 30 second limit. The
 //!   TypeScript code uses `fetch` with no limit.
 //! - [`open_url`] uses `open` on macOS. The TypeScript code only knows `xdg-open`.
-//! - When `bun install` ends on a signal, the error text says `(exit signal)`. The TypeScript code
-//!   prints the numeric exit code.
-//! - `tuig update` still installs through `bun install -g`, as in the TypeScript app.
+//! - `tuig update` downloads the release package, checks its SHA-256 sum and replaces the running
+//!   executable. The TypeScript app runs `bun install -g`.
 
 pub mod args;
 pub mod error;
@@ -23,6 +22,7 @@ pub use start::{
     resolve_start_repositories,
 };
 pub use update::{
-    CurlFetcher, HttpResponse, ReleaseFetcher, UpdateStatus, check_for_update,
-    install_source_for_tag, is_current_release, latest_release_tag, update_tuig,
+    CurlFetcher, HttpResponse, ReleaseFetcher, UpdateStatus, check_for_update, current_platform,
+    install_release, is_current_release, latest_release_tag, package_stem, package_url,
+    update_tuig, update_tuig_at,
 };

@@ -39,3 +39,28 @@ were generated from.
 2. Run `cargo update -p opentui`.
 3. Run `scripts/build-opentui-native.sh`. It rebuilds the library and checks the zig version the new rev needs.
 4. Run `cargo clippy --all-targets -- -D warnings` and `cargo test`.
+
+## Release package
+
+```sh
+scripts/package.sh
+```
+
+The script builds the native library, builds `tuig` with `cargo build --release --locked`, and writes
+`dist/tuig-<version>-x86_64-linux.tar.gz` and a `.sha256` file. The version comes from `../package.json`, the file that
+also gives `tuig --version`. The archive holds one directory with `tuig`, `LICENSE`, `README.md` and `licenses/`.
+
+OpenTUI is linked statically from `libopentui.a`. The binary needs no `OPENTUI_LIB_DIR` and no shared OpenTUI library.
+`ldd` lists only `libc`, `libm`, `libgcc_s` and the loader, so build releases on the oldest glibc you want to support.
+The release profile in `Cargo.toml` uses fat LTO, one codegen unit and `strip = "symbols"`. It keeps `panic = "unwind"`
+so the terminal restores on a panic.
+
+`tuig update` downloads the archive of the latest GitHub release (`package_url` in `tuig-cli/src/update.rs`), checks the
+SHA-256 sum, runs the new binary with `--version`, and replaces the running executable.
+
+Other platforms:
+
+- aarch64 Linux: `build-opentui-native.sh` already builds it. Build on an aarch64 host or add a cross target, and add the
+  platform to `package.sh` and `current_platform`.
+- macOS: the native-library script must learn the macOS zig targets and the framework list that `opentui-sys` links.
+- Windows: `opentui-sys` links `opentui.dll` there, so the package would need to ship the DLL.

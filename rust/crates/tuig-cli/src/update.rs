@@ -1,5 +1,8 @@
 use crate::error::CliError;
 use async_trait::async_trait;
+use sha2::{Digest, Sha256};
+use std::os::unix::fs::PermissionsExt;
+use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use tokio::process::Command;
 
@@ -15,9 +18,12 @@ pub struct HttpResponse {
 #[async_trait]
 pub trait ReleaseFetcher: Send + Sync {
     async fn get(&self, url: &str, accept: &str) -> Result<HttpResponse, CliError>;
+    /// Saves the body of a successful GET request to `dest`.
+    async fn download(&self, url: &str, dest: &Path) -> Result<(), CliError>;
 }
 
-/// Fetches through the `curl` program. It follows redirects and gives up after 30 seconds.
+/// Fetches through the `curl` program. It follows redirects. A request gives up after 30 seconds
+/// and a download after 5 minutes.
 pub struct CurlFetcher;
 
 #[async_trait]
@@ -48,11 +54,27 @@ impl ReleaseFetcher for CurlFetcher {
             body: body.to_string(),
         })
     }
-}
 
-/// The argument for `bun install -g`. It names the dependency so Bun replaces its Git resolution.
-pub fn install_source_for_tag(tag: &str) -> String {
-    format!("tuig@git+https://github.com/{REPOSITORY}.git#{tag}")
+    async fn download(&self, url: &str, dest: &Path) -> Result<(), CliError> {
+        let output = Command::new("curl")
+            .args(["-q", "--silent", "--show-error", "--location", "--fail"])
+            .args(["--proto", "=https", "--max-time", "300"])
+            .arg("--output")
+            .arg(dest)
+            .arg(url)
+            .stdin(Stdio::null())
+            .kill_on_drop(true)
+            .output()
+            .await
+            .map_err(|error| CliError::Other(format!("could not run curl: {error}")))?;
+        if !output.status.success() {
+            return Err(CliError::Other(format!(
+                "download failed: {}",
+                String::from_utf8_lossy(&output.stderr).trim()
+            )));
+        }
+        Ok(())
+    }
 }
 
 pub fn is_current_release(version: &str, tag: &str) -> bool {
@@ -100,10 +122,157 @@ pub async fn check_for_update(
     })
 }
 
+/// The release platform of this build, as it appears in asset names, or `None` when no release
+/// is built for it. The packaging script (`rust/scripts/package.sh`) builds `x86_64-linux` only.
+pub fn current_platform() -> Option<&'static str> {
+    match (std::env::consts::OS, std::env::consts::ARCH) {
+        ("linux", "x86_64") => Some("x86_64-linux"),
+        _ => None,
+    }
+}
+
+/// The package name without the extension, for example `tuig-0.1.22-x86_64-linux`. The archive
+/// holds one directory of this name. `rust/scripts/package.sh` builds the same name.
+pub fn package_stem(tag: &str, platform: &str) -> String {
+    format!("tuig-{}-{platform}", tag.strip_prefix('v').unwrap_or(tag))
+}
+
+/// The download address of the package archive for a release tag. A `.sha256` file with the same
+/// name sits beside it.
+///
+/// TODO(hosting): this assumes the archive and its checksum are release assets of the GitHub
+/// release, uploaded by the release workflow. Change this one function if they live elsewhere.
+pub fn package_url(tag: &str, platform: &str) -> String {
+    format!(
+        "https://github.com/{REPOSITORY}/releases/download/{tag}/{}.tar.gz",
+        package_stem(tag, platform)
+    )
+}
+
+/// Removes the directory when dropped, so a failed update leaves nothing behind.
+struct ScratchDir(PathBuf);
+
+impl Drop for ScratchDir {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.0);
+    }
+}
+
+fn io_error(what: &str, error: std::io::Error) -> CliError {
+    CliError::Other(format!("{what}: {error}"))
+}
+
+fn sha256_hex(path: &Path) -> Result<String, CliError> {
+    let bytes = std::fs::read(path).map_err(|e| io_error("could not read the download", e))?;
+    Ok(Sha256::digest(bytes)
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect())
+}
+
+/// Downloads the release package for `tag`, checks its SHA-256 sum, and replaces the executable
+/// at `exe` with the binary inside. The work happens in a directory beside `exe`, so the final
+/// rename stays on one file system. Linux lets a running program be replaced by rename.
+pub async fn install_release(
+    tag: &str,
+    platform: &str,
+    exe: &Path,
+    fetcher: &dyn ReleaseFetcher,
+) -> Result<(), CliError> {
+    let dir = exe
+        .parent()
+        .ok_or_else(|| CliError::Other("the tuig executable has no directory".into()))?;
+    let scratch = ScratchDir(dir.join(format!(".tuig-update-{}", std::process::id())));
+    let _ = std::fs::remove_dir_all(&scratch.0);
+    std::fs::create_dir(&scratch.0).map_err(|e| {
+        io_error(
+            &format!("could not write to {} (is it read-only?)", dir.display()),
+            e,
+        )
+    })?;
+
+    let stem = package_stem(tag, platform);
+    let url = package_url(tag, platform);
+    let archive = scratch.0.join(format!("{stem}.tar.gz"));
+    fetcher.download(&url, &archive).await?;
+
+    let sums = fetcher.get(&format!("{url}.sha256"), "text/plain").await?;
+    if !(200..300).contains(&sums.status) {
+        return Err(CliError::Other(format!(
+            "could not download the checksum for {tag} (HTTP {})",
+            sums.status
+        )));
+    }
+    let expected = sums.body.split_whitespace().next().unwrap_or("");
+    let actual = sha256_hex(&archive)?;
+    if !expected.eq_ignore_ascii_case(&actual) {
+        return Err(CliError::Other(format!(
+            "the download for {tag} does not match its checksum (expected {expected}, got {actual})"
+        )));
+    }
+
+    let unpacked = scratch.0.join("unpacked");
+    std::fs::create_dir(&unpacked).map_err(|e| io_error("could not create a directory", e))?;
+    let output = Command::new("tar")
+        .arg("-xzf")
+        .arg(&archive)
+        .arg("-C")
+        .arg(&unpacked)
+        .arg("--no-same-owner")
+        .arg(format!("{stem}/tuig"))
+        .stdin(Stdio::null())
+        .output()
+        .await
+        .map_err(|error| CliError::Other(format!("could not run tar: {error}")))?;
+    if !output.status.success() {
+        return Err(CliError::Other(format!(
+            "could not unpack the download: {}",
+            String::from_utf8_lossy(&output.stderr).trim()
+        )));
+    }
+    let binary = unpacked.join(&stem).join("tuig");
+    std::fs::set_permissions(&binary, std::fs::Permissions::from_mode(0o755))
+        .map_err(|e| io_error("could not unpack the download", e))?;
+
+    // A binary for the wrong platform or a damaged one must not replace the working one.
+    let check = Command::new(&binary)
+        .arg("--version")
+        .stdin(Stdio::null())
+        .output()
+        .await
+        .map_err(|error| CliError::Other(format!("the new tuig does not start: {error}")))?;
+    if !check.status.success() {
+        return Err(CliError::Other("the new tuig does not start".into()));
+    }
+
+    // The scratch directory is beside `exe`, so this rename stays on one file system.
+    std::fs::rename(&binary, exe)
+        .map_err(|e| io_error(&format!("could not replace {}", exe.display()), e))
+}
+
 /// The `tuig update` command. Prints progress to stdout like the TypeScript app.
 pub async fn update_tuig(
     current_version: &str,
     fetcher: &dyn ReleaseFetcher,
+) -> Result<(), CliError> {
+    let platform = current_platform().ok_or_else(|| {
+        CliError::Other(format!(
+            "no tuig release is built for {} on {}",
+            std::env::consts::ARCH,
+            std::env::consts::OS
+        ))
+    })?;
+    let exe = std::env::current_exe()
+        .map_err(|error| CliError::Other(format!("could not find the tuig executable: {error}")))?;
+    update_tuig_at(current_version, fetcher, platform, &exe).await
+}
+
+/// [`update_tuig`] for a chosen platform and executable path.
+pub async fn update_tuig_at(
+    current_version: &str,
+    fetcher: &dyn ReleaseFetcher,
+    platform: &str,
+    exe: &Path,
 ) -> Result<(), CliError> {
     println!("Checking for updates...");
     let tag = match check_for_update(current_version, fetcher).await? {
@@ -114,33 +283,7 @@ pub async fn update_tuig(
         UpdateStatus::Available { tag } => tag,
     };
     println!("Update found ({tag}). Upgrading...");
-    let output = Command::new("bun")
-        .args(["install", "-g", &install_source_for_tag(&tag)])
-        .stdin(Stdio::null())
-        .output()
-        .await
-        .map_err(|error| CliError::Other(format!("Bun could not start: {error}")))?;
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        let stdout = String::from_utf8_lossy(&output.stdout);
-        let details = if stderr.trim().is_empty() {
-            stdout.trim()
-        } else {
-            stderr.trim()
-        };
-        let code = output
-            .status
-            .code()
-            .map_or("signal".to_string(), |c| c.to_string());
-        let tail = if details.is_empty() {
-            ".".to_string()
-        } else {
-            format!(":\n{details}")
-        };
-        return Err(CliError::Other(format!(
-            "Bun could not install tuig {tag} (exit {code}){tail}"
-        )));
-    }
+    install_release(&tag, platform, exe, fetcher).await?;
     println!("Tuig {tag} is ready.");
     Ok(())
 }
@@ -178,6 +321,83 @@ mod tests {
                 body: self.body.into(),
             })
         }
+
+        async fn download(&self, _url: &str, _dest: &Path) -> Result<(), CliError> {
+            panic!("this test must not download");
+        }
+    }
+
+    /// Serves a release: the latest-release JSON, one archive file, and a checksum text.
+    struct Release {
+        archive: PathBuf,
+        checksum: String,
+        urls: Mutex<Vec<String>>,
+    }
+
+    #[async_trait]
+    impl ReleaseFetcher for Release {
+        async fn get(&self, url: &str, _accept: &str) -> Result<HttpResponse, CliError> {
+            self.urls.lock().unwrap().push(url.into());
+            let body = if url.ends_with(".sha256") {
+                format!("{}  archive.tar.gz\n", self.checksum)
+            } else {
+                r#"{"tag_name":"v0.2.0"}"#.to_string()
+            };
+            Ok(HttpResponse { status: 200, body })
+        }
+
+        async fn download(&self, url: &str, dest: &Path) -> Result<(), CliError> {
+            self.urls.lock().unwrap().push(url.into());
+            std::fs::copy(&self.archive, dest).unwrap();
+            Ok(())
+        }
+    }
+
+    struct TempDir(PathBuf);
+
+    impl TempDir {
+        fn new(name: &str) -> Self {
+            let path =
+                std::env::temp_dir().join(format!("tuig-update-{name}-{}", std::process::id()));
+            let _ = std::fs::remove_dir_all(&path);
+            std::fs::create_dir_all(&path).unwrap();
+            Self(path)
+        }
+    }
+
+    impl Drop for TempDir {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
+    /// A release package whose `tuig` is a script that prints a line and exits with `code`.
+    fn build_package(dir: &Path, stem: &str, code: i32) -> (PathBuf, String) {
+        let root = dir.join("package");
+        std::fs::create_dir_all(root.join(stem)).unwrap();
+        std::fs::write(
+            root.join(stem).join("tuig"),
+            format!("#!/bin/sh\necho new-binary\nexit {code}\n"),
+        )
+        .unwrap();
+        let archive = dir.join("archive.tar.gz");
+        let status = std::process::Command::new("tar")
+            .arg("-czf")
+            .arg(&archive)
+            .arg("-C")
+            .arg(&root)
+            .arg(stem)
+            .status()
+            .unwrap();
+        assert!(status.success());
+        let checksum = sha256_hex(&archive).unwrap();
+        (archive, checksum)
+    }
+
+    fn old_executable(dir: &Path) -> PathBuf {
+        let exe = dir.join("tuig");
+        std::fs::write(&exe, "old-binary").unwrap();
+        exe
     }
 
     #[test]
@@ -185,10 +405,103 @@ mod tests {
         assert!(is_current_release("0.1.21", "v0.1.21"));
         assert!(is_current_release("v0.1.21", "0.1.21"));
         assert!(!is_current_release("0.1.21", "v0.1.22"));
+    }
+
+    #[test]
+    fn names_the_package_after_the_tag_and_platform() {
         assert_eq!(
-            install_source_for_tag("v0.1.22"),
-            "tuig@git+https://github.com/lucashutch/tuig.git#v0.1.22"
+            package_stem("v0.1.22", "x86_64-linux"),
+            "tuig-0.1.22-x86_64-linux"
         );
+        assert_eq!(
+            package_url("v0.1.22", "x86_64-linux"),
+            "https://github.com/lucashutch/tuig/releases/download/v0.1.22/tuig-0.1.22-x86_64-linux.tar.gz"
+        );
+    }
+
+    #[tokio::test]
+    async fn update_replaces_the_executable_with_the_packaged_binary() {
+        let temp = TempDir::new("replace");
+        let stem = package_stem("v0.2.0", "x86_64-linux");
+        let (archive, checksum) = build_package(&temp.0, &stem, 0);
+        let bin = temp.0.join("bin");
+        std::fs::create_dir(&bin).unwrap();
+        let exe = old_executable(&bin);
+        let release = Release {
+            archive,
+            checksum,
+            urls: Mutex::new(Vec::new()),
+        };
+
+        update_tuig_at("0.1.21", &release, "x86_64-linux", &exe)
+            .await
+            .unwrap();
+
+        let output = std::process::Command::new(&exe).output().unwrap();
+        assert_eq!(String::from_utf8_lossy(&output.stdout), "new-binary\n");
+        let urls = release.urls.lock().unwrap();
+        assert!(urls.contains(&package_url("v0.2.0", "x86_64-linux")));
+        assert!(urls.contains(&format!("{}.sha256", package_url("v0.2.0", "x86_64-linux"))));
+        let left: Vec<_> = std::fs::read_dir(&bin).unwrap().collect();
+        assert_eq!(left.len(), 1, "the scratch directory must be removed");
+    }
+
+    #[tokio::test]
+    async fn update_keeps_the_old_executable_when_the_checksum_differs() {
+        let temp = TempDir::new("checksum");
+        let stem = package_stem("v0.2.0", "x86_64-linux");
+        let (archive, _) = build_package(&temp.0, &stem, 0);
+        let bin = temp.0.join("bin");
+        std::fs::create_dir(&bin).unwrap();
+        let exe = old_executable(&bin);
+        let release = Release {
+            archive,
+            checksum: "0".repeat(64),
+            urls: Mutex::new(Vec::new()),
+        };
+
+        let error = update_tuig_at("0.1.21", &release, "x86_64-linux", &exe)
+            .await
+            .unwrap_err();
+
+        assert!(
+            error.to_string().contains("does not match its checksum"),
+            "{error}"
+        );
+        assert_eq!(std::fs::read_to_string(&exe).unwrap(), "old-binary");
+        assert_eq!(std::fs::read_dir(&bin).unwrap().count(), 1);
+    }
+
+    #[tokio::test]
+    async fn update_keeps_the_old_executable_when_the_new_one_does_not_run() {
+        let temp = TempDir::new("broken");
+        let stem = package_stem("v0.2.0", "x86_64-linux");
+        let (archive, checksum) = build_package(&temp.0, &stem, 3);
+        let bin = temp.0.join("bin");
+        std::fs::create_dir(&bin).unwrap();
+        let exe = old_executable(&bin);
+        let release = Release {
+            archive,
+            checksum,
+            urls: Mutex::new(Vec::new()),
+        };
+
+        let error = update_tuig_at("0.1.21", &release, "x86_64-linux", &exe)
+            .await
+            .unwrap_err();
+
+        assert_eq!(error.to_string(), "the new tuig does not start");
+        assert_eq!(std::fs::read_to_string(&exe).unwrap(), "old-binary");
+    }
+
+    #[tokio::test]
+    async fn update_downloads_nothing_when_current() {
+        let fetcher = Fake::new(200, r#"{"tag_name":"v0.1.21"}"#);
+        let exe = std::env::temp_dir().join("tuig-update-never-written");
+        update_tuig_at("0.1.21", &fetcher, "x86_64-linux", &exe)
+            .await
+            .unwrap();
+        assert!(!exe.exists());
     }
 
     #[tokio::test]
