@@ -21,6 +21,7 @@ python3 tools/parity/run.py record                  # run the TS app, write gold
 python3 tools/parity/run.py compare                 # run the TS app, diff against goldens
 python3 tools/parity/run.py compare --app "./target/release/tuig --clean {repo}" --cwd rust
 python3 tools/parity/run.py ab --b "./target/release/tuig --clean {repo}" --cwd-b rust
+python3 tools/parity/run.py side-by-side            # TS and Rust live, cell differences per region
 python3 tools/parity/run.py stability --runs 3      # same app, N runs, snapshots must be identical
 python3 tools/parity/run.py show select-commit      # print snapshots with a column ruler
 ```
@@ -33,6 +34,31 @@ Compare output lists text differences first (expected row, actual row, and a car
 
 Run the harness tests with `python3 -m unittest discover -s tools/parity/tests`.
 
+## Side-by-side driver
+
+`side-by-side` plays the same scenarios on the TS app and on the Rust binary (`rust/target/release/tuig`, run in `rust/`), then compares each snapshot and prints the cell differences per region: `tabs`, `header`, `sidebar`, `history`, `details`, `footer`. It finds the pane borders from the vertical divider glyphs on the TS screen. Each region shows how many cells differ in text and how many differ only in style. A scenario that stops in one app (a wait times out) is reported as one failure with the step. The exit code is 1 on any difference.
+
+```sh
+python3 tools/parity/run.py side-by-side toolbar         # one scenario, both apps live
+python3 tools/parity/run.py side-by-side --golden -v     # Rust against the goldens, with the differing rows
+python3 tools/parity/run.py side-by-side --rust "./target/debug/tuig --clean {repo}" sidebar-layout
+```
+
+`--golden` skips the TS run and reads the recorded snapshots. `-v` prints the rows and style runs of each differing region, and the screen of an app that stopped. Build the Rust binary first with `cargo build --release` in `rust/`.
+
+## Git state checks
+
+Screens do not show every effect of a Git action. `mutations.py` plays the same input on both apps against disposable repositories (the fixtures, plus a local bare remote for fetch, pull and push). It then compares the resulting repository state: commit subjects, parents and trees (not SHAs), `git status`, refs, stashes, the index, and the remote refs. It prints `same` or `MISMATCH` with a diff for each case, and exits 1 on a mismatch or a failed step.
+
+```sh
+python3 tools/parity/mutations.py --list
+python3 tools/parity/mutations.py                    # all cases, about 6 minutes
+python3 tools/parity/mutations.py commit stash push  # some cases
+python3 tools/parity/mutations.py --native-keys      # send keys the Rust app does not bind
+```
+
+Where the Rust app has no key binding, the script uses the palette or a toolbar button for Rust, and prints a note. `--native-keys` sends the real key instead. `--screen` prints the last screen of each run.
+
 ## What is fixed
 
 Each run starts the app in a new temp HOME with these settings:
@@ -43,22 +69,35 @@ Each run starts the app in a new temp HOME with these settings:
 - `HTTP_PROXY`, `HTTPS_PROXY` and `ALL_PROXY` point to a closed port, so avatar fetches fail at once. This is not kernel-level network isolation.
 - `GIT_CONFIG_GLOBAL` is empty and the system config is off.
 - The harness answers terminal queries the same way every run: device attributes, cursor position, and the foreground and background color (white on black).
+- Commits and stashes made by the app use a fixed identity and the date 2024-04-01 (`GIT_AUTHOR_*`, `GIT_COMMITTER_*`), so their SHAs are the same on every run and in both apps.
 - Fixture repos use a fixed author, committer, and dates, so SHAs never change. The `demo` fixture has 10 commits, 2 merges, a tag, 4 branches, a committed rename, and a working tree with staged, unstaged, untracked, and renamed files, plus a 3-hunk diff in `src/server.py`.
-- The `history` fixture has 307 commits on `main` and 59 `topic/*` branches, built from 29 groups of two overlapping branches that merge back (58 merges, up to 3 graph lanes), tags `v0.5` to `v0.25`, and a clean working tree. The 14 newest commits are a 151-line Python file and one sample file per highlighted language in `showcase/` (md, html, css, cpp, c, sh, json, js, tsx, ts, rs, go, py). The first page loads 250 commits, so scrolling to the end also tests paging. Building it takes about 5 seconds. A harness test pins the HEAD SHA.
+- The `second` fixture, used as an extra tab, has 2 commits, a `dev` branch, and a clean working tree. The `history` fixture has 307 commits on `main` and 59 `topic/*` branches, built from 29 groups of two overlapping branches that merge back (58 merges, up to 3 graph lanes), tags `v0.5` to `v0.25`, and a clean working tree. The 14 newest commits are a 151-line Python file and one sample file per highlighted language in `showcase/` (md, html, css, cpp, c, sh, json, js, tsx, ts, rs, go, py). The first page loads 250 commits, so scrolling to the end also tests paging. Building it takes about 5 seconds. A harness test pins the HEAD SHA.
 
 Waits use screen quiet time, not sleeps. A wait ends when no cell has changed for `quiet` ms (300 by default). Repaints that do not change a cell do not count.
 
 ## Scenarios
 
-| Scenario                                                                          | Fixture | What it covers                                                                         |
-| --------------------------------------------------------------------------------- | ------- | -------------------------------------------------------------------------------------- |
-| `initial-load`, `select-commit`, `changed-files`, `command-palette`, `diff-click` | demo    | Basic panes, commit and file selection, palette, diff line selection                   |
-| `wheel-history`                                                                   | history | Wheel down 10 rows, to the end (loads the second page), up 10, and back to the top     |
-| `composer`                                                                        | demo    | Type a summary and description, toggle amend, edit a commit message, cancel            |
-| `diff-scroll`                                                                     | history | Wheel through a 151-line diff and back                                                 |
-| `syntax-highlight`                                                                | history | One diff per language, 13 snapshots, with a 600 ms quiet time so highlighting finishes |
-| `graph-menu`                                                                      | demo    | Right-click a commit: menu, submenu, confirmation, name prompt, branch label menu      |
-| `diff-menu`                                                                       | demo    | Right-click in the diff: selected-lines menu and file menu                             |
+| Scenario                                                                          | Fixture       | What it covers                                                                         |
+| --------------------------------------------------------------------------------- | ------------- | -------------------------------------------------------------------------------------- |
+| `initial-load`, `select-commit`, `changed-files`, `command-palette`, `diff-click` | demo          | Basic panes, commit and file selection, palette, diff line selection                   |
+| `wheel-history`                                                                   | history       | Wheel down 10 rows, to the end (loads the second page), up 10, and back to the top     |
+| `composer`                                                                        | demo          | Type a summary and description, toggle amend, edit a commit message, cancel            |
+| `diff-scroll`                                                                     | history       | Wheel through a 151-line diff and back                                                 |
+| `syntax-highlight`                                                                | history       | One diff per language, 13 snapshots, with a 600 ms quiet time so highlighting finishes |
+| `graph-menu`                                                                      | demo          | Right-click a commit: menu, submenu, confirmation, name prompt, branch label menu      |
+| `diff-menu`                                                                       | demo          | Right-click in the diff: selected-lines menu and file menu                             |
+| `sidebar-layout`                                                                  | demo          | Fold a section, drag a section divider and the sidebar divider, collapse panes         |
+| `branch-filter`                                                                   | demo          | `/` filter, match navigation, cancel, filter and check out                             |
+| `repo-tabs`                                                                       | demo + second | Picker, typed path, second tab, switch, reorder, close, Ctrl+Tab                       |
+| `toolbar`                                                                         | demo          | Hover, undo on a dirty tree, stash, pop, refresh, avatars toggle                       |
+| `undo`                                                                            | demo          | Commit, undo preview, cancel, confirmed undo                                           |
+| `commit-flow`, `commit-amend`                                                     | demo          | Stage all, write and commit with Enter, amend with the pre-filled message              |
+| `theme`                                                                           | demo          | Theme and theme mode pickers from the palette, preview, select                         |
+| `history-header`                                                                  | demo          | Columns menu, hide Committer and SHA, column divider drag                              |
+| `keyboard-staging`                                                                | demo          | `s`, `a`, `t`, `u`, `d d` in the changes pane                                          |
+| `compare`                                                                         | demo          | Select for comparison, compare, comparison view                                        |
+| `file-history`                                                                    | demo          | File menu, file history, Esc                                                           |
+| `line-staging`, `line-selection`                                                  | demo          | Gutter click, Ctrl+click, Enter to stage, Alt+drag range, Esc                          |
 
 The whole suite takes about 1.5 minutes to record and about the same to compare.
 
@@ -86,13 +125,16 @@ timeout 20                 # seconds before a wait fails
 
 wait text "Working Changes"  # block until text is on screen
 wait stable                  # block until the screen is quiet
-key ctrl+p down enter        # named keys, ctrl+x, alt+x, or single characters
+key ctrl+p down enter        # named keys, ctrl+x, alt+x, ctrl+tab, ctrl+shift+tab, or single characters
 text "branch"                # type literal text
-click 60 11 [left|right|middle]
-drag 36 9 62 12              # press, move in single-cell steps, release
+click 60 11 [left|right|middle] [ctrl|alt|shift]
+drag 36 9 62 12 [ctrl|alt|shift]
+                             # drag: press, move in single-cell steps, release
 wheel down 60 20 3           # up or down, x y, optional count
 move 60 11                   # hover
 mask 100 0 20 1              # x y width height, from here on
+ignore 130 1 30 1            # mask, and do not count changes there as activity (a spinner that never stops)
+extra second                 # build a second fixture. Type its path with text "{second}"
 mask-text "\d+ minutes ago"  # regex on each row, from here on
 snapshot loaded              # save the screen, after a stable wait
 ```

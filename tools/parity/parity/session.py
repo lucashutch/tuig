@@ -36,6 +36,8 @@ KEYS = {
     "up": "\x1b[A", "down": "\x1b[B", "right": "\x1b[C", "left": "\x1b[D",
     "home": "\x1b[H", "end": "\x1b[F", "pageup": "\x1b[5~",
     "pagedown": "\x1b[6~", "delete": "\x1b[3~", "space": " ",
+    # xterm modifyOtherKeys, which the apps enable at startup. A terminal has no plain byte for these.
+    "ctrl+tab": "\x1b[27;5;9~", "ctrl+shift+tab": "\x1b[27;6;9~",
 }  # fmt: skip
 
 
@@ -92,6 +94,11 @@ class Session:
             "GIT_CONFIG_GLOBAL": os.devnull,
             "GIT_CONFIG_NOSYSTEM": "1",
             "GIT_TERMINAL_PROMPT": "0",
+            # Commits and stashes the app makes get the same identity and date on every run, so
+            # their SHAs are stable. The fixtures use dates in March 2024, before this one.
+            "GIT_AUTHOR_NAME": "Ada Tester", "GIT_AUTHOR_EMAIL": "ada@example.invalid",
+            "GIT_COMMITTER_NAME": "Ada Tester", "GIT_COMMITTER_EMAIL": "ada@example.invalid",
+            "GIT_AUTHOR_DATE": "2024-04-01T00:00:00+0000", "GIT_COMMITTER_DATE": "2024-04-01T00:00:00+0000",
             # Not kernel-enforced isolation, but avatar and update fetches fail fast.
             "HTTP_PROXY": DEAD_PROXY, "HTTPS_PROXY": DEAD_PROXY,
             "ALL_PROXY": DEAD_PROXY, "NO_PROXY": "",
@@ -104,6 +111,8 @@ class Session:
         self.last_change = time.monotonic()
         self.last_send = self.last_change
         self._rows: dict[int, tuple] = {}
+        # Cells that never count as a change, such as a spinner that does not stop.
+        self.ignore: list[tuple[int, int, int, int]] = []
         master, slave = pty.openpty()
         fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack("HHHH", rows, cols, 0, 0))
 
@@ -160,9 +169,10 @@ class Session:
         """Record when a row last changed. Redundant repaints do not count."""
         for y in self.screen.dirty:
             line = self.screen.buffer[y]
+            skip = [(x, w) for x, y0, w, h in self.ignore if y0 <= y < y0 + h]
             sig = tuple(
                 (c.data, c.fg, c.bg, c.bold, c.italics, c.underscore, c.reverse)
-                for c in (line[x] for x in range(self.cols))
+                for c in (line[x] for x in range(self.cols) if not any(x0 <= x < x0 + w for x0, w in skip))
             )
             if self._rows.get(y) != sig:
                 self._rows[y] = sig

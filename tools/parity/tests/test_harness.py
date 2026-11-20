@@ -8,7 +8,7 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent.parent
 sys.path[:0] = [str(HERE / ".deps"), str(HERE)]
 
-from parity import fixtures, snapshot  # noqa: E402
+from parity import fixtures, sidebyside, snapshot  # noqa: E402
 from parity.session import Session, key_bytes, sgr_mouse  # noqa: E402
 
 FAKE_APP = [sys.executable, str(HERE / "tests" / "fake_app.py")]
@@ -96,6 +96,71 @@ class WheelStepTest(unittest.TestCase):
         self.assertIn(r"\x1b[<65;12;7M", top)
         up = "".join(c.char for c in snaps["up"].cells[0])
         self.assertIn(r"\x1b[<64;3;4M", up)
+
+
+class ScenarioStepTest(unittest.TestCase):
+    """Steps that carry state into the app: modifier keys, typed paths, and cells that are ignored."""
+
+    def play(self, steps, extras=None):
+        from parity import scenario
+
+        sc = scenario.Scenario(name="t", quiet_ms=100, timeout=5)
+        sc.steps = [scenario.Step(op, args, n) for n, (op, args) in enumerate(steps, 1)]
+        s = Session(FAKE_APP, 60, 10, HERE)
+        self.addCleanup(s.close)
+        s.wait_text("hello", 5)
+        return scenario._steps(sc, s, extras)
+
+    def test_click_and_drag_carry_modifier_bits(self):
+        snaps = self.play(
+            [("click", ["11", "6", "left", "ctrl"]), ("snapshot", ["ctrl"]), ("drag", ["2", "3", "2", "3", "alt"]), ("snapshot", ["alt"])]
+        )
+        ctrl = "".join(c.char for c in snaps["ctrl"].cells[0])
+        self.assertIn(r"\x1b[<16;12;7M", ctrl)  # button 0 plus ctrl bit 16
+        alt = "".join(c.char for c in snaps["alt"].cells[0])
+        self.assertIn(r"\x1b[<8;3;4m", alt)  # release keeps the alt bit 8
+
+    def test_text_replaces_the_extra_fixture_path(self):
+        snaps = self.play([("text", ["{second}"]), ("snapshot", ["typed"])], {"second": "/x/second"})
+        self.assertIn("/x/second", "".join(c.char for c in snaps["typed"].cells[0]))
+
+    def test_ignored_cells_do_not_keep_the_screen_busy(self):
+        s = Session(FAKE_APP, 40, 10, HERE)
+        self.addCleanup(s.close)
+        s.wait_text("hello", 5)
+        s.ignore.append((0, 0, 40, 1))  # the row the app rewrites on every input
+        s.send(b"abc")
+        s.wait_quiet(100, 2)  # would time out if the rewrite counted as a change
+        self.assertIn("got", s.screen.display[0])
+
+
+class SideBySideTest(unittest.TestCase):
+    def snap(self, rows):
+        from parity.session import Cell
+
+        style = ("ffffff", "000000", "")
+        return snapshot.Snapshot(len(rows[0]), len(rows), "hidden", [[Cell(ch, *style) for ch in r] for r in rows])
+
+    def screen(self):
+        # Tabs, two header rows, a six-row body with dividers at columns 5 and 10, and a footer.
+        body = ["side.│hist│rt....."] * 6
+        return self.snap([r.ljust(20, ".") for r in ["tabs", "head", "head", *body, "foot"]])
+
+    def test_regions_follow_the_divider_columns(self):
+        found = sidebyside.regions(self.screen())
+        self.assertEqual(found["sidebar"][0], 0)
+        self.assertEqual(found["history"][0], 5)  # first divider
+        self.assertEqual(found["details"][0], 10)  # last divider
+        self.assertEqual(found["footer"][1], 9)
+
+    def test_a_change_is_reported_in_its_region_only(self):
+        a, b = self.screen(), self.screen()
+        b.cells[4][6].char = "X"  # a history cell
+        b.cells[0][0].fg = "ff0000"  # a style change in the tabs row
+        result = sidebyside.compare(a, b)
+        self.assertEqual(result["history"][:2], (1, 0))
+        self.assertEqual(result["tabs"][:2], (0, 1))
+        self.assertEqual(result["details"][:2], (0, 0))
 
 
 class SnapshotTest(unittest.TestCase):

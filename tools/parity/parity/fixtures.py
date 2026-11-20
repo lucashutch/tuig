@@ -212,7 +212,22 @@ def build_long(dest: Path) -> Path:
     return build_history(dest, 300)
 
 
-FIXTURES = {"demo": build_demo, "history": build_long}
+def build_second(dest: Path) -> Path:
+    """A small clean repository, to open as a second tab."""
+    repo = Repo(dest)
+    dest.mkdir(parents=True)
+    repo.git("init", "-q", "-b", "main")
+    repo.git("config", "commit.gpgsign", "false")
+    repo.write("notes.md", "# Second\n")
+    repo.commit("chore: start second")
+    repo.git("switch", "-q", "-c", "dev")
+    repo.write("notes.md", "# Second\n\nMore.\n")
+    repo.commit("docs: extend notes")
+    repo.git("switch", "-q", "main")
+    return dest
+
+
+FIXTURES = {"demo": build_demo, "history": build_long, "second": build_second}
 
 
 def build(name: str, parent: Path) -> Path:

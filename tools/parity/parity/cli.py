@@ -7,6 +7,7 @@ import time
 from pathlib import Path
 
 from . import scenario as sc_mod
+from . import sidebyside
 from . import snapshot as snap_mod
 
 HERE = Path(__file__).resolve().parent.parent
@@ -14,6 +15,7 @@ REPO_ROOT = HERE.parent.parent
 SCENARIOS = HERE / "scenarios"
 GOLDEN = HERE / "golden"
 TS_APP = f"bun run {REPO_ROOT}/src/index.ts --clean {{repo}}"
+RUST_APP = f"{REPO_ROOT}/rust/target/release/tuig --clean {{repo}}"
 
 
 def resolve(app: str | None, cwd: str | None) -> tuple[str, Path]:
@@ -100,6 +102,60 @@ def cmd_ab(args) -> int:
     return 0 if ok else 1
 
 
+def cmd_side_by_side(args) -> int:
+    """Run scenarios against the TS app and the Rust app and report differences per region."""
+    ts_app, ts_cwd = resolve(args.ts, args.cwd_ts)
+    rust_app, rust_cwd = resolve(args.rust or RUST_APP, args.cwd_rust or str(REPO_ROOT / "rust"))
+    scenarios = sc_mod.load_all(SCENARIOS, args.scenarios)
+    ok = True
+    for sc in scenarios:
+        errors = {}
+
+        def play(app, cwd, label):
+            t = time.monotonic()
+            try:
+                snaps = sc_mod.play(sc, app, cwd)
+            except RuntimeError as e:
+                errors[label] = str(e)
+                return None
+            print(f"  {label} {sc.name}: {len(snaps)} snapshot(s), {time.monotonic() - t:.1f}s", file=sys.stderr)
+            return snaps
+
+        ref = None if args.golden else play(ts_app, ts_cwd, "TS  ")
+        other = play(rust_app, rust_cwd, "Rust")
+        if errors:
+            ok = False
+            for label, message in errors.items():
+                head, _, screen = message.partition("\n--- screen ---\n")
+                print(f"FAIL {sc.name}: the {label.strip()} app stopped at {head}")
+                if args.verbose:
+                    print("\n".join("  | " + line for line in screen.splitlines()))
+            continue
+        for snap_name, snap in other.items():
+            if ref is not None:
+                expected = ref[snap_name]
+            else:
+                p = golden_path(sc.name, snap_name)
+                if not p.exists():
+                    print(f"FAIL {sc.name}/{snap_name}: no golden file, run record")
+                    ok = False
+                    continue
+                expected = snap_mod.load(p.read_text())
+            found = sidebyside.compare(expected, snap)
+            bad = {k: v for k, v in found.items() if v[0] or v[1]}
+            ok &= not bad
+            if not bad:
+                print(f"ok   {sc.name}/{snap_name}")
+                continue
+            summary = "  ".join(f"{k}: {t} text, {st} style" for k, (t, st, _) in bad.items())
+            print(f"FAIL {sc.name}/{snap_name}  {summary}")
+            if args.verbose:
+                for k, (_, _, lines) in bad.items():
+                    print(f"  [{k}]")
+                    print("\n".join("  " + line for line in lines))
+    return 0 if ok else 1
+
+
 def cmd_stability(args) -> int:
     app, cwd = resolve(args.app, args.cwd)
     scenarios = sc_mod.load_all(SCENARIOS, args.scenarios)
@@ -138,9 +194,20 @@ def main() -> int:
     common(sub.add_parser("show", help="print snapshots with a coordinate ruler"))
     common(sub.add_parser("compare", help="run an app and diff against goldens"))
     common(sub.add_parser("ab", help="run two apps live and diff"), ab=True)
+    sb = sub.add_parser(
+        "side-by-side",
+        help="run scenarios on the TS and Rust apps, report cell differences per region",
+    )
+    sb.add_argument("--ts", help="TS app command (default: ts)")
+    sb.add_argument("--cwd-ts")
+    sb.add_argument("--rust", help=f"Rust app command (default: {RUST_APP})")
+    sb.add_argument("--cwd-rust", help="working directory for the Rust app (default: rust)")
+    sb.add_argument("--golden", action="store_true", help="use the recorded goldens instead of running the TS app")
+    sb.add_argument("-v", "--verbose", action="store_true", help="print the differing rows of each region")
+    sb.add_argument("scenarios", nargs="*", help="scenario names (default: all)")
     st = sub.add_parser("stability", help="run one app repeatedly and require identical snapshots")
     common(st)
     st.add_argument("--runs", type=int, default=3)
 
     args = p.parse_args()
-    return {"record": cmd_record, "compare": cmd_compare, "show": cmd_show, "ab": cmd_ab, "stability": cmd_stability}[args.cmd](args)
+    return {"record": cmd_record, "compare": cmd_compare, "show": cmd_show, "ab": cmd_ab, "side-by-side": cmd_side_by_side, "stability": cmd_stability}[args.cmd](args)
