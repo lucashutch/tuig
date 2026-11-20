@@ -105,8 +105,8 @@ impl SidebarWidgets {
             .position(Edge::Top, u32::from(PANE_TOP))
             .height(1)
             .placeholder("Filter branches…")
-            // The OpenTUI default, which TS keeps.
-            .placeholder_color(Color::rgb(0x66, 0x66, 0x66))
+            // The TS golden (`golden/branch-filter/open.snap`) shows fg=5c6370.
+            .placeholder_color(Color::rgb(0x5c, 0x63, 0x70))
             .colors(color(theme.text), color(theme.selected))
             .focused_colors(color(theme.text), color(theme.selected))
             .visible(false);
