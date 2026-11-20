@@ -236,24 +236,24 @@ The tracker lists three pieces that `tuig-ui-model` left out.
 
 ## Widget mapping
 
-| TS source | TS renderable | Rust widget |
-| --- | --- | --- |
-| Root panes (`runtime-widgets.ts` sidebar, history, details boxes) | `BoxRenderable` | `View` with fixed widths from `layout_panes` |
-| Tab bar (`runtime-tabs.ts`) | `TextRenderable` with styled spans | `Custom` painter. `Tabs` does not support the close marks and widths. |
-| Header, toolbar, hints, footer message (`runtime-toolbar.ts`, `runtime-presentation-chrome.ts`) | `TextRenderable` | `Custom` painters, one row each, with hit regions for buttons |
-| Sidebar sections and branch list (`runtime-sidebar.ts`, `runtime-presentation-sidebar.ts`) | `TextRenderable` per section, custom scrollbar | `Custom` painter per section. Scrollbar from `tuig_ui_model::scrollbar`. |
-| Pane dividers | `BoxRenderable` with drag | `Custom` painter with `mouse` for drag and hover |
-| History graph (`runtime-paint.ts` `paintHistory`, `runtime-history.ts`) | `TextRenderable` plus `ImageRenderable` avatars | `HistoryList` custom painter (tracker item 5), `Image` overlays for avatars |
-| History column header (`runtime-history-columns.ts`) | `TextRenderable` | Part of `HistoryList`, or a one-row `Custom` |
-| Changed files and file tree (`runtime-files.ts`, `runtime-presentation-changes.ts`) | `TextRenderable` per section | `Custom` painter per section, rows from `flatten_visible` |
-| Commit details (`runtime-presentation-commit.ts`) | `BoxRenderable`, `ScrollBoxRenderable`, `TextRenderable`, `ImageRenderable` | `View` and `Scroll` with `Text`, and `Image` for author photo and provider badge |
-| Diff pane (`diff-view.ts`, `runtime-diff-selection.ts`) | `DiffView` wrapping `DiffRenderable` | `DiffPane` custom painter (`tuig-widgets/src/diff.rs`). `Diff` cannot color one selected row, which line staging needs. |
-| Composer summary and body | `InputRenderable`, `TextareaRenderable` | `Input`, `Textarea` |
-| Commit and amend buttons, working banner | `TextRenderable` with mouse | `Custom` one-row painters |
-| Command palette (`runtime-palette.ts`) | `BoxRenderable`, `InputRenderable`, `TextRenderable` | `View` overlay with `Input` and a `Custom` result list. Matching from `tuig_ui_model::command_palette`. |
-| Popup menus, confirm, theme picker (`runtime-popup.ts`, `graph-menu.ts`) | `BoxRenderable`, `TextRenderable`, overlay catcher box | `View` overlay with a `Custom` list. A full-screen `Custom` behind it catches outside clicks. |
-| Branch filter, name prompt, repository picker | `InputRenderable` | `Input` in an overlay `View` |
-| Spinner and notices (`runtime-notifications.ts`) | `TextRenderable` with timer | Footer painter, `set_interval` for the spinner, `set_timeout` for the 6 s clear |
+| TS source                                                                                       | TS renderable                                                               | Rust widget                                                                                                             |
+| ----------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| Root panes (`runtime-widgets.ts` sidebar, history, details boxes)                               | `BoxRenderable`                                                             | `View` with fixed widths from `layout_panes`                                                                            |
+| Tab bar (`runtime-tabs.ts`)                                                                     | `TextRenderable` with styled spans                                          | `Custom` painter. `Tabs` does not support the close marks and widths.                                                   |
+| Header, toolbar, hints, footer message (`runtime-toolbar.ts`, `runtime-presentation-chrome.ts`) | `TextRenderable`                                                            | `Custom` painters, one row each, with hit regions for buttons                                                           |
+| Sidebar sections and branch list (`runtime-sidebar.ts`, `runtime-presentation-sidebar.ts`)      | `TextRenderable` per section, custom scrollbar                              | `Custom` painter per section. Scrollbar from `tuig_ui_model::scrollbar`.                                                |
+| Pane dividers                                                                                   | `BoxRenderable` with drag                                                   | `Custom` painter with `mouse` for drag and hover                                                                        |
+| History graph (`runtime-paint.ts` `paintHistory`, `runtime-history.ts`)                         | `TextRenderable` plus `ImageRenderable` avatars                             | `HistoryList` custom painter (tracker item 5), `Image` overlays for avatars                                             |
+| History column header (`runtime-history-columns.ts`)                                            | `TextRenderable`                                                            | Part of `HistoryList`, or a one-row `Custom`                                                                            |
+| Changed files and file tree (`runtime-files.ts`, `runtime-presentation-changes.ts`)             | `TextRenderable` per section                                                | `Custom` painter per section, rows from `flatten_visible`                                                               |
+| Commit details (`runtime-presentation-commit.ts`)                                               | `BoxRenderable`, `ScrollBoxRenderable`, `TextRenderable`, `ImageRenderable` | `View` and `Scroll` with `Text`, and `Image` for author photo and provider badge                                        |
+| Diff pane (`diff-view.ts`, `runtime-diff-selection.ts`)                                         | `DiffView` wrapping `DiffRenderable`                                        | `DiffPane` custom painter (`tuig-widgets/src/diff.rs`). `Diff` cannot color one selected row, which line staging needs. |
+| Composer summary and body                                                                       | `InputRenderable`, `TextareaRenderable`                                     | `Input`, `Textarea`                                                                                                     |
+| Commit and amend buttons, working banner                                                        | `TextRenderable` with mouse                                                 | `Custom` one-row painters                                                                                               |
+| Command palette (`runtime-palette.ts`)                                                          | `BoxRenderable`, `InputRenderable`, `TextRenderable`                        | `View` overlay with `Input` and a `Custom` result list. Matching from `tuig_ui_model::command_palette`.                 |
+| Popup menus, confirm, theme picker (`runtime-popup.ts`, `graph-menu.ts`)                        | `BoxRenderable`, `TextRenderable`, overlay catcher box                      | `View` overlay with a `Custom` list. A full-screen `Custom` behind it catches outside clicks.                           |
+| Branch filter, name prompt, repository picker                                                   | `InputRenderable`                                                           | `Input` in an overlay `View`                                                                                            |
+| Spinner and notices (`runtime-notifications.ts`)                                                | `TextRenderable` with timer                                                 | Footer painter, `set_interval` for the spinner, `set_timeout` for the 6 s clear                                         |
 
 I prefer `Custom` painters over `Select` for lists. `Select` scrolls the selection on wheel instead of the viewport (tracker item 6), and the TS lists draw icons, chips and per-span colors that `SelectOption` cannot express.
 
@@ -311,14 +311,14 @@ rust/crates/
 
 Where each TS module went:
 
-| TS source | Rust |
-| --- | --- |
-| `src/ui/pull-requests.ts` | `tuig-widgets/src/pull_requests.rs`: icons, grouping, branch matching, the history PR cell |
-| `src/ui/runtime-pull-requests.ts` | `tuig-app/src/screens/pull_requests.rs`: load, refresh timing, spinner |
-| `src/ui/avatars.ts` | `tuig-app/src/avatars.rs`: URLs, cache, decode, circle mask |
-| `updateGraphAvatars`, `showCommitMeta` photo | `tuig-app/src/screens/graph_avatars.rs` |
-| `src/ui/auto-refresh.ts`, `remoteFetchTimer` | `tuig-app/src/refresh.rs` |
-| `RuntimePullRequestsOptions.factory` and friends | `tuig-app/src/services.rs` |
+| TS source                                        | Rust                                                                                       |
+| ------------------------------------------------ | ------------------------------------------------------------------------------------------ |
+| `src/ui/pull-requests.ts`                        | `tuig-widgets/src/pull_requests.rs`: icons, grouping, branch matching, the history PR cell |
+| `src/ui/runtime-pull-requests.ts`                | `tuig-app/src/screens/pull_requests.rs`: load, refresh timing, spinner                     |
+| `src/ui/avatars.ts`                              | `tuig-app/src/avatars.rs`: URLs, cache, decode, circle mask                                |
+| `updateGraphAvatars`, `showCommitMeta` photo     | `tuig-app/src/screens/graph_avatars.rs`                                                    |
+| `src/ui/auto-refresh.ts`, `remoteFetchTimer`     | `tuig-app/src/refresh.rs`                                                                  |
+| `RuntimePullRequestsOptions.factory` and friends | `tuig-app/src/services.rs`                                                                 |
 
 - `Services` holds the parts that reach outside the repository. `Shell::start_with` takes it. A default `Services` turns
   pull requests, avatars and the background fetch off, so tests never touch the network. Tests that need them pass
