@@ -1,0 +1,32 @@
+# Repository tabs: the picker, a typed path that matches nothing, a second repository opened from
+# its path, switching, reordering, closing, and the keyboard shortcuts.
+fixture demo
+extra second
+wait text "Working Changes"
+key ctrl+t
+wait text "Open repository"
+snapshot picker
+text "/nonexistent/path"
+snapshot typed
+key esc
+snapshot cancelled
+click 18 0
+wait text "Open repository"
+snapshot plus-button
+key ctrl+a
+text "{second}"
+key enter
+wait text "chore: start second"
+snapshot second-open
+key ctrl+tab
+wait text "Working Changes"
+snapshot ctrl-tab
+click 25 0
+wait text "chore: start second"
+snapshot click-tab
+drag 25 0 6 0
+snapshot reorder
+key ctrl+shift+tab
+snapshot ctrl-shift-tab
+key ctrl+w
+snapshot closed-active

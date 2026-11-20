@@ -1,0 +1,12 @@
+# Compare two commits from the graph menu.
+fixture demo
+wait text "Working Changes"
+click 60 6 right
+wait text "Select for comparison"
+click 62 7
+snapshot start-selected
+click 60 8 right
+wait text "Compare"
+snapshot compare-menu
+click 62 9
+snapshot compared

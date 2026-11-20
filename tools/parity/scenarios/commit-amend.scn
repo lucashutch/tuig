@@ -1,0 +1,13 @@
+# Stage all and amend the last commit: the toggle pre-fills its message, then edit it and press Enter.
+fixture demo
+wait text "Working Changes"
+click 150 3
+click 118 44
+wait text "[x] Amend previous commit"
+snapshot amend-on
+key c
+text " v2"
+key enter
+wait stable
+mask 0 47 160 1
+snapshot amended

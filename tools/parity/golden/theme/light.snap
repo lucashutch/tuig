@@ -1,0 +1,127 @@
+parity-snapshot 1 160x48 cursor=hidden
+
+[text]
+     demo    ×    +                                                                                                                                             |
+ demo  main  no upstream  5 changed                 Fetch    Pull    Push    Undo    Stash    Pop    Refresh                                          ■ Avatars |
+                                                      󰇚       ↓       ↑       ↶        󰆓       󰄼        󰑓                                                       |
+ ▼ LOCAL BRANCHES 4         │  Branch / tag         │ Graph  │ Message (10 commits)      │ Committer   │ SHA     │ │  ✖  Discard all             ✚  Stage all   |
+○ 󰌢 feature/login           │                         ●        Working Changes (5 files…                         ▐ │  ▼ Unstaged files (2)                      |
+○ 󰌢 fix/typo                │  ◉ main               ▶ ◉        docs: describe installat…   Ada Tester    2d6de209▐ │   ▼ 󰝰 src                                  |
+◉ 󰌢 main                    │  󰌢 release/1.0 +1       ● │      merge: fix/typo into main   Ada Tester    3522bedb▐ │ ▸ │   󰌠 server.py                          |
+○ 󰌢 release/1.0             │                         ● │      refactor: rename old_nam…   Ada Tester    1c131e9c▐ │     󰧮 notes.txt                            |
+                            │                         ● │ │    merge: feature/login int…   Ada Tester    988a3fa7▐ │                                            |
+                            │                         ● │ │    feat: add clamp helper      Ada Tester    b0168a57▐ │                                            |
+                            │  󰌢 fix/typo             │ │ ●    docs: link the guide fro…   Ada Tester    bb48f3e7▐ │                                            |
+                            │  󰌢 feature/login        │ ● │    feat: normalise user nam…   Ada Tester    27e4e3f5▐ │                                            |
+───────────━━━━━────────────│                         │ ● │    feat: add login             Ada Tester    223ceb6d▐ │                                            |
+ ▼ REMOTES 0                │   v0.1                  ●─┴─╯    docs: add guide             Ada Tester    34d2f7d2▐ │                                            |
+  (none)                    │                         ●        chore: initial commit       Ada Tester    51bd7f1b▐ │                                            |
+                            │                                                                                      │                                            |
+                            │                                                                                      │                                            |
+                            │                                                                                      │───────────────────━━━━━────────────────────|
+                            │                                                                                      │                                            |
+                            │                                                                                      │  ▼ Staged files (3)       −  Unstage all   |
+                            │                                                                                      │   ▼ 󰝰 src                                  |
+───────────━━━━━────────────│                                                                                      │   │   󰌠 auth.py                            |
+ ▼ SUBMODULES 0             ┃                                                                                      ┃   │   󰌠 staged_new.py                      |
+  (none)                    ┃                                                                                      ┃   │   󰌠 util.py                            |
+                            ┃                                                                                      ┃                                            |
+                            ┃                                                                                      ┃                                            |
+                            ┃                                                                                      ┃                                            |
+                            │                                                                                      │                                            |
+                            │                                                                                      │                                            |
+                            │                                                                                      │                                            |
+───────────━━━━━────────────│                                                                                      │                                            |
+ ▼ STASHES 0                │                                                                                      │                                            |
+  (none)                    │                                                                                      │                                            |
+                            │                                                                                      │───────────────────━━━━━────────────────────|
+                            │                                                                                      │                                            |
+                            │                                                                                      │  COMMIT MESSAGE                            |
+                            │                                                                                      │  Summary                                   |
+                            │                                                                                      │  Description                               |
+                            │                                                                                      │                                            |
+───────────━━━━━────────────│                                                                                      │                                            |
+ ▼ WORKTREES 1              │                                                                                      │                                            |
+ ◉ demo                     │                                                                                      │                                            |
+  on main                   │                                                                                      │                                            |
+                            │                                                                                      │                                            |
+                            │                                                                                      │  [ ] Amend previous commit                 |
+                            │                                                                                      │         Write a summary to commit          |
+                            │                                                                                      │                                            |
+ j/k move  ·  ←/→ pan graph  ·  ↵ open commit  ·  / filter branches  ·  ⇥ pane  ·  [ ] collapse  ·  r refresh  ·  q quit                                        |
+
+[styles]
+a fg=61afef bg=3e4451 attrs=-
+b fg=1a1a1a bg=2c313a attrs=-
+c fg=61afef bg=2c313a attrs=-
+d fg=1a1a1a bg=f5f5f5 attrs=-
+e fg=d68c27 bg=f5f5f5 attrs=-
+f fg=8a8a8a bg=f5f5f5 attrs=-
+g fg=8a8a8a bg=ffffff attrs=-
+h fg=ffffff bg=fafafa attrs=-
+i fg=8a8a8a bg=fafafa attrs=-
+j fg=1a1a1a bg=ffffff attrs=-
+k fg=ffffff bg=ffffff attrs=-
+l fg=b8b8b8 bg=ffffff attrs=-
+m fg=ffffff bg=d1383d attrs=-
+n fg=1a1a1a bg=fafafa attrs=-
+o fg=b8b8b8 bg=f5f5f5 attrs=-
+p fg=7b5bb6 bg=f5f5f5 attrs=-
+q fg=d68c27 bg=fafafa attrs=-
+r fg=888888 bg=f5f5f5 attrs=-
+s fg=7b5bb6 bg=ffffff attrs=-
+t fg=d68c27 bg=ffffff attrs=-
+u fg=3d9a57 bg=fafafa attrs=-
+v fg=3d9a57 bg=ffffff attrs=-
+w fg=3d9a57 bg=f5f5f5 attrs=-
+x fg=b8b8b8 bg=fafafa attrs=-
+
+[grid]
+aaaaaaaaaaaaaaaabcccbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb|
+dddddeeeeeefffffffffffffeeeeeeeeeeeffffffffffffffdggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggddddddddddddddddddddddddddddddddddddddddfffffffffd|
+ddddddddddddddddddddddddddddddddddddddddddddddddddggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggdddddddddddddddddddddddddddddddddddddddddddddddddd|
+hiiiiiiiiiiiiiiiiiihhhhhhhhhjkjjjjjjjjjjjjjjjjjjjjjjlljjjjjjllljjjjjjjjjjjjjjjjjjjjjjjjjllljjjjjjjjjjjllljjjjjjjjlkjhmmmmmmmmmmmmmmmmhhhhhhhhhhhnnnnnnnnnnnnnnhh|
+nnnnnnnnnnnnnnnnnnnnnnnnnnnnjkddddddddddddddddddddddffeeffffoooeeeeeeeeeeeeeeeeeeeeeeeeeooofffffffffffooodddddddddkjhiiiiiiiiiiiiiiiiiiiiihhhhhhhhhhhhhhhhhhhhhh|
+nnnnnnnnnnnnnnnnnnnnnnnnnnnnjkppppppppppppppppppppppeeppffffoooeeeeeeeeeeeeeeeeeeeeeeeeeoooeeeeeeeeeeeooodddddddddkjhiinnqqnnniiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiii|
+nnnnnnnnnnnnnnnnnnnnnnnnnnnnjkppppppppppppppppppppppddpprrffooodddddddddddddddddddddddddoooeeeeeeeeeeeooodddddddddkjhddooffeedddddddddffffffffffffffffffffffffff|
+nnnnnnnnnnnnnnnnnnnnnnnnnnnnjkggggggggggggggggggggggjjssttggllljjjjjjjjjjjjjjjjjjjjjjjjjllltttttttttttllljjjjjjjjjkjhiiiiuunnnnnnnnniiiiiiiiiiiiiiiiiiiiiiiiiiii|
+nnnnnnnnnnnnnnnnnnnnnnnnnnnnjkffffffffffffffffffffffddppeerrooodddddddddddddddddddddddddoooeeeeeeeeeeeooodddddddddkjhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh|
+nnnnnnnnnnnnnnnnnnnnnnnnnnnnjkggggggggggggggggggggggjjssvvttllljjjjjjjjjjjjjjjjjjjjjjjjjllltttttttttttllljjjjjjjjjkjhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh|
+nnnnnnnnnnnnnnnnnnnnnnnnnnnnjkeeeeeeeeeeeeeeeeeeeeeeddppwweeooodddddddddddddddddddddddddoooeeeeeeeeeeeooodddddddddkjhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh|
+nnnnnnnnnnnnnnnnnnnnnnnnnnnnjkvvvvvvvvvvvvvvvvvvvvvvjjssvvttllljjjjjjjjjjjjjjjjjjjjjjjjjllltttttttttttllljjjjjjjjjkjhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh|
+nnnnnnnnnnnnnnnnnnnnnnnnnnnnjkffffffffffffffffffffffddppwweeooodddddddddddddddddddddddddoooeeeeeeeeeeeooodddddddddkjhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh|
+hiiiiiiiiiiihhhhhhhhhhhhhhhhjkssssssssssssssssssssssjjssvvttllljjjjjjjjjjjjjjjjjjjjjjjjjllltttttttttttllljjjjjjjjjkjhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh|
+nnnnnnnnnnnnnnnnnnnnnnnnnnnnjkffffffffffffffffffffffddppffffooodddddddddddddddddddddddddoooeeeeeeeeeeeooodddddddddkjhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh|
+nnnnnnnnnnnnnnnnnnnnnnnnnnnnjkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkjhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh|
+nnnnnnnnnnnnnnnnnnnnnnnnnnnnjkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkjhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh|
+nnnnnnnnnnnnnnnnnnnnnnnnnnnnjkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkjnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnn|
+nnnnnnnnnnnnnnnnnnnnnnnnnnnnjkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkjhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh|
+nnnnnnnnnnnnnnnnnnnnnnnnnnnnjkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkjhiiiiiiiiiiiiiiiiiiihhhhhhiiiiiiiiiiiiiiiihh|
+nnnnnnnnnnnnnnnnnnnnnnnnnnnnjkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkjhiinnnnnnniiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiii|
+nnnnnnnnnnnnnnnnnnnnnnnnnnnnjkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkjhiixxiinnnnnnnnniiiiiiiiiiiiiiiiiiiiiiiiiiii|
+hiiiiiiiiiiiiiihhhhhhhhhhhhhjkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkjhiixxiiuunnnnnnnnnnnnniiiiiiiiiiiiiiiiiiiiii|
+nnnnnnnnnnnnnnnnnnnnnnnnnnnnjkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkjhiixxiiqqnnnnnnniiiiiiiiiiiiiiiiiiiiiiiiiiii|
+nnnnnnnnnnnnnnnnnnnnnnnnnnnnjkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkjhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh|
+nnnnnnnnnnnnnnnnnnnnnnnnnnnnjkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkjhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh|
+nnnnnnnnnnnnnnnnnnnnnnnnnnnnjkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkjhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh|
+nnnnnnnnnnnnnnnnnnnnnnnnnnnnjkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkjhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh|
+nnnnnnnnnnnnnnnnnnnnnnnnnnnnjkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkjhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh|
+nnnnnnnnnnnnnnnnnnnnnnnnnnnnjkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkjhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh|
+nnnnnnnnnnnnnnnnnnnnnnnnnnnnjkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkjhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh|
+hiiiiiiiiiiihhhhhhhhhhhhhhhhjkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkjhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh|
+nnnnnnnnnnnnnnnnnnnnnnnnnnnnjkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkjhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh|
+nnnnnnnnnnnnnnnnnnnnnnnnnnnnjkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkjnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnn|
+nnnnnnnnnnnnnnnnnnnnnnnnnnnnjkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkjhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh|
+nnnnnnnnnnnnnnnnnnnnnnnnnnnnjkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkjhnnnnnnnnnnnnnnnhhhhhhhhhhhhhhhhhhhhhhhhhhhh|
+nnnnnnnnnnnnnnnnnnnnnnnnnnnnjkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkjhhgggggggkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkh|
+nnnnnnnnnnnnnnnnnnnnnnnnnnnnjkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkjhhgggggggggggkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkh|
+nnnnnnnnnnnnnnnnnnnnnnnnnnnnjkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkjhhkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkh|
+nnnnnnnnnnnnnnnnnnnnnnnnnnnnjkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkjhhkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkh|
+hiiiiiiiiiiiiihhhhhhhhhhhhhhjkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkjhhkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkh|
+qqqqqqqqqqqqqqqqqqqqqqqqqqqnjkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkjhhkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkh|
+iiiiiiiiiiiiiiiiiiiiiiiiiiinjkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkjhhkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkh|
+nnnnnnnnnnnnnnnnnnnnnnnnnnnnjkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkjhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh|
+iiiiiiiiiiiiiiiiiiiiiiiiiiinjkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkjhhiiiiiiiiiiiiiiiiiiiiiiiiihhhhhhhhhhhhhhhhh|
+nnnnnnnnnnnnnnnnnnnnnnnnnnnnjkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkjhhiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiihh|
+iiiiiiiiiiiiiiiiiiiiiiiiiiinjkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkjhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh|
+niiiiiiiiiiiiiiiiiiiiiiiiiiiggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggiiiihhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh|

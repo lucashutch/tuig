@@ -1,0 +1,21 @@
+# Sidebar: fold a section, unfold it, drag a section divider, drag the sidebar divider, collapse
+# and expand the sidebar and the details pane.
+fixture demo
+wait text "Working Changes"
+click 3 3
+snapshot folded
+move 80 30
+click 3 3
+snapshot unfolded
+drag 14 12 14 8
+snapshot section-divider
+drag 28 20 40 20
+snapshot sidebar-width
+click 40 20
+snapshot sidebar-collapsed
+key [
+snapshot sidebar-expanded
+key ]
+snapshot details-collapsed
+key ]
+snapshot details-expanded
