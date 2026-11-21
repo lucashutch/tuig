@@ -754,7 +754,7 @@ impl Shell {
         if self.files.focus == Focus::Changes {
             match self.files.selected.clone() {
                 Some(file) => self.inbox.post(app, Msg::FileOpened(file)),
-                None => self.notice = Some("No file selected".to_string()),
+                None => self.notify("No file selected"),
             }
         } else if !self.commit_open() {
             self.open_commit();

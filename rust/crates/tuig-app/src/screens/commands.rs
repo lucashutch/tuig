@@ -52,7 +52,7 @@ fn same_directory(left: &str, right: &str) -> bool {
 
 impl Shell {
     pub(crate) fn notify(&mut self, text: impl Into<String>) {
-        self.notice = Some(text.into());
+        self.set_notice(text.into());
     }
 
     /// Runs a remote operation that Esc can cancel.
@@ -62,7 +62,7 @@ impl Shell {
         Fut: Future<Output = GitResult<()>> + Send + 'static,
     {
         if let Some(running) = &self.diff.mutation {
-            self.notice = Some(format!("{running} is still running"));
+            self.notify(format!("{running} is still running"));
             return;
         }
         let token = CancelToken::new();
@@ -87,7 +87,7 @@ impl Shell {
 
     pub(crate) fn copy_text(&mut self, app: &App, text: &str, notice: String) {
         if app.copy_to_clipboard(text) {
-            self.notice = Some(notice);
+            self.notify(notice);
         }
     }
 

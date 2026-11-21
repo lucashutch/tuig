@@ -547,7 +547,7 @@ impl Shell {
             return;
         }
         self.files.contents = Contents::Commit;
-        self.notice = Some("Commit selected · click a changed file for its diff".to_owned());
+        self.notify("Commit selected · click a changed file for its diff".to_owned());
         self.dirty |= Dirty::DETAILS | Dirty::FILES;
     }
 
@@ -586,7 +586,7 @@ impl Shell {
                     return;
                 };
                 if app.copy_to_clipboard(&sha) {
-                    self.notice = Some(format!("Copied {}", short_sha(&sha)));
+                    self.notify(format!("Copied {}", short_sha(&sha)));
                 }
             }
             DetailsAction::ViewWorking => self.close_commit(),
@@ -660,7 +660,7 @@ impl Shell {
     pub(crate) fn blame_loaded(&mut self, result: GitResult<LineBlame>) {
         match result {
             Ok(blame) => {
-                self.notice = Some(format!(
+                self.notify(format!(
                     "{} · {} · {}",
                     short_sha(&blame.commit.sha),
                     blame.commit.author,
@@ -682,9 +682,11 @@ impl Shell {
         if self.snapshot.is_none() {
             return;
         }
-        self.notice = commits
-            .is_empty()
-            .then(|| format!("No history found for {}", loaded.file.path));
+        if commits.is_empty() {
+            self.notify(format!("No history found for {}", loaded.file.path));
+        } else {
+            self.notice = None;
+        }
         self.details.file_history = Some(FileHistory {
             file: loaded.file,
             commits: commits.into(),

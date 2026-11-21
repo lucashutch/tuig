@@ -331,7 +331,7 @@ impl Shell {
             return;
         }
         if value.is_empty() {
-            self.notice = Some("A name is required".to_owned());
+            self.notify("A name is required".to_owned());
             return;
         }
         let Some(menu) = self.overlay.menu.take() else {

@@ -235,7 +235,7 @@ impl Shell {
                 self.diff.document = None;
                 self.diff.too_large = true;
                 self.diff.message = "Diff exceeds 5 MiB. Loading it may use substantial RAM.\nPress Shift+L to load without highlighting, or Esc to close.".to_owned();
-                self.notice = Some("Diff too large · Shift+L to load anyway".to_owned());
+                self.notify("Diff too large · Shift+L to load anyway".to_owned());
             }
             Err(error) => {
                 self.diff.document = None;
@@ -271,7 +271,7 @@ impl Shell {
             DiffEvent::Drag { target } => self.diff_drag(target),
             DiffEvent::Release => self.diff.drag_anchor = None,
             DiffEvent::Copied(_) => {
-                self.notice = Some("Copied selection".to_owned());
+                self.notify("Copied selection".to_owned());
             }
         }
     }
@@ -316,7 +316,7 @@ impl Shell {
                     self.diff.drag_selecting = rows.contains(&raw);
                 }
                 let count = rows.len();
-                self.notice = Some(if count > 0 {
+                let text = if count > 0 {
                     let action = if self.diff.staged() {
                         "unstage"
                     } else {
@@ -325,7 +325,8 @@ impl Shell {
                     format!("{count} line{} selected · Enter to {action}", plural(count))
                 } else {
                     "Line selection cleared".to_owned()
-                });
+                };
+                self.notify(text);
             }
             // The right button opens a menu: `diff_context_menu`.
             _ => return,
@@ -361,7 +362,7 @@ impl Shell {
         self.diff.selection_document = None;
         self.dirty |= Dirty::DIFF;
         if notify {
-            self.notice = Some("Line selection cleared".to_owned());
+            self.notify("Line selection cleared".to_owned());
         }
     }
 
@@ -376,11 +377,11 @@ impl Shell {
             return self.clear_line_selection(true);
         };
         if discard && staged {
-            self.notice = Some("Only unstaged lines can be discarded".to_owned());
+            self.notify("Only unstaged lines can be discarded".to_owned());
             return;
         }
         if let Some(running) = &self.diff.mutation {
-            self.notice = Some(format!("{running} is still running"));
+            self.notify(format!("{running} is still running"));
             return;
         }
         let preserve = if discard || staged {
@@ -390,7 +391,7 @@ impl Shell {
         };
         let patch = select_patch_lines(&document.patch, &self.diff.selected_rows, preserve);
         if patch.is_empty() {
-            self.notice = Some("No changed lines selected".to_owned());
+            self.notify("No changed lines selected".to_owned());
             return;
         }
         let label = if discard {
@@ -436,7 +437,7 @@ impl Shell {
             ),
         };
         if source != Some(needed) {
-            self.notice = Some(text.to_owned());
+            self.notify(text.to_owned());
             return;
         }
         let repo = self.repo.clone();
@@ -488,7 +489,7 @@ impl Shell {
         F: Future<Output = GitResult<()>> + Send + 'static,
     {
         if let Some(running) = &self.diff.mutation {
-            self.notice = Some(format!("{running} is still running"));
+            self.notify(format!("{running} is still running"));
             return;
         }
         self.diff.mutation = Some(label.to_owned());
@@ -503,7 +504,7 @@ impl Shell {
         match result {
             Ok(()) => self.notice = None,
             Err(GitError::Aborted(_)) => {
-                self.notice = Some(format!("Cancelled {}", label.to_lowercase()));
+                self.notify(format!("Cancelled {}", label.to_lowercase()));
             }
             Err(error) => self.notify_error(error.to_string()),
         }

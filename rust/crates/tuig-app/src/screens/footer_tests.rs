@@ -29,6 +29,25 @@ fn a_notice_shows_at_the_right_of_the_bottom_row_and_expires() {
 }
 
 #[test]
+fn the_same_notice_shown_again_gets_six_more_seconds() {
+    let h = start();
+    h.shell.borrow_mut().notify("Copied abc12345");
+    h.send(Msg::Resize(160, 48));
+    h.app.advance(Duration::from_secs(4));
+    // Same text, a new notification. Its timer starts now, so the first timer must not clear it.
+    h.shell.borrow_mut().notify("Copied abc12345");
+    h.send(Msg::Resize(160, 48));
+    h.app.advance(Duration::from_secs(4));
+    assert!(
+        h.read(|shell| shell.notice.is_some()),
+        "8 s after the first, 4 s after the second"
+    );
+    h.app
+        .advance(Duration::from_secs(2) + Duration::from_millis(100));
+    assert!(h.read(|shell| shell.notice.is_none()));
+}
+
+#[test]
 fn a_busy_notice_stays_out_of_the_footer() {
     let h = start();
     h.shell

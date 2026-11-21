@@ -324,7 +324,7 @@ impl Shell {
             Ok(Some(draft)) => self.set_draft(&draft),
             Ok(None) => self.dirty |= Dirty::COMPOSER,
             Err(NoPreviousCommit) => {
-                self.notice = Some("No previous commit to amend".to_owned());
+                self.notify("No previous commit to amend".to_owned());
             }
         }
     }
@@ -358,12 +358,12 @@ impl Shell {
     fn commit(&mut self, app: &App) {
         let draft = self.widgets.composer.draft();
         let Some(message) = commit_message(&draft.summary, &draft.body) else {
-            self.notice = Some("Commit summary cannot be empty".to_owned());
+            self.notify("Commit summary cannot be empty".to_owned());
             return;
         };
         let reword = self.composer.model.editing.clone();
         if reword.is_none() && self.files.staged_count() == 0 {
-            self.notice = Some("Nothing staged to commit".to_owned());
+            self.notify("Nothing staged to commit".to_owned());
             return;
         }
         let amend = self.composer.model.amend;
@@ -373,7 +373,7 @@ impl Shell {
             (None, false) => "Committing",
         };
         if let Some(running) = &self.diff.mutation {
-            self.notice = Some(format!("{running} is still running"));
+            self.notify(format!("{running} is still running"));
             return;
         }
         app.blur();

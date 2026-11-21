@@ -30,6 +30,10 @@ pub struct FooterState {
     /// The tone of the notice with this text. A notice set by plain assignment has no entry, so it is `Info`.
     tone: Option<(NoticeTone, String)>,
     timer: Option<TimerId>,
+    /// Counts the notices shown, so the same text shown again is a new notice.
+    serial: u64,
+    /// The serial of the notice on screen.
+    shown_serial: u64,
     /// Bumped for every timer, so a message that was replaced ignores the old expiry.
     generation: u64,
     hints: HintContext,
@@ -43,6 +47,13 @@ impl Shell {
     pub(crate) fn notify_tone(&mut self, tone: NoticeTone, text: impl Into<String>) {
         let text = text.into();
         self.footer.tone = Some((tone, text.clone()));
+        self.set_notice(text);
+    }
+
+    /// Shows `text` in the footer. A text that is already showing starts its six seconds again, as `notify` does in
+    /// TS.
+    pub(crate) fn set_notice(&mut self, text: String) {
+        self.footer.serial += 1;
         self.notice = Some(text);
     }
 
@@ -95,10 +106,13 @@ impl Shell {
                 .footer
                 .update(|footer| footer.set_hints(&hints));
         }
-        if self.notice == self.footer.shown {
+        if self.notice == self.footer.shown
+            && (self.notice.is_none() || self.footer.serial == self.footer.shown_serial)
+        {
             return;
         }
         self.footer.shown = self.notice.clone();
+        self.footer.shown_serial = self.footer.serial;
         if let Some(timer) = self.footer.timer.take() {
             app.cancel_timer(timer);
         }
