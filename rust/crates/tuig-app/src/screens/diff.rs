@@ -476,10 +476,7 @@ impl Shell {
         self.perform(app, "Applying hunk…", async move {
             let patch = repo.diff(&request).await?;
             let Some(hunk) = split_patch_hunks(&patch).into_iter().next() else {
-                return Err(GitError::Io(std::io::Error::new(
-                    std::io::ErrorKind::InvalidInput,
-                    "No applicable hunk",
-                )));
+                return Err(GitError::Invalid("No applicable hunk".to_owned()));
             };
             repo.apply_patch(&hunk.patch, staged).await
         });

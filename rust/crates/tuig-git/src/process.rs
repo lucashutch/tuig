@@ -269,6 +269,9 @@ pub enum GitError {
         args: Vec<String>,
         source: std::io::Error,
     },
+    /// A rejected argument, such as an empty file path. The TypeScript `Error` or `RangeError` of an argument check.
+    #[error("{0}")]
+    Invalid(String),
     #[error(transparent)]
     Io(#[from] std::io::Error),
 }

@@ -415,6 +415,10 @@ async fn line_blame_reports_commit_and_original_location_across_edits_and_a_rena
         .await
         .err()
         .unwrap();
+    // A rejected argument is its own variant, so callers do not match on an I/O error kind.
+    assert!(
+        matches!(&zero, GitError::Invalid(message) if message == "A positive 1-based line number is required")
+    );
     assert_eq!(
         zero.to_string(),
         "A positive 1-based line number is required"

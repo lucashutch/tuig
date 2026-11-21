@@ -9,8 +9,8 @@
 //! - Optional interface members have trait defaults. `commit_page` has no
 //!   fallback and fails with `ErrorKind::Unsupported`. `watch_paths` returns
 //!   `None` when a repository cannot be watched.
-//! - Checks that threw a plain `Error` or `RangeError` return `GitError::Io`
-//!   with kind `InvalidInput` (bad argument) or `Other` (bad repository state).
+//! - Checks that threw a plain `Error` or `RangeError` return `GitError::Invalid`
+//!   (bad argument) or `GitError::Io` with kind `Other` (bad repository state).
 //! - TypeScript identifies the snapshot a history signature belongs to by the
 //!   `commits` array object. Rust snapshots are plain values, so the service
 //!   keys the signature by the tip commit (its SHA and decorations). A refresh
@@ -183,10 +183,7 @@ pub trait GitRepository: Send + Sync {
 
 /// An error for a rejected argument (the TypeScript `Error` or `RangeError`).
 fn invalid(message: &str) -> GitError {
-    GitError::Io(std::io::Error::new(
-        ErrorKind::InvalidInput,
-        message.to_string(),
-    ))
+    GitError::Invalid(message.to_string())
 }
 
 /// An error for a repository state that blocks the request.
