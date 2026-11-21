@@ -18,8 +18,10 @@ use tuig_ui_model::history_viewport::{
     HistorySelection, HistoryViewport, history_start_for_commit,
 };
 use tuig_ui_model::theme::Theme;
-use tuig_widgets::decorations::{RefIndex, resolve_head_sha};
-use tuig_widgets::history::{HistorySource, HistoryWindow, history_window};
+use tuig_widgets::branch_hints::BranchHintIndex;
+use tuig_widgets::commit_text::short_sha;
+use tuig_widgets::decorations::{RefIndex, primary_decoration_ref, resolve_head_sha};
+use tuig_widgets::history::{ClickPart, HistorySource, HistoryWindow, history_window};
 
 /// Commits per page. `HISTORY_PAGE` in `src/ui/runtime-data.ts`.
 pub const HISTORY_PAGE: usize = DEFAULT_HISTORY_PAGE;
@@ -36,6 +38,8 @@ pub struct HistoryState {
     pub complete: bool,
     pub index: GraphIndex,
     pub refs: RefIndex,
+    /// The nearest ref of each commit, shown on the selected row when it has no label.
+    pub hints: BranchHintIndex,
     pub colors: Vec<String>,
     pub selection: HistorySelection,
     pub viewport: HistoryViewport,
@@ -63,6 +67,7 @@ impl HistoryState {
             complete: false,
             index: GraphIndex::new(None, &colors),
             refs: RefIndex::default(),
+            hints: BranchHintIndex::default(),
             colors,
             selection: HistorySelection::Working,
             viewport: HistoryViewport::default(),
@@ -113,6 +118,7 @@ impl Shell {
             commits: &history.commits,
             branches: &snapshot.branches,
             refs: &history.refs,
+            hints: &history.hints,
             colors: &history.colors,
             working_files: snapshot.files.len(),
             commits_complete: history.complete,
@@ -168,6 +174,8 @@ impl Shell {
                 .extend(&commits, &history.colors, head.as_deref())
                 .expect("a new index takes any commit list");
             history.refs = RefIndex::new(&snapshot.branches);
+            history.hints = BranchHintIndex::default();
+            history.hints.extend(&commits, &snapshot.branches);
             if let HistorySelection::Commit(index) = history.selection {
                 let found =
                     selected.and_then(|sha| commits.iter().position(|commit| commit.sha == sha));
@@ -268,6 +276,12 @@ impl Shell {
         history.complete = page.complete || fresh.is_empty();
         history.commits.extend(fresh);
         history.limit = history.commits.len();
+        if let Some(snapshot) = &self.snapshot {
+            history.hints.extend(
+                &history.commits[history.commits.len() - fresh_count..],
+                &snapshot.branches,
+            );
+        }
         debug_log(
             "history",
             &format!(
@@ -307,19 +321,40 @@ impl Shell {
         }
     }
 
-    /// Ports `historyClick` for a left press on a row. A commit row opens the details pane. The working row closes
-    /// it. Label and SHA clicks wait for those parts of the list.
-    pub(crate) fn history_click(&mut self, row: usize, _column: u16, _clicks: u8) {
+    /// Ports `historyClick` for a left press on a row. A commit row opens the details pane, and the working row
+    /// closes it. A press on the short SHA copies it. A double click on a branch label checks the branch out, and
+    /// on a tag or hint label it says so.
+    pub(crate) fn history_click(&mut self, app: &App, row: usize, part: ClickPart, clicks: u8) {
         let has_working = self.has_working();
         let history = &mut self.history;
         history.pending_scroll = 0;
         history.viewport.detached = false;
         history.selection = HistorySelection::from_row(row, has_working);
         self.dirty |= Dirty::HISTORY;
-        match self.history.selection {
-            HistorySelection::Commit(_) => self.open_commit(),
-            HistorySelection::Working => self.close_details_for_working(),
+        let HistorySelection::Commit(index) = self.history.selection else {
+            return self.close_details_for_working();
+        };
+        let Some(commit) = self.history.commits.get(index).cloned() else {
+            return;
+        };
+        if part == ClickPart::Sha {
+            let sha = short_sha(&commit.sha).to_owned();
+            if app.copy_to_clipboard(&sha) {
+                self.notify(format!("Copied {sha}"));
+            }
+            return;
         }
+        if clicks == 2 && part == ClickPart::Label {
+            let branch = self.snapshot.as_ref().and_then(|snapshot| {
+                primary_decoration_ref(&commit.decorations, &snapshot.branches, &self.history.refs)
+                    .cloned()
+            });
+            return match branch {
+                Some(branch) => self.checkout_branch(app, branch),
+                None => self.notify("That label is a tag, not a branch"),
+            };
+        }
+        self.open_commit();
     }
 
     /// Ports `queueHistoryScroll`: wheel notches add up for [`SCROLL_BATCH`] and then move the viewport once.
@@ -428,3 +463,7 @@ impl Shell {
         self.load_more(app);
     }
 }
+
+#[cfg(test)]
+#[path = "history_tests.rs"]
+mod tests;

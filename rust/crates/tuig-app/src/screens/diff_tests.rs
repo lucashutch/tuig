@@ -10,6 +10,7 @@ use std::process::{Command as Process, Stdio};
 use std::sync::Arc;
 use std::time::Duration;
 use tuig_git::repository::GitRepositoryService;
+use tuig_widgets::history::ClickPart;
 
 const WAIT: Duration = Duration::from_secs(20);
 
@@ -386,7 +387,7 @@ fn moving_the_history_selection_onto_the_working_row_closes_the_commit_view_in_b
     // Row 0 is the working row, row 1 the newest commit.
     h.update(Msg::HistoryClick {
         row: 1,
-        column: 0,
+        part: ClickPart::Row,
         clicks: 1,
     });
     h.wait("the commit files", |shell| {

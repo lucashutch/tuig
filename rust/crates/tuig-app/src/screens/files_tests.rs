@@ -9,6 +9,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command as Process, Stdio};
 use std::sync::Arc;
 use tuig_git::repository::GitRepositoryService;
+use tuig_widgets::history::ClickPart;
 
 const WAIT: Duration = Duration::from_secs(20);
 
@@ -125,7 +126,7 @@ impl Harness {
     fn open_commit(&self, index: usize) {
         self.update(Msg::HistoryClick {
             row: index + 1,
-            column: 0,
+            part: ClickPart::Row,
             clicks: 1,
         });
     }

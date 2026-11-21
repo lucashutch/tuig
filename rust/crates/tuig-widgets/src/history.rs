@@ -12,11 +12,11 @@
 //!
 //! Known parity gaps with `paintHistory` and its mouse handling in the TypeScript app:
 //!
-//! - Branch hints.
 //! - The `A ` comparison marker.
 //! - The PR number is not a terminal hyperlink: `Painter` has no hyperlink support.
 //! - Click hits on the SHA and on labels, and the scrollbar drag.
 
+use crate::branch_hints::BranchHintIndex;
 use crate::decorations::{RefIndex, summarise_decorations};
 use crate::pointer::{PointerTracker, origin_of};
 use crate::pull_requests::{PullRequestCommitIndex, SPINNER_FRAMES, pull_request_history_cell};
@@ -40,6 +40,9 @@ use tuig_ui_model::scrollbar::{ScrollbarCell, scrollbar_cell, scrollbar_thumb};
 use tuig_ui_model::text_width::{fit_columns, string_width};
 use tuig_ui_model::theme::{Theme, interaction_background};
 
+/// Width of the SHA hit range: the short SHA is eight characters. `historyShaHits`.
+const SHA_HIT_WIDTH: i64 = 8;
+
 /// Two presses on the same row within this time count as a double click. `DOUBLE_CLICK_MS` in TypeScript.
 pub const DOUBLE_CLICK: Duration = Duration::from_millis(400);
 
@@ -50,6 +53,8 @@ pub struct HistoryRow {
     pub commit: Commit,
     /// The primary ref label, empty when the commit has none.
     pub label: String,
+    /// The nearest ref that reaches a commit without a label, for example `↳ main`. Shown only on the selected row.
+    pub hint: String,
     /// Refs on the commit beyond the primary one, shown as `+N`.
     pub extra: usize,
     /// Open pull requests that match the commit, newest first. Empty without pull request data.
@@ -106,6 +111,7 @@ pub struct HistorySource<'a> {
     pub colors: &'a [String],
     pub working_files: usize,
     pub commits_complete: bool,
+    pub hints: &'a BranchHintIndex,
     /// Pull request matcher. `None` hides the PR column.
     pub pull_requests: Option<&'a PullRequestCommitIndex>,
 }
@@ -131,6 +137,11 @@ pub fn history_window(
                 graph: graph.clone(),
                 commit: commit.clone(),
                 label,
+                hint: source
+                    .hints
+                    .hint(&commit.sha)
+                    .unwrap_or_default()
+                    .to_owned(),
                 extra,
                 pull_requests: source
                     .pull_requests
@@ -177,11 +188,27 @@ pub struct AvatarSlot {
     pub top: i64,
 }
 
+/// The part of a row that a left press landed on. TS keeps hit ranges for the ref label and the short SHA.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ClickPart {
+    Row,
+    /// The ref label column of a row that shows a label or a branch hint.
+    Label,
+    /// The short SHA.
+    Sha,
+}
+
 /// Mouse input for the shell. Rows are display rows and columns are cells from the widget's left edge.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum HistoryEvent {
-    /// A left press on a row. `clicks` is 2 for a second press on the same row within [`DOUBLE_CLICK`].
-    Click { row: usize, column: u16, clicks: u8 },
+    /// A left press on a row. `clicks` is 2 for a second press on the same row and the same part within
+    /// [`DOUBLE_CLICK`]. A press on the SHA is never part of a double click.
+    Click {
+        row: usize,
+        column: u16,
+        part: ClickPart,
+        clicks: u8,
+    },
     /// Vertical wheel, in rows.
     Wheel(i32),
     /// Horizontal wheel or shift with the vertical wheel, in graph columns.
@@ -209,7 +236,8 @@ pub struct HistoryList {
     hovered_line: Option<usize>,
     /// Index into [`SPINNER_FRAMES`] for running checks.
     spinner: usize,
-    last_press: Option<(usize, Instant)>,
+    /// The row and part of the last press that can start a double click, and when it happened.
+    last_press: Option<(usize, bool, Instant)>,
     /// The width of the last paint, for the label hit test.
     width: Cell<u32>,
     pointer: PointerTracker,
@@ -333,7 +361,23 @@ impl HistoryList {
         let columns = visible_history_columns(self.columns, data.pr_column);
         let geometry =
             history_column_layout(i64::from(self.width.get()), data.graph_columns, columns);
-        !entry.label.is_empty() && column >= 0 && i64::from(column) < geometry.branch_width
+        // A click selects the row, and the selected row shows its hint, so a hint counts as a label.
+        !(entry.label.is_empty() && entry.hint.is_empty())
+            && column >= 0
+            && i64::from(column) < geometry.branch_width
+    }
+
+    /// Whether column `column` is on the short SHA. The SHA column has a hit on every row while it shows.
+    fn on_sha(&self, column: i32) -> bool {
+        let data = &*self.window;
+        let columns = visible_history_columns(self.columns, data.pr_column);
+        if !columns.show_sha {
+            return false;
+        }
+        let geometry =
+            history_column_layout(i64::from(self.width.get()), data.graph_columns, columns);
+        let column = i64::from(column);
+        column >= geometry.sha_start && column < geometry.sha_start + SHA_HIT_WIDTH
     }
 
     /// A left press at widget line `line` and column `column`. Counts double clicks and emits
@@ -343,16 +387,33 @@ impl HistoryList {
         let Some(row) = self.row_at_line(line) else {
             return false;
         };
+        let part = if self.on_sha(column) {
+            ClickPart::Sha
+        } else if self.on_label(row, column) {
+            ClickPart::Label
+        } else {
+            ClickPart::Row
+        };
         let now = cx.app().now();
-        let doubled = self
-            .last_press
-            .is_some_and(|(last, at)| last == row && now.duration_since(at) < DOUBLE_CLICK);
-        self.last_press = if doubled { None } else { Some((row, now)) };
+        let mut doubled = false;
+        // `historyClick` returns on a SHA press before it looks at double clicks.
+        if part != ClickPart::Sha {
+            let label = part == ClickPart::Label;
+            doubled = self.last_press.is_some_and(|(last_row, last_label, at)| {
+                last_row == row && last_label == label && now.duration_since(at) < DOUBLE_CLICK
+            });
+            self.last_press = if doubled {
+                None
+            } else {
+                Some((row, label, now))
+            };
+        }
         self.emit(
             cx,
             HistoryEvent::Click {
                 row,
                 column: u16::try_from(column.max(0)).unwrap_or(u16::MAX),
+                part,
                 clicks: if doubled { 2 } else { 1 },
             },
         );
@@ -607,7 +668,13 @@ impl HistoryList {
                 break;
             };
             let (row, commit) = (&entry.graph, &entry.commit);
-            let (primary, extra) = (&entry.label, entry.extra);
+            // `paintHistory`: the selected row shows its branch hint in place of a missing label.
+            let primary = if selected_row == Some(row_index) && entry.label.is_empty() {
+                &entry.hint
+            } else {
+                &entry.label
+            };
+            let extra = entry.extra;
             let offset = row_index - start;
             let selected = selected_row == Some(row_index);
             let chip = if extra > 0 {

@@ -1,6 +1,7 @@
 //! OpenTUI widgets for tuig. Each widget paints state from `tuig-ui-model` and reproduces the cells the TypeScript
 //! app draws.
 
+pub mod branch_hints;
 pub mod commit_text;
 pub mod composer;
 pub mod decorations;

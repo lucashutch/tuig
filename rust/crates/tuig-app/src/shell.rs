@@ -43,6 +43,7 @@ use tuig_ui_model::runtime_layout::{PaneInputs, PaneLayout, layout_panes};
 use tuig_ui_model::theme::one_dark_theme;
 use tuig_widgets::diff::{DiffDocument, DiffEvent};
 use tuig_widgets::files::ListKind;
+use tuig_widgets::history::ClickPart;
 
 pub type GitResult<T> = Result<T, GitError>;
 
@@ -56,7 +57,7 @@ pub enum Msg {
     Key(KeyEvent),
     HistoryClick {
         row: usize,
-        column: u16,
+        part: ClickPart,
         clicks: u8,
     },
     HistoryWheel(i32),
@@ -385,12 +386,8 @@ impl Shell {
                     self.command(app, command);
                 }
             }
-            Msg::HistoryClick {
-                row,
-                column,
-                clicks,
-            } => {
-                self.history_click(row, column, clicks);
+            Msg::HistoryClick { row, part, clicks } => {
+                self.history_click(app, row, part, clicks);
                 self.files_history_clicked();
             }
             Msg::FileClick { section, row } => self.file_click(app, section, row),

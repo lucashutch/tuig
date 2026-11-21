@@ -1,8 +1,6 @@
 //! Ref labels for history rows. Ports the decoration part of `src/ui/history.ts`: `summariseDecorations`,
 //! `formatBranchDecoration`, `branchPresence`, `primaryDecorationRef` and `resolveHeadSha`.
-//!
-//! Not ported yet: the branch hint search (`extendCommitBranchHints`), which labels a selected commit that has no
-//! decoration with the nearest ref.
+//! The branch hint search (`extendCommitBranchHints`) is in `branch_hints`.
 
 use std::collections::{HashMap, HashSet};
 use tuig_git::types::{BranchRef, Commit};

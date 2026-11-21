@@ -1,7 +1,8 @@
 //! The painted history list compared cell by cell with the TypeScript app's parity golden.
 
 use super::*;
-use crate::decorations::{RefIndex, resolve_head_sha};
+use crate::branch_hints::BranchHintIndex;
+use crate::decorations::{LAPTOP_BRANCH_ICON, RefIndex, resolve_head_sha};
 use crate::pull_requests::pull_request_commit_index;
 use opentui::testing::TestApp;
 use std::cell::RefCell;
@@ -101,10 +102,13 @@ fn window_with(
         .extend(&data.commits, &colors, head.as_deref())
         .unwrap();
     let refs = RefIndex::new(&data.branches);
+    let mut hints = BranchHintIndex::default();
+    hints.extend(&data.commits, &data.branches);
     let source = HistorySource {
         commits: &data.commits,
         branches: &data.branches,
         refs: &refs,
+        hints: &hints,
         colors: &colors,
         working_files: data.working_files,
         commits_complete: data.commits_complete,
@@ -232,6 +236,66 @@ fn painted_cells_match_the_typescript_golden() {
     );
 }
 
+/// The screen row of the commit with `subject` in a list painted from display row 0.
+fn row_of(data: &HistoryData, subject: &str) -> usize {
+    let commit = data
+        .commits
+        .iter()
+        .position(|commit| commit.subject == subject)
+        .unwrap();
+    // The header is line 0 and the working row is the first body line.
+    commit + 2
+}
+
+#[test]
+fn only_the_selected_row_shows_its_branch_hint() {
+    let data = demo();
+    let paint_selected = |subject: &str| {
+        let mut list = HistoryList::new(one_dark_theme());
+        list.set_window(window(&data, 0, usize::from(HEIGHT) - 1));
+        list.set_selected(Some(row_of(&data, subject) - 1));
+        let (app, _widget) = paint(list);
+        app.render()
+    };
+    let hint = format!("↳ {LAPTOP_BRANCH_ICON} feature/login");
+    let row = row_of(&data, "feat: add login");
+
+    let selected = paint_selected("feat: add login");
+    assert!(
+        selected.row(row as u32).contains(&hint),
+        "{}",
+        selected.row(row as u32)
+    );
+    let elsewhere = paint_selected("docs: add guide");
+    assert!(
+        !elsewhere.text().contains("↳"),
+        "an unselected row shows no hint:\n{elsewhere}"
+    );
+}
+
+#[test]
+fn a_press_on_a_row_with_only_a_hint_counts_as_a_press_on_its_label() {
+    let data = demo();
+    let mut list = HistoryList::new(one_dark_theme());
+    list.set_window(window(&data, 0, usize::from(HEIGHT) - 1));
+    let (app, widget) = paint(list);
+    let events = Rc::new(RefCell::new(Vec::new()));
+    let seen = events.clone();
+    widget.update(|list| list.on_event(move |_cx, event| seen.borrow_mut().push(event)));
+    app.render();
+    let line = row_of(&data, "feat: add login") as u16;
+    for kind in [
+        MouseEventKind::Down(MouseButton::Right),
+        MouseEventKind::Up(MouseButton::Right),
+    ] {
+        app.mouse(kind, 5, line);
+    }
+    assert!(matches!(
+        events.borrow().as_slice(),
+        [HistoryEvent::Menu { on_label: true, .. }]
+    ));
+}
+
 #[test]
 fn mouse_input_becomes_events_for_the_shell() {
     let mut list = HistoryList::new(one_dark_theme());
@@ -260,11 +324,13 @@ fn mouse_input_becomes_events_for_the_shell() {
             HistoryEvent::Click {
                 row: 4,
                 column: 40,
+                part: ClickPart::Row,
                 clicks: 1
             },
             HistoryEvent::Click {
                 row: 4,
                 column: 40,
+                part: ClickPart::Row,
                 clicks: 2
             },
         ],
@@ -274,6 +340,59 @@ fn mouse_input_becomes_events_for_the_shell() {
         widget.with(|list| list.window().start),
         3,
         "the widget does not scroll by itself"
+    );
+}
+
+#[test]
+fn a_press_names_the_label_or_sha_it_hit_and_only_a_matching_second_press_doubles() {
+    let data = demo();
+    let mut list = HistoryList::new(one_dark_theme());
+    list.set_window(window(&data, 0, usize::from(HEIGHT) - 1));
+    let (app, widget) = paint(list);
+    let events = Rc::new(RefCell::new(Vec::new()));
+    let seen = events.clone();
+    widget.update(|list| list.on_event(move |_cx, event| seen.borrow_mut().push(event)));
+    let screen = app.render();
+    let tip = data
+        .commits
+        .iter()
+        .position(|commit| {
+            commit
+                .decorations
+                .iter()
+                .any(|label| label.contains("main"))
+        })
+        .unwrap();
+    let line = (tip + 2) as u16;
+    let sha = &data.commits[tip].sha[..8];
+    let text = screen.row(u32::from(line));
+    // `find` counts bytes, and the row holds graph and icon glyphs.
+    let sha_x = text[..text.find(sha).unwrap()].chars().count() as u16;
+    let label_x = 3;
+    let message_x = 40;
+
+    // Label twice: a double click. SHA twice: two single presses. Label then message: not a double click.
+    for x in [label_x, label_x, sha_x, sha_x, label_x, message_x] {
+        app.click(x, line);
+    }
+    let seen: Vec<(ClickPart, u8)> = events
+        .borrow()
+        .iter()
+        .map(|event| match event {
+            HistoryEvent::Click { part, clicks, .. } => (*part, *clicks),
+            other => panic!("{other:?}"),
+        })
+        .collect();
+    assert_eq!(
+        seen,
+        [
+            (ClickPart::Label, 1),
+            (ClickPart::Label, 2),
+            (ClickPart::Sha, 1),
+            (ClickPart::Sha, 1),
+            (ClickPart::Label, 1),
+            (ClickPart::Row, 1),
+        ]
     );
 }
 

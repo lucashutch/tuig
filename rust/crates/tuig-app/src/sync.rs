@@ -78,14 +78,8 @@ impl Widgets {
             list.on_event(move |cx, event| {
                 let msg = match event {
                     HistoryEvent::Click {
-                        row,
-                        column,
-                        clicks,
-                    } => Msg::HistoryClick {
-                        row,
-                        column,
-                        clicks,
-                    },
+                        row, part, clicks, ..
+                    } => Msg::HistoryClick { row, part, clicks },
                     HistoryEvent::Wheel(delta) => Msg::HistoryWheel(delta),
                     HistoryEvent::ScrollGraph(delta) => Msg::HistoryScrollGraph(delta),
                     HistoryEvent::Menu {

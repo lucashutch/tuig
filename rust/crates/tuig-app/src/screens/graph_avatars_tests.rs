@@ -4,6 +4,7 @@ use crate::screens::history::{SCROLL_BATCH, SCROLL_SETTLE};
 use crate::screens::test_support::{Harness, TempDir, repository};
 use crate::services::Services;
 use std::sync::atomic::{AtomicUsize, Ordering};
+use tuig_widgets::history::ClickPart;
 
 /// One PNG for every URL. No test touches the network.
 struct FakeFetcher {
@@ -134,7 +135,7 @@ fn the_commit_details_show_the_author_photo_in_place_of_the_initials() {
     h.wait("the first snapshot", |shell| shell.snapshot.is_some());
     h.send(Msg::HistoryClick {
         row: 1,
-        column: 0,
+        part: ClickPart::Row,
         clicks: 1,
     });
     h.wait("the author photo", |shell| {
@@ -145,7 +146,7 @@ fn the_commit_details_show_the_author_photo_in_place_of_the_initials() {
     // Another commit has its own load.
     h.send(Msg::HistoryClick {
         row: 2,
-        column: 0,
+        part: ClickPart::Row,
         clicks: 1,
     });
     assert!(
