@@ -1,0 +1,10 @@
+# Drag over diff code text: the text is selected and copied, with OSC 52 and a footer notice.
+fixture history
+wait text "add md sample"
+click 60 17
+wait text "COMMIT FILES"
+click 118 18
+wait text "step_000"
+drag 40 5 60 7
+expect-clipboard "\ndef step_000(value):\n    \"\"\"Step 0.\"\"\""
+snapshot selected

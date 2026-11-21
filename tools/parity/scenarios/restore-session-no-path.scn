@@ -1,0 +1,15 @@
+# Start with a saved session and no path: the saved tabs open and the saved active tab shows.
+fixture demo
+extra second
+restore
+nopath
+seed config/tuig/session.json '{"repositories":["{repo}","{second}"],"activeRepository":"{second}","recentRepositories":["{second}","{repo}"]}'
+wait text "docs: extend notes"
+move 140 40
+snapshot restored
+key ctrl+tab
+# The selected history row differs between the apps when a tab is switched to (checklist section 8).
+mask 30 4 84 12
+wait text "Working Changes"
+move 140 40
+snapshot other-tab

@@ -1,0 +1,128 @@
+parity-snapshot 1 160x48 cursor=hidden
+
+[text]
+   history   ×    +                                                                                                                                             |
+ history  main  no upstream  clean                  Fetch    Pull    Push    Undo    Stash    Pop    Refresh                         ■ Split (narrow) ■ Avatars |
+                                                      󰇚       ↓       ↑       ↶        󰆓       󰄼        󰑓                                                       |
+ ▼ LOCAL BRANCHES 59        │                                                                                      │  COMMIT MESSAGE                            |
+◉ 󰌢 main                   █│    1 + import json                                                                   │                                            |
+○ 󰌢 topic/g01-a            ││    2 +                                                                               │  feat: add a long steps module             |
+○ 󰌢 topic/g01-b            ││    3 + def step_000(value):                                                          │  (no body)                                 |
+○ 󰌢 topic/g02-a            ││    4 +     """Step 0."""                                                             │                                            |
+○ 󰌢 topic/g02-b            ││    5 +     return json.dumps({'step': 0, 'value': value})                            │                                            |
+○ 󰌢 topic/g03-a            ││    6 + def step_001(value):                                                          │                                            |
+○ 󰌢 topic/g03-b            ││    7 +     """Step 1."""                                                             │                                            |
+○ 󰌢 topic/g04-a            ││    8 +     return json.dumps({'step': 1, 'value': value})                            │                                            |
+───────────━━━━━────────────│    9 + def step_002(value):                                                          │                                            |
+ ▼ REMOTES 0                │   10 +     """Step 2."""                                                             │                                            |
+  (none)                    │   11 +     return json.dumps({'step': 2, 'value': value})                            │                                            |
+                            │   12 + def step_003(value):                                                          │  DETAILS                           db37af5b|
+                            │   13 +     """Step 3."""                                                             │  ┌────┐    Ada Tester                      |
+                            │   14 +     return json.dumps({'step': 3, 'value': value})                            │  │ AT │    ada@example.invalid             |
+                            │   15 + def step_004(value):                                                          │  └────┘    Mar 13, 2024, 4:00 PM           |
+                            │   16 +     """Step 4."""                                                             │            Parent: 9a15ce5b                |
+                            │   17 +     return json.dumps({'step': 4, 'value': value})                            │                                            |
+───────────━━━━━────────────│   18 + def step_005(value):                                                          │                                            |
+ ▼ SUBMODULES 0             ┃   19 +     """Step 5."""                                                             ┃                                            |
+  (none)                    ┃   20 +     return json.dumps({'step': 5, 'value': value})                            ┃                                            |
+                            ┃   21 + def step_006(value):                                                          ┃                                            |
+                            ┃   22 +     """Step 6."""                                                             ┃                                            |
+                            ┃   23 +     return json.dumps({'step': 6, 'value': value})                            ┃                                            |
+                            │   24 + def step_007(value):                                                          │                                            |
+                            │   25 +     """Step 7."""                                                             │                                            |
+                            │   26 +     return json.dumps({'step': 7, 'value': value})                            │  Line history · Esc to close               |
+───────────━━━━━────────────│   27 + def step_008(value):                                                          │ › feat: add a long steps module            |
+ ▼ STASHES 0                │   28 +     """Step 8."""                                                             │   [AT] Ada Tester · db37af5b               |
+  (none)                    │   29 +     return json.dumps({'step': 8, 'value': value})                            │   2y ago · Mar 13, 2024, 4:00 PM           |
+                            │   30 + def step_009(value):                                                          │                                            |
+                            │   31 +     """Step 9."""                                                             │                                            |
+                            │   32 +     return json.dumps({'step': 9, 'value': value})                            │                                            |
+                            │   33 + def step_010(value):                                                          │                                            |
+                            │   34 +     """Step 10."""                                                            │                                            |
+                            │   35 +     return json.dumps({'step': 10, 'value': value})                           │                                            |
+───────────━━━━━────────────│   36 + def step_011(value):                                                          │                                            |
+ ▼ WORKTREES 1              │   37 +     """Step 11."""                                                            │                                            |
+ ◉ history                  │   38 +     return json.dumps({'step': 11, 'value': value})                           │                                            |
+  on main                   │   39 + def step_012(value):                                                          │                                            |
+                            │   40 +     """Step 12."""                                                            │                                            |
+                            │   41 +     return json.dumps({'step': 12, 'value': value})                           │                                            |
+                            │   42 + def step_013(value):                                                          │                                            |
+                            │   43 +     """Step 13."""                                                            │                                            |
+ esc back to graph  ·  ←/→ file  ·  s stage  ·  u unstage  ·  ⇥ pane  ·  [ ] collapse  ·  r refresh  ·  q quit                                                  |
+
+[styles]
+a fg=61afef bg=3e4451 attrs=-
+b fg=abb2bf bg=2c313a attrs=-
+c fg=61afef bg=2c313a attrs=-
+d fg=e5c07b bg=2c313a attrs=-
+e fg=5c6370 bg=2c313a attrs=-
+f fg=ffffff bg=21252b attrs=-
+g fg=5c6370 bg=21252b attrs=-
+h fg=2b5b61 bg=282c34 attrs=-
+i fg=ffffff bg=282c34 attrs=-
+j fg=ffffff bg=2c313a attrs=-
+k fg=abb2bf bg=21252b attrs=-
+l fg=ffffff bg=30402f attrs=-
+m fg=5c6370 bg=30402f attrs=-
+n fg=98c379 bg=30402f attrs=-
+o fg=c678dd bg=30402f attrs=-
+p fg=abb2bf bg=30402f attrs=-
+q fg=61afef bg=30402f attrs=-
+r fg=d19a66 bg=30402f attrs=-
+s fg=2b5b61 bg=21252b attrs=-
+t fg=61afef bg=21252b attrs=-
+u fg=c678dd bg=21252b attrs=-
+v fg=abb2bf bg=3e4451 attrs=-
+w fg=5c6370 bg=3e4451 attrs=-
+x fg=e5c07b bg=21252b attrs=-
+y fg=5c6370 bg=282c34 attrs=-
+
+[grid]
+aaaaaaaaaaaaaaaabcccbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb|
+ccccccccddddddeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeebbbbbbbbbbeeeeeeeeeeeeeeeebbbbbbbbeeeeeeeeeeeeeeeebbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbeeeeeeeeeb|
+bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbccccccccceeeeeeeeeeeeeeeecccccccceeeeeeeeeeeeeeeecccccccccccbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb|
+fgggggggggggggggggggffffffffhiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiihfjbbbbbbbbbbbbbbjjjjjjjjjjjjjjjjjjjjjjjjjjjj|
+kkkkkkkkkkkkkkkkkkkkkkkkkkkkhilllmnnloooooopppppllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllihfjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjj|
+kkkkkkkkkkkkkkkkkkkkkkkkkkkkhilllmnnllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllihfjeeeeeeeeeeeeeeeeeeeeeeeeeeeeejjjjjjjjjjjjj|
+kkkkkkkkkkkkkkkkkkkkkkkkkkkkhilllmnnlooopqqqqqqqqpppppppplllllllllllllllllllllllllllllllllllllllllllllllllllllllllihfjbbbbbbbbbjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjj|
+kkkkkkkkkkkkkkkkkkkkkkkkkkkkhilllmnnlppppnnnnnnnnnnnnnllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllihfjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjj|
+kkkkkkkkkkkkkkkkkkkkkkkkkkkkhilllmnnlppppooooooppppppqqqqqppnnnnnnpprppnnnnnnnppppppppplllllllllllllllllllllllllllihfjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjj|
+kkkkkkkkkkkkkkkkkkkkkkkkkkkkhilllmnnlooopqqqqqqqqpppppppplllllllllllllllllllllllllllllllllllllllllllllllllllllllllihfjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjj|
+kkkkkkkkkkkkkkkkkkkkkkkkkkkkhilllmnnlppppnnnnnnnnnnnnnllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllihfjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjj|
+kkkkkkkkkkkkkkkkkkkkkkkkkkkkhilllmnnlppppooooooppppppqqqqqppnnnnnnpprppnnnnnnnppppppppplllllllllllllllllllllllllllihfjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjj|
+sssssssssssssssssssssssssssshilllmnnlooopqqqqqqqqpppppppplllllllllllllllllllllllllllllllllllllllllllllllllllllllllihfjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjj|
+fgggggggggggffffffffffffffffhillmmnnlppppnnnnnnnnnnnnnllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllihfjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjj|
+kkkkkkkkkkkkkkkkkkkkkkkkkkkkhillmmnnlppppooooooppppppqqqqqppnnnnnnpprppnnnnnnnppppppppplllllllllllllllllllllllllllihffffffffffffffffffffffffffffffffffffffffffff|
+kkkkkkkkkkkkkkkkkkkkkkkkkkkkhillmmnnlooopqqqqqqqqpppppppplllllllllllllllllllllllllllllllllllllllllllllllllllllllllihfftttttttttttttttttttttttttttttttttttttttttt|
+kkkkkkkkkkkkkkkkkkkkkkkkkkkkhillmmnnlppppnnnnnnnnnnnnnllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllihffuuuuuuffffkkkkkkkkkkffffffffffffffffffffff|
+kkkkkkkkkkkkkkkkkkkkkkkkkkkkhillmmnnlppppooooooppppppqqqqqppnnnnnnpprppnnnnnnnppppppppplllllllllllllllllllllllllllihffuuuuuuffffgggggggggggggggggggfffffffffffff|
+kkkkkkkkkkkkkkkkkkkkkkkkkkkkhillmmnnlooopqqqqqqqqpppppppplllllllllllllllllllllllllllllllllllllllllllllllllllllllllihffuuuuuuffffgggggggggggggggggggggfffffffffff|
+kkkkkkkkkkkkkkkkkkkkkkkkkkkkhillmmnnlppppnnnnnnnnnnnnnllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllihffffffffffffggggggggggggggggffffffffffffffff|
+kkkkkkkkkkkkkkkkkkkkkkkkkkkkhillmmnnlppppooooooppppppqqqqqppnnnnnnpprppnnnnnnnppppppppplllllllllllllllllllllllllllihffffffffffffffffffffffffffffffffffffffffffff|
+sssssssssssssssssssssssssssshillmmnnlooopqqqqqqqqpppppppplllllllllllllllllllllllllllllllllllllllllllllllllllllllllihffffffffffffffffffffffffffffffffffffffffffff|
+fggggggggggggggfffffffffffffhillmmnnlppppnnnnnnnnnnnnnllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllihffffffffffffffffffffffffffffffffffffffffffff|
+kkkkkkkkkkkkkkkkkkkkkkkkkkkkhillmmnnlppppooooooppppppqqqqqppnnnnnnpprppnnnnnnnppppppppplllllllllllllllllllllllllllihffffffffffffffffffffffffffffffffffffffffffff|
+kkkkkkkkkkkkkkkkkkkkkkkkkkkkhillmmnnlooopqqqqqqqqpppppppplllllllllllllllllllllllllllllllllllllllllllllllllllllllllihffffffffffffffffffffffffffffffffffffffffffff|
+kkkkkkkkkkkkkkkkkkkkkkkkkkkkhillmmnnlppppnnnnnnnnnnnnnllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllihffffffffffffffffffffffffffffffffffffffffffff|
+kkkkkkkkkkkkkkkkkkkkkkkkkkkkhillmmnnlppppooooooppppppqqqqqppnnnnnnpprppnnnnnnnppppppppplllllllllllllllllllllllllllihffffffffffffffffffffffffffffffffffffffffffff|
+kkkkkkkkkkkkkkkkkkkkkkkkkkkkhillmmnnlooopqqqqqqqqpppppppplllllllllllllllllllllllllllllllllllllllllllllllllllllllllihffffffffffffffffffffffffffffffffffffffffffff|
+kkkkkkkkkkkkkkkkkkkkkkkkkkkkhillmmnnlppppnnnnnnnnnnnnnllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllihffffffffffffffffffffffffffffffffffffffffffff|
+kkkkkkkkkkkkkkkkkkkkkkkkkkkkhillmmnnlppppooooooppppppqqqqqppnnnnnnpprppnnnnnnnppppppppplllllllllllllllllllllllllllihfgggggggggggggggggggggggggggggffffffffffffff|
+sssssssssssssssssssssssssssshillmmnnlooopqqqqqqqqpppppppplllllllllllllllllllllllllllllllllllllllllllllllllllllllllihfvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvff|
+fgggggggggggffffffffffffffffhillmmnnlppppnnnnnnnnnnnnnllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllihfaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaff|
+kkkkkkkkkkkkkkkkkkkkkkkkkkkkhillmmnnlppppooooooppppppqqqqqppnnnnnnpprppnnnnnnnppppppppplllllllllllllllllllllllllllihfwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwff|
+kkkkkkkkkkkkkkkkkkkkkkkkkkkkhillmmnnlooopqqqqqqqqpppppppplllllllllllllllllllllllllllllllllllllllllllllllllllllllllihfkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkff|
+kkkkkkkkkkkkkkkkkkkkkkkkkkkkhillmmnnlppppnnnnnnnnnnnnnllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllihffffffffffffffffffffffffffffffffffffffffffff|
+kkkkkkkkkkkkkkkkkkkkkkkkkkkkhillmmnnlppppooooooppppppqqqqqppnnnnnnpprppnnnnnnnppppppppplllllllllllllllllllllllllllihffffffffffffffffffffffffffffffffffffffffffff|
+kkkkkkkkkkkkkkkkkkkkkkkkkkkkhillmmnnlooopqqqqqqqqpppppppplllllllllllllllllllllllllllllllllllllllllllllllllllllllllihffffffffffffffffffffffffffffffffffffffffffff|
+kkkkkkkkkkkkkkkkkkkkkkkkkkkkhillmmnnlppppnnnnnnnnnnnnnnlllllllllllllllllllllllllllllllllllllllllllllllllllllllllllihffffffffffffffffffffffffffffffffffffffffffff|
+kkkkkkkkkkkkkkkkkkkkkkkkkkkkhillmmnnlppppooooooppppppqqqqqppnnnnnnpprrppnnnnnnnpppppppppllllllllllllllllllllllllllihffffffffffffffffffffffffffffffffffffffffffff|
+sssssssssssssssssssssssssssshillmmnnlooopqqqqqqqqpppppppplllllllllllllllllllllllllllllllllllllllllllllllllllllllllihffffffffffffffffffffffffffffffffffffffffffff|
+fgggggggggggggffffffffffffffhillmmnnlppppnnnnnnnnnnnnnnlllllllllllllllllllllllllllllllllllllllllllllllllllllllllllihffffffffffffffffffffffffffffffffffffffffffff|
+xxxxxxxxxxxxxxxxxxxxxxxxxxxkhillmmnnlppppooooooppppppqqqqqppnnnnnnpprrppnnnnnnnpppppppppllllllllllllllllllllllllllihffffffffffffffffffffffffffffffffffffffffffff|
+gggggggggggggggggggggggggggkhillmmnnlooopqqqqqqqqpppppppplllllllllllllllllllllllllllllllllllllllllllllllllllllllllihffffffffffffffffffffffffffffffffffffffffffff|
+kkkkkkkkkkkkkkkkkkkkkkkkkkkkhillmmnnlppppnnnnnnnnnnnnnnlllllllllllllllllllllllllllllllllllllllllllllllllllllllllllihffffffffffffffffffffffffffffffffffffffffffff|
+gggggggggggggggggggggggggggkhillmmnnlppppooooooppppppqqqqqppnnnnnnpprrppnnnnnnnpppppppppllllllllllllllllllllllllllihffffffffffffffffffffffffffffffffffffffffffff|
+kkkkkkkkkkkkkkkkkkkkkkkkkkkkhillmmnnlooopqqqqqqqqpppppppplllllllllllllllllllllllllllllllllllllllllllllllllllllllllihffffffffffffffffffffffffffffffffffffffffffff|
+gggggggggggggggggggggggggggkhillmmnnlppppnnnnnnnnnnnnnnlllllllllllllllllllllllllllllllllllllllllllllllllllllllllllihffffffffffffffffffffffffffffffffffffffffffff|
+kgggggggggggggggggggggggggggyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyiiiiiiffffffffffffffffffffffffffffffffffffffffffff|

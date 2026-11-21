@@ -1,0 +1,12 @@
+# Drag the dividers inside the details pane (unstaged above staged, staged above the composer), then
+# the divider between the history and the details pane.
+fixture demo
+wait text "Working Changes"
+drag 136 17 136 12
+snapshot changes-divider-up
+drag 136 33 136 24
+snapshot composer-divider-up
+drag 116 25 96 25
+snapshot details-wider
+drag 96 25 130 25
+snapshot details-narrower

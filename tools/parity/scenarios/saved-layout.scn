@@ -1,0 +1,14 @@
+# layout.json written by an earlier run: pane widths, history columns, section heights, fold state,
+# avatars and diff view. After a divider drag the app saves the file, and keeps keys it does not know.
+fixture demo
+seed config/tuig/layout.json '{"leftWidth":34,"detailsWidth":50,"unstagedHeight":8,"composerHeight":9,"avatarsEnabled":false,"diffView":"inline","historyColumns":{"branchWidth":18,"graphWidth":8,"committerWidth":10,"showCommitter":false,"showSha":true,"showPr":false},"sidebarHeights":{"local":6,"remote":4,"submodules":3,"stashes":3,"worktrees":5},"sidebarCollapsed":{"submodules":true},"futureKey":{"keep":"me"}}'
+wait text "Working Change"
+snapshot loaded
+click 60 4
+click 118 6
+wait text "handler_00"
+snapshot inline-diff
+drag 34 25 38 25
+expect-file config/tuig/layout.json "leftWidth\": 38"
+expect-file config/tuig/layout.json "futureKey"
+snapshot dragged

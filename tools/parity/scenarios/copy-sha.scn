@@ -1,0 +1,8 @@
+# Click the SHA in the details pane: it is copied with OSC 52 and the footer says so.
+fixture demo
+wait text "Working Changes"
+click 60 13
+wait text "COMMIT FILES"
+click 150 11
+expect-clipboard 34d2f7d2d15eabdca2b3a2d36666e47da50e7fa1
+snapshot copied

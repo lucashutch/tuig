@@ -1,0 +1,29 @@
+# Changes made outside the app: the repository watcher shows a new commit at once, `r` refreshes,
+# and a tab that was in the background shows its new commit after a switch to it.
+fixture linked
+extra second
+wait text "chore: add libsub"
+mask-text "on main • [^│┃]*"
+# The history rows are masked: the selected row differs between the apps (checklist section 4, rows
+# on the hover hint and on the tab history position). The "Message (N commits)" header shows the refresh.
+mask 30 4 84 12
+git commit -q --allow-empty -m "chore: external commit"
+wait text "external comm"
+move 140 40
+snapshot watched
+git commit -q --allow-empty -m "chore: second external commit"
+key r
+wait text "second exter"
+move 140 40
+snapshot refresh-key
+key ctrl+t
+text "{second}"
+key enter
+wait text "docs: extend notes"
+move 140 40
+snapshot second-tab
+git commit -q --allow-empty -m "chore: while on another tab"
+key ctrl+tab
+wait text "while on"
+move 140 40
+snapshot back-to-first

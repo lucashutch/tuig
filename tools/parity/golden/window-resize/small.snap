@@ -1,0 +1,95 @@
+parity-snapshot 1 100x30 cursor=hidden
+
+[text]
+     demo    ×    +                                                                                 |
+ demo  main  no up…   Fetch    Pull    Push    Undo    Stash    Pop    Refresh            ■ Avatars |
+                        󰇚       ↓       ↑       ↶        󰆓       󰄼        󰑓                         |
+ ▼ LOCAL BRANCHES 4         │  Bra│ Gr  ▶ │ M │ Commit │ 5 file changes in working directory        |
+○ 󰌢 feature/login           │       ●       W          │ View Changes                               |
+○ 󰌢 fix/typo                │  ◉… ▶ ◉       d   Ada T… │  COMMIT MESSAGE            Edit Message    |
+◉ 󰌢 main                    │   +1  ● │     m   Ada T… │                                            |
+○ 󰌢 release/1.0             │       ● │     r   Ada T… │  docs: add guide                           |
+───────────━━━━━────────────│       ● │     m   Ada T… │  (no body)                                 |
+ ▼ REMOTES 0                │       ● │     f   Ada T… │                                            |
+  (none)                    │  󰌢…   │ │     d   Ada T… │                                            |
+                            │  󰌢…   │ ●     f   Ada T… │  DETAILS                           34d2f7d2|
+                            │       │ ●     f   Ada T… │  ┌────┐    Ada Tester                      |
+                            ┃   … › ●─┴─    d   Ada T… ┃  │ AT │    ada@example.invalid             |
+───────────━━━━━────────────┃       ●       c   Ada T… ┃  └────┘    Mar 1, 2024, 12:00 PM           |
+ ▼ SUBMODULES 0             ┃                          ┃            Parent: 51bd7f1b                |
+  (none)                    ┃                          ┃                                            |
+                            ┃                          ┃                                            |
+                            │                          │  COMMIT FILES  1                           |
+                            │                          │   ▼ 󰝰 docs                                 |
+───────────━━━━━────────────│                          │ ▸ │   󰽛 guide.md                           |
+ ▼ STASHES 0                │                          │                                            |
+  (none)                    │                          │                                            |
+                            │                          │                                            |
+                            │                          │                                            |
+───────────━━━━━────────────│                          │                                            |
+ ▼ WORKTREES 1              │                          │                                            |
+ ◉ demo                     │                          │                                            |
+  on main                   │                          │                                            |
+ esc back to graph  ·  ←/→ file  ·  s stage  …  Commit selected · click a changed file for its diff |
+
+[styles]
+a fg=61afef bg=3e4451 attrs=-
+b fg=abb2bf bg=2c313a attrs=-
+c fg=61afef bg=2c313a attrs=-
+d fg=e5c07b bg=2c313a attrs=-
+e fg=5c6370 bg=2c313a attrs=-
+f fg=ffffff bg=21252b attrs=-
+g fg=5c6370 bg=21252b attrs=-
+h fg=2b5b61 bg=282c34 attrs=-
+i fg=ffffff bg=282c34 attrs=-
+j fg=61afef bg=282c34 attrs=-
+k fg=e5c07b bg=21252b attrs=-
+l fg=abb2bf bg=21252b attrs=-
+m fg=e5c07b bg=282c34 attrs=-
+n fg=5c6370 bg=282c34 attrs=-
+o fg=c678dd bg=282c34 attrs=-
+p fg=ffffff bg=2c313a attrs=-
+q fg=888888 bg=2c313a attrs=-
+r fg=c678dd bg=2c313a attrs=-
+s fg=abb2bf bg=282c34 attrs=-
+t fg=2b5b61 bg=21252b attrs=-
+u fg=61afef bg=21252b attrs=-
+v fg=c678dd bg=21252b attrs=-
+w fg=e5c07b bg=3e4451 attrs=-
+x fg=5c6370 bg=3e4451 attrs=-
+y fg=abb2bf bg=3e4451 attrs=-
+z fg=c678dd bg=3e4451 attrs=-
+A fg=98c379 bg=21252b attrs=-
+B fg=98c379 bg=3e4451 attrs=-
+
+[grid]
+aaaaaaaaaaaaaaaabcccbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb|
+cccccddddddeeeeeeeebbbbbbbbbbeeeeeeeeeeeeeeeebbbbbbbbbbbbbbbbbeeeeeeebbbbbbbbbbbbbbbbbbbbbeeeeeeeeeb|
+bbbbbbbbbbbbbbbbbbbbccccccccceeeeeeeeeeeeeeeeccccccccccccccccceeeeeeecccccccccccbbbbbbbbbbbbbbbbbbbb|
+fggggggggggggggggggfffffffffhijjjjhhjjjjjhhhjhhhjjjjjjihfkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkffffffff|
+llllllllllllllllllllllllllllhibbbbeeddeeeeeedeeeeeeeeeihfkkkkkkkkkkkkfffffffffffffffffffffffffffffff|
+llllllllllllllllllllllllllllhijjjjmmjjnnnnnnmnnnooooooihfpbbbbbbbbbbbbbbpppppppppppaaaaaaaaaaaaaappp|
+llllllllllllllllllllllllllllhiccccccccqqeeeebeeerrrrrrihfppppppppppppppppppppppppppppppppppppppppppp|
+llllllllllllllllllllllllllllhinnnnjjjjoonnnnsnnnooooooihfpeeeeeeeeeeeeeeeppppppppppppppppppppppppppp|
+tttttttttttttttttttttttttttthieeeeccccrreeeebeeerrrrrrihfpbbbbbbbbbppppppppppppppppppppppppppppppppp|
+fgggggggggggffffffffffffffffhinnnnjjjjmmnnnnsnnnooooooihfppppppppppppppppppppppppppppppppppppppppppp|
+llllllllllllllllllllllllllllhirrrrccccddeeeebeeerrrrrrihffffffffffffffffffffffffffffffffffffffffffff|
+llllllllllllllllllllllllllllhimmmmjjjjmmnnnnsnnnooooooihffuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuu|
+llllllllllllllllllllllllllllhieeeeccccddeeeebeeerrrrrrihffvvvvvvffffllllllllllffffffffffffffffffffff|
+llllllllllllllllllllllllllllhiaaaaaaaawwxxxxyxxxzzzzzzihffvvvvvvffffgggggggggggggggggggfffffffffffff|
+tttttttttttttttttttttttttttthieeeecccceeeeeebeeerrrrrrihffvvvvvvffffgggggggggggggggggggggfffffffffff|
+fggggggggggggggfffffffffffffhiiiiiiiiiiiiiiiiiiiiiiiiiihffffffffffffggggggggggggggggffffffffffffffff|
+llllllllllllllllllllllllllllhiiiiiiiiiiiiiiiiiiiiiiiiiihffffffffffffffffffffffffffffffffffffffffffff|
+llllllllllllllllllllllllllllhiiiiiiiiiiiiiiiiiiiiiiiiiihffffffffffffffffffffffffffffffffffffffffffff|
+llllllllllllllllllllllllllllhiiiiiiiiiiiiiiiiiiiiiiiiiihfuuuuuuuuuuuuuuuufffffffffffffffffffffffffff|
+llllllllllllllllllllllllllllhiiiiiiiiiiiiiiiiiiiiiiiiiihfgguuAAuuuuggggggggggggggggggggggggggggggggg|
+tttttttttttttttttttttttttttthiiiiiiiiiiiiiiiiiiiiiiiiiihfyyxxxxBByyyyyyyyxxxxxxxxxxxxxxxxxxxxxxxxxxx|
+fgggggggggggffffffffffffffffhiiiiiiiiiiiiiiiiiiiiiiiiiihffffffffffffffffffffffffffffffffffffffffffff|
+llllllllllllllllllllllllllllhiiiiiiiiiiiiiiiiiiiiiiiiiihffffffffffffffffffffffffffffffffffffffffffff|
+llllllllllllllllllllllllllllhiiiiiiiiiiiiiiiiiiiiiiiiiihffffffffffffffffffffffffffffffffffffffffffff|
+llllllllllllllllllllllllllllhiiiiiiiiiiiiiiiiiiiiiiiiiihffffffffffffffffffffffffffffffffffffffffffff|
+tttttttttttttttttttttttttttthiiiiiiiiiiiiiiiiiiiiiiiiiihffffffffffffffffffffffffffffffffffffffffffff|
+fgggggggggggggffffffffffffffhiiiiiiiiiiiiiiiiiiiiiiiiiihffffffffffffffffffffffffffffffffffffffffffff|
+kkkkkkkkkkkkkkkkkkkkkkkkkkklhiiiiiiiiiiiiiiiiiiiiiiiiiihffffffffffffffffffffffffffffffffffffffffffff|
+ggggggggggggggggggggggggggglhiiiiiiiiiiiiiiiiiiiiiiiiiihffffffffffffffffffffffffffffffffffffffffffff|
+lgggggggggggggggggggggggggggnnnnnnnnnnnnnnnnnniinnnnnnnngggggggggggggggggggggggggggggggggggggggggggf|

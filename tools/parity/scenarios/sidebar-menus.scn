@@ -1,0 +1,25 @@
+# Sidebar context menus: local branch, remote branch, submodule, stash, linked worktree and the
+# current worktree. The stash age depends on today's date, so it is masked.
+fixture linked
+wait text "chore: add libsub"
+mask-text "on main • [^│┃]*"
+click 8 4 right
+snapshot local-branch
+key esc
+click 8 6 right
+snapshot current-branch
+key esc
+click 8 15 right
+snapshot remote-branch
+key esc
+click 8 23 right
+snapshot submodule
+key esc
+click 8 32 right
+snapshot stash
+key esc
+click 8 43 right
+snapshot worktree
+key esc
+click 8 41 right
+snapshot main-worktree

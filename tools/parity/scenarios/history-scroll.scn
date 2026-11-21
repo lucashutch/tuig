@@ -1,0 +1,13 @@
+# History pane: drag the scrollbar, then the horizontal wheel and Shift+wheel pan a graph that has
+# sixteen lanes. The first snapshot uses the history fixture for the scrollbar.
+fixture lanes
+wait text "merge: lan"
+snapshot top
+wheel right 60 20 4
+snapshot wheel-right
+wheel left 60 20 2
+snapshot wheel-left
+wheel down 60 20 4 shift
+snapshot shift-wheel-down
+wheel up 60 20 2 shift
+snapshot shift-wheel-up

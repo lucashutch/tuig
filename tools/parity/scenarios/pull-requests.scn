@@ -1,0 +1,34 @@
+# Pull requests from a gh stub: the sidebar section, the PR column in the history, selecting a pull
+# request, opening it (the xdg-open stub records the URL), the palette entries, and a pull request
+# whose head commit is not in the repository (the first row).
+fixture demo
+stub gh-prs
+stub xdg-open-log
+wait text "Add login"
+# The PR numbers in the history are underlined in TS (checklist section 4, hyperlinks). Rust draws no
+# link, so the column is masked. The Staged heading in TS repaints late once the pull requests load.
+mask 91 4 12 12
+mask 140 19 20 1
+move 140 40
+snapshot section
+click 8 14
+move 140 40
+snapshot selected-pr
+dclick 8 14
+expect-file xdg-open.log "https://github.com/ada/demo/pull/12"
+move 140 40
+snapshot opened-pr
+key ctrl+p
+text "Open pull request for current branch"
+key enter
+expect-file xdg-open.log "https://github.com/ada/demo/pull/3"
+move 140 40
+snapshot opened-current-branch
+key ctrl+p
+text "Refresh pull requests"
+key enter
+move 140 40
+snapshot refreshed
+click 8 12
+move 140 40
+snapshot not-fetched

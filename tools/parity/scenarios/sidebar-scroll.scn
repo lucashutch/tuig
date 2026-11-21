@@ -1,0 +1,13 @@
+# Sidebar list scrolling with the scrollbar and the wheel, on a repository with 60 local branches.
+fixture history
+wait text "feat(md): add md sample"
+drag 28 5 28 9
+snapshot scrollbar-drag
+wheel up 10 6 80
+snapshot top
+wheel down 10 6 1
+snapshot wheel-one
+wheel down 10 6 80
+snapshot wheel-end
+wheel up 10 6 1
+snapshot wheel-up-one
