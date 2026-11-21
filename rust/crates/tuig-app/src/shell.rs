@@ -552,11 +552,21 @@ impl Shell {
             Command::Refresh => self.request_refresh(app, false),
             Command::StageFirstHunk => self.stage_first_hunk(app),
             Command::ToggleDiffView => self.toggle_diff_view(),
+            // Shift+L loads a diff past the limit. TS falls through to the `l` key when there is none to load.
             Command::LoadLargeDiff => {
-                if self.diff.is_open() {
+                if self.diff.is_open() && self.diff.too_large {
                     self.load_diff(app, true);
+                } else {
+                    self.run_palette_command(app, "repository.pull");
                 }
             }
+            Command::Fetch => self.run_palette_command(app, "repository.fetch"),
+            Command::Pull => self.run_palette_command(app, "repository.pull"),
+            Command::Push => self.run_palette_command(app, "repository.push"),
+            Command::StageSelected => self.stage_selected_key(app, true),
+            Command::UnstageSelected => self.stage_selected_key(app, false),
+            Command::StageAll => self.stage_all(app),
+            Command::DiscardAll => self.discard_all(app),
         }
     }
 }

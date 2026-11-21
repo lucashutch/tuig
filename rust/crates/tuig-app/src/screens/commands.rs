@@ -708,6 +708,22 @@ impl Shell {
         })
     }
 
+    /// The `s` and `u` keys: stage or unstage the selected file. With no file selected the key does nothing.
+    pub(crate) fn stage_selected_key(&mut self, app: &App, stage: bool) {
+        let Some(path) = self.files.selected.as_ref().map(|file| file.path.clone()) else {
+            return;
+        };
+        let repo = self.repo.clone();
+        let label = if stage { "Staging…" } else { "Unstaging…" };
+        self.perform(app, label, async move {
+            if stage {
+                repo.stage(&[path]).await
+            } else {
+                repo.unstage(&[path]).await
+            }
+        });
+    }
+
     pub(crate) fn stage_all(&mut self, app: &App) {
         let paths: Vec<String> = self
             .working_files(false)

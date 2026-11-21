@@ -32,6 +32,20 @@ pub enum Command {
     Compose,
     /// `/`: opens the branch filter in the sidebar.
     FilterBranches,
+    /// `f`: fetches from the remotes.
+    Fetch,
+    /// `l`: pulls.
+    Pull,
+    /// `p`: pushes.
+    Push,
+    /// `s`: stages the selected file.
+    StageSelected,
+    /// `u`: unstages the selected file.
+    UnstageSelected,
+    /// `a`: stages every changed file.
+    StageAll,
+    /// `d`: discards every unstaged change. A second press within five seconds confirms.
+    DiscardAll,
     /// `[`: collapses or expands the sidebar.
     ToggleLeftPanel,
     /// `]`: collapses or expands the details pane.
@@ -71,6 +85,20 @@ pub fn command_for(key: &KeyEvent) -> Option<Command> {
         Command::ToggleDiffView
     } else if key.matches("shift+l") {
         Command::LoadLargeDiff
+    } else if key.matches("f") {
+        Command::Fetch
+    } else if key.matches("l") {
+        Command::Pull
+    } else if key.matches("p") {
+        Command::Push
+    } else if key.matches("s") {
+        Command::StageSelected
+    } else if key.matches("u") {
+        Command::UnstageSelected
+    } else if key.matches("a") {
+        Command::StageAll
+    } else if key.matches("d") {
+        Command::DiscardAll
     } else if key.matches("c") {
         Command::Compose
     } else if key.matches("/") {
@@ -84,3 +112,7 @@ pub fn command_for(key: &KeyEvent) -> Option<Command> {
     };
     Some(command)
 }
+
+#[cfg(test)]
+#[path = "keys_tests.rs"]
+mod tests;
