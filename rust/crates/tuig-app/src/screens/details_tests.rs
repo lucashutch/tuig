@@ -190,19 +190,43 @@ fn file_history_drives_the_details_and_escape_closes_it_before_the_pane() {
         Some("shout line two".into()),
         "the newest commit that touches the file is selected"
     );
-    h.app.press("down");
+    // The history opens the diff of the selected commit, and the changes pane has focus.
+    h.wait("the diff of the newest commit", |shell| {
+        shell.diff.file.as_ref().is_some_and(|file| {
+            file.path == "notes.txt" && file.source == FileSource::Commit(newest_sha(shell))
+        })
+    });
+    // The wheel over the list and a click on a card move the selection, and the diff follows.
+    h.shell
+        .borrow_mut()
+        .update(h.app.app(), Msg::FileHistoryWheel(1));
     h.wait("the older commit", |shell| {
         shell
             .details_commit()
             .is_some_and(|c| c.subject == "add notes")
     });
+    h.wait("the diff of the older commit", |shell| {
+        shell.diff.file.as_ref().is_some_and(|file| {
+            file.source == FileSource::Commit(shell.details_commit().unwrap().sha.clone())
+        })
+    });
+    h.shell
+        .borrow_mut()
+        .update(h.app.app(), Msg::FileHistoryClick(0));
+    h.wait("the newest commit again", |shell| {
+        shell
+            .details_commit()
+            .is_some_and(|c| c.subject == "shout line two")
+    });
     let screen = h.app.text();
     assert!(screen.contains("File history"), "{screen}");
 
+    // One Escape closes the history and its diff together.
     h.app.press("escape");
     h.wait("the history to close", |shell| {
         shell.details.file_history.is_none()
     });
+    assert!(h.read(|shell| !shell.diff.is_open()), "the diff closes too");
     assert!(h.read(|shell| shell.commit_open()), "the commit pane stays");
     h.app.press("escape");
     h.wait("the pane to close", |shell| !shell.commit_open());
@@ -242,4 +266,14 @@ fn blame_maps_each_line_to_the_commit_that_last_changed_it() {
             .ends_with("add notes")
     );
     assert_eq!(h.subject_at(2), "add notes");
+}
+
+fn newest_sha(shell: &Shell) -> String {
+    shell
+        .details
+        .file_history
+        .as_ref()
+        .and_then(|history| history.selected_commit())
+        .map(|commit| commit.sha.clone())
+        .unwrap_or_default()
 }

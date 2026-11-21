@@ -139,13 +139,27 @@ impl Component for FileHistoryList {
             {
                 let y = top + line as i32;
                 painter.fill(0, y, width, 1, background);
-                let clipped = if string_width(text) > width as usize {
+                // TS pads each line to the card width, so the blank cells take the line's foreground.
+                let mut clipped = if string_width(text) > width as usize {
                     clip_columns(text, i64::from(width))
                 } else {
                     text.clone()
                 };
+                let pad = (width as usize).saturating_sub(string_width(&clipped));
+                clipped.push_str(&" ".repeat(pad));
                 painter.text(0, y, &clipped, Style::new().fg(color(*fg)).bg(background));
             }
+            // The spacer row is blank text on the panel color. TS draws it with the default text foreground.
+            let spacer = top + CARD_ROWS as i32 - 1;
+            painter.fill(0, spacer, width, 1, color(self.theme.panel));
+            painter.text(
+                0,
+                spacer,
+                &" ".repeat(width as usize),
+                Style::new()
+                    .fg(color(self.theme.text))
+                    .bg(color(self.theme.panel)),
+            );
         }
     }
 

@@ -20,8 +20,9 @@
 //!   request or a close replaced it.
 
 use crate::screens::composer::ComposerAction;
-use crate::screens::files::Contents;
+use crate::screens::files::{Contents, Focus};
 use crate::screens::footer::NoticeTone;
+use crate::selected_file::{FileSource, SelectedFile};
 use crate::shell::{Dirty, GitResult, Inbox, Msg, PANE_TOP, Shell};
 use opentui::native::{Image, ImageFit};
 use opentui::prelude::*;
@@ -240,7 +241,7 @@ impl DetailsView {
             list.on_event(move |cx, event| {
                 let msg = match event {
                     FileHistoryEvent::Click(index) => Msg::FileHistoryClick(index),
-                    FileHistoryEvent::Wheel(_) => return,
+                    FileHistoryEvent::Wheel(delta) => Msg::FileHistoryWheel(i64::from(delta)),
                 };
                 inbox.post(cx.app(), msg);
             });
@@ -382,6 +383,7 @@ impl DetailsView {
                     .set_text(format!(" {kind} history · Esc to close "));
                 self.history_list
                     .visible(true)
+                    .width(cells((input.pane_width - 3).max(12)))
                     .position(Edge::Top, cells(split.unstaged_text_top))
                     .height(cells(split.unstaged_text_height));
                 let (commits, index, start) =
@@ -669,7 +671,7 @@ impl Shell {
         }
     }
 
-    pub(crate) fn file_history_loaded(&mut self, loaded: HistoryLoaded) {
+    pub(crate) fn file_history_loaded(&mut self, app: &App, loaded: HistoryLoaded) {
         let commits = match loaded.result {
             Ok(commits) => commits,
             Err(error) => {
@@ -691,7 +693,26 @@ impl Shell {
             line: loaded.line,
         });
         self.files.contents = Contents::Commit;
-        self.dirty |= Dirty::DETAILS | Dirty::FILES;
+        self.files.focus = Focus::Changes;
+        self.dirty |= Dirty::DETAILS | Dirty::FILES | Dirty::HISTORY;
+        self.show_history_diff(app);
+    }
+
+    /// Shows the open history's selected commit as a diff of the history's file, in place of the graph.
+    /// `loadDiff` reads `fileHistory.selectedCommit` for this. An empty history opens no diff.
+    fn show_history_diff(&mut self, app: &App) {
+        let Some(history) = self.details.file_history.as_ref() else {
+            return;
+        };
+        let Some(commit) = history.selected_commit() else {
+            return;
+        };
+        let file = SelectedFile {
+            path: history.file.path.clone(),
+            original_path: history.file.original_path.clone(),
+            source: FileSource::Commit(commit.sha.clone()),
+        };
+        self.show_file_diff(app, Some(file));
     }
 
     /// Ports `clear`. Returns false when no history was open. The pane keeps the selected history commit.
@@ -699,6 +720,8 @@ impl Shell {
         self.tasks.file_history.cancel();
         let was_open = self.details.file_history.take().is_some();
         if was_open {
+            // `clear` closes the diff the history showed.
+            self.close_diff();
             self.dirty |= Dirty::DETAILS;
         }
         was_open
@@ -718,7 +741,7 @@ impl Shell {
     }
 
     /// Ports `scroll`: moves the selection by `delta` commits. Returns false when no history is open.
-    pub fn scroll_file_history(&mut self, delta: i64) -> bool {
+    pub fn scroll_file_history(&mut self, app: &App, delta: i64) -> bool {
         let viewport = self.file_history_viewport();
         let Some(history) = self.details.file_history.as_mut() else {
             return false;
@@ -731,16 +754,18 @@ impl Shell {
             history.start = history.index + 1 - viewport;
         }
         self.dirty |= Dirty::DETAILS;
+        self.show_history_diff(app);
         true
     }
 
     /// Ports `click` for a card.
-    pub(crate) fn select_file_history(&mut self, index: usize) {
+    pub(crate) fn select_file_history(&mut self, app: &App, index: usize) {
         if let Some(history) = self.details.file_history.as_mut()
             && index < history.commits.len()
         {
             history.index = index;
             self.dirty |= Dirty::DETAILS;
+            self.show_history_diff(app);
         }
     }
 

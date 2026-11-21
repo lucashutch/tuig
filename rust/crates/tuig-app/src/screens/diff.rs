@@ -135,7 +135,8 @@ impl Shell {
     /// A new file is highlighted. `moveFile` reloads the diff only while it is open. TS opens it on a click or
     /// Enter, which arrive as `Msg::FileOpened`.
     pub(crate) fn file_selected(&mut self, app: &App, file: Option<SelectedFile>) {
-        if !self.diff.is_open() || self.diff.file == file {
+        // An open file history owns the diff, whatever the files pane highlights.
+        if !self.diff.is_open() || self.diff.file == file || self.details.file_history.is_some() {
             return;
         }
         match file {

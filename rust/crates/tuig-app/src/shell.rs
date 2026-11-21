@@ -86,6 +86,7 @@ pub enum Msg {
     Details(DetailsAction),
     Composer(ComposerAction),
     FileHistoryClick(usize),
+    FileHistoryWheel(i64),
     DiffInput(DiffEvent),
     /// Menus, the palette and the prompts. See `screens/popup.rs`.
     Overlay(OverlayMsg),
@@ -438,10 +439,14 @@ impl Shell {
             Msg::FileOpened(file) => self.show_file_diff(app, Some(file)),
             Msg::Details(action) => self.details_action(app, action),
             Msg::Composer(action) => self.composer_action(app, action),
-            Msg::FileHistoryClick(index) => self.select_file_history(index),
+            Msg::FileHistoryClick(index) => self.select_file_history(app, index),
+            Msg::FileHistoryWheel(delta) => {
+                self.focus_changes();
+                self.scroll_file_history(app, delta);
+            }
             Msg::FileHistory(id, loaded) => {
                 if self.tasks.file_history.finish(id) {
-                    self.file_history_loaded(loaded);
+                    self.file_history_loaded(app, loaded);
                 }
             }
             Msg::Blame(id, result) => {
@@ -501,7 +506,7 @@ impl Shell {
             // The diff covers the history pane, and `moveCommit` ignores keys while it is visible.
             Command::MoveCommit(_) if self.diff.is_open() => {}
             Command::MoveCommit(delta) => {
-                if !self.scroll_file_history(delta) {
+                if !self.scroll_file_history(app, delta) {
                     self.move_commit(delta);
                 }
             }
@@ -522,6 +527,10 @@ impl Shell {
             Command::OpenPalette => self.toggle_palette(app),
             Command::Back => {
                 if self.cancel_mutation() {
+                    return;
+                }
+                // `escapeKey` closes an open file history before the line selection and the diff.
+                if !self.composer.editing() && self.clear_file_history() {
                     return;
                 }
                 if !self.composer_escape(app) && !self.diff_escape() {
