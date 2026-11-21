@@ -120,7 +120,7 @@ Waits use screen quiet time, not sleeps. A wait ends when no cell has changed fo
 | `remote-cancel`, `remote-credentials`, `auto-fetch`                               | slow-remote, ssh-remote, behind | Esc cancels a fetch, busy refusal, credential failure text, the minute fetch            |
 | `pull-requests`                                                                   | demo                            | A `gh` stub with four pull requests: section, PR column, open, palette, not fetched     |
 
-The whole suite takes about 1.5 minutes to record and about the same to compare.
+The first 26 scenarios take about 1.5 minutes to record and about the same to compare. All 49 take about 8 minutes, because `auto-fetch` waits 63 s for the first automatic fetch.
 
 ## Known gesture to avoid
 
