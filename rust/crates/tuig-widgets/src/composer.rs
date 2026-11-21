@@ -59,6 +59,13 @@ impl ComposerButton {
         }
     }
 
+    /// Switches to a new theme. The two colors are the new fallback text and base background.
+    pub fn set_theme(&mut self, theme: &Theme, fallback_fg: Rgba, base_bg: Rgba) {
+        self.theme = theme.clone();
+        self.fallback_fg = fallback_fg;
+        self.base_bg = base_bg;
+    }
+
     /// The handler must not call `Custom::update` or `Custom::with` on this widget. Queue a message instead.
     pub fn on_press(&mut self, handler: impl FnMut(&mut Cx<'_>) + 'static) {
         self.on_press = Some(Box::new(handler));

@@ -11,6 +11,7 @@
 //!
 //! Layout changes save to `layout.json` after [`PERSIST_DELAY`], as TS does.
 
+use crate::screens::popup::style_field;
 use crate::shell::{Dirty, Inbox, Msg, PANE_TOP, Shell};
 use crate::sync::wire_hover;
 use opentui::prelude::*;
@@ -29,7 +30,7 @@ use tuig_ui_model::scrollbar::{ScrollbarGrab, scrollbar_drag, scrollbar_grab};
 use tuig_ui_model::sidebar::{
     PerSection, Section, SidebarRect, layout_sidebar_sections, resize_sidebar_boundary, section_at,
 };
-use tuig_ui_model::theme::Theme;
+use tuig_ui_model::theme::{Surface, Theme};
 use tuig_widgets::history::DOUBLE_CLICK;
 use tuig_widgets::pull_requests::{
     PullRequestPanel, SPINNER_FRAMES, pull_request_branch, pull_request_panel,
@@ -71,10 +72,6 @@ pub struct SidebarWidgets {
     pub filter: Input,
 }
 
-fn color(color: tuig_ui_model::color::Rgba) -> Color {
-    Color::rgba(color.r, color.g, color.b, color.a)
-}
-
 impl SidebarWidgets {
     pub fn new(app: &App, theme: &Theme, inbox: &Rc<Inbox>) -> Self {
         let mut sidebar = Sidebar::new(theme.clone());
@@ -109,10 +106,8 @@ impl SidebarWidgets {
             .height(1)
             .placeholder("Filter branches…")
             // The TS golden (`golden/branch-filter/open.snap`) shows fg=5c6370.
-            .placeholder_color(Color::rgb(0x5c, 0x63, 0x70))
-            .colors(color(theme.text), color(theme.selected))
-            .focused_colors(color(theme.text), color(theme.selected))
             .visible(false);
+        style_field(&filter, theme, theme.selected, Surface::Default);
         {
             let inbox = inbox.clone();
             filter.on_change(move |cx, _| {
@@ -131,6 +126,14 @@ impl SidebarWidgets {
             right_divider: divider(DividerSide::Right),
             filter,
         }
+    }
+
+    pub fn set_theme(&self, theme: &Theme) {
+        self.pane.update(|pane| pane.set_theme(theme));
+        self.left_divider.update(|divider| divider.set_theme(theme));
+        self.right_divider
+            .update(|divider| divider.set_theme(theme));
+        style_field(&self.filter, theme, theme.selected, Surface::Default);
     }
 
     /// Adds the dividers and the filter box. The pane goes in at its place among the other panes.
@@ -191,6 +194,10 @@ pub struct SidebarState {
 }
 
 impl SidebarState {
+    pub fn set_theme(&mut self, theme: &Theme) {
+        self.theme = theme.clone();
+    }
+
     pub fn new(theme: &Theme) -> Self {
         Self {
             theme: theme.clone(),

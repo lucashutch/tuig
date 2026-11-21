@@ -90,18 +90,18 @@ fn color(color: Rgba) -> Color {
     Color::rgba(color.r, color.g, color.b, color.a)
 }
 
-fn dialog(theme: &Theme, path: &str, fallback: Rgba, states: ThemeStates) -> Color {
-    color(semantic_color(
-        theme,
-        path,
-        fallback,
-        Surface::Dialog,
-        states,
-    ))
+fn surface_color(
+    theme: &Theme,
+    surface: Surface,
+    path: &str,
+    fallback: Rgba,
+    states: ThemeStates,
+) -> Color {
+    color(semantic_color(theme, path, fallback, surface, states))
 }
 
-/// Gives a text input the dialog form-field colors. `updateWidgetTheme` for `name-prompt` and the palette search.
-fn style_input(input: &Input, theme: &Theme, base: Rgba) {
+/// The form field colors of `updateWidgetTheme`, from the semantic tokens of `surface`.
+pub(crate) fn style_field(input: &Input, theme: &Theme, base: Rgba, surface: Surface) {
     let none = ThemeStates::default();
     let focused = ThemeStates {
         focused: true,
@@ -109,15 +109,38 @@ fn style_input(input: &Input, theme: &Theme, base: Rgba) {
     };
     input
         .colors(
-            dialog(theme, "text.formfield", theme.text, none),
-            dialog(theme, "background.formfield", base, none),
+            surface_color(theme, surface, "text.formfield", theme.text, none),
+            surface_color(theme, surface, "background.formfield", base, none),
         )
         .focused_colors(
-            dialog(theme, "text.formfield", theme.text, focused),
-            dialog(theme, "background.formfield", theme.selected, focused),
+            surface_color(theme, surface, "text.formfield", theme.text, focused),
+            surface_color(
+                theme,
+                surface,
+                "background.formfield",
+                theme.selected,
+                focused,
+            ),
         )
-        .placeholder_color(dialog(theme, "text.muted", theme.muted, none))
-        .cursor_color(dialog(theme, "text.formfield", theme.focus_ring, focused));
+        .placeholder_color(surface_color(
+            theme,
+            surface,
+            "text.muted",
+            theme.muted,
+            none,
+        ))
+        .cursor_color(surface_color(
+            theme,
+            surface,
+            "text.formfield",
+            theme.focus_ring,
+            focused,
+        ));
+}
+
+/// Gives a text input the dialog form-field colors. `updateWidgetTheme` for `name-prompt` and the palette search.
+fn style_input(input: &Input, theme: &Theme, base: Rgba) {
+    style_field(input, theme, base, Surface::Dialog);
     // The arrow, page and emacs keys move the palette selection. The inputs have one line.
     for key in [
         "up", "down", "pageup", "pagedown", "ctrl+p", "ctrl+n", "ctrl+k",
@@ -179,6 +202,12 @@ impl OverlayWidgets {
             prompt,
             palette_input,
         }
+    }
+
+    pub fn set_theme(&self, theme: &Theme) {
+        self.layer.update(|layer| layer.set_theme(theme));
+        style_input(&self.prompt, theme, theme.selected);
+        style_input(&self.palette_input, theme, theme.panel_raised);
     }
 
     pub fn attach(&self, root: &opentui::widget::View) {
@@ -596,6 +625,11 @@ impl Shell {
             let view = palette.view();
             (view.left + 2, view.top + 1, (view.width - 4).max(1))
         });
+        if let Some(palette) = &self.overlay.palette {
+            overlay
+                .palette_input
+                .placeholder(palette.page.placeholder());
+        }
         let _ = overlay.palette_input.visible(palette_at.is_some());
         if let Some((left, top, width)) = palette_at {
             crate::sync::place(&overlay.palette_input, left, top, width, 1);

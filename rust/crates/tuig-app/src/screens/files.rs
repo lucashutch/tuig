@@ -36,8 +36,8 @@ use tuig_ui_model::runtime_layout::{
 use tuig_ui_model::text_width::string_width;
 use tuig_ui_model::theme::Theme;
 use tuig_widgets::files::{
-    ActionButton, FileList, FileListData, FileListEvent, FileRow, ListKind, ListStatus, SplitBar,
-    SplitEvent,
+    ActionButton, ActionVariant, FileList, FileListData, FileListEvent, FileRow, ListKind,
+    ListStatus, SplitBar, SplitEvent,
 };
 use tuig_widgets::pointer::PointerTracker;
 
@@ -419,8 +419,8 @@ impl FilesWidgets {
             });
             list
         };
-        let button = |label: &str, fg: Rgba, action: ChangesAction| {
-            let mut button = ActionButton::new(theme.clone(), label, fg);
+        let button = |label: &str, fg: Rgba, action: ChangesAction, variant: ActionVariant| {
+            let mut button = ActionButton::new(theme.clone(), label, fg).variant(variant);
             let inbox = inbox.clone();
             button.on_press(move |cx| inbox.post(cx.app(), Msg::ChangesAction(action)));
             let button = Custom::new(app, button).absolute().height(1);
@@ -441,12 +441,40 @@ impl FilesWidgets {
         Self {
             unstaged: list(ListKind::Unstaged),
             staged: list(ListKind::Staged),
-            discard: button(DISCARD_ALL_LABEL, theme.deleted, ChangesAction::Discard),
-            stage_all: button(STAGE_ALL_LABEL, theme.added, ChangesAction::Stage),
-            unstage_all: button(UNSTAGE_ALL_LABEL, theme.warning, ChangesAction::Unstage),
+            discard: button(
+                DISCARD_ALL_LABEL,
+                theme.deleted,
+                ChangesAction::Discard,
+                ActionVariant::Destructive,
+            ),
+            stage_all: button(
+                STAGE_ALL_LABEL,
+                theme.added,
+                ChangesAction::Stage,
+                ActionVariant::Primary,
+            ),
+            unstage_all: button(
+                UNSTAGE_ALL_LABEL,
+                theme.warning,
+                ChangesAction::Unstage,
+                ActionVariant::Secondary,
+            ),
             files_bar: bar(Split::Files),
             composer_bar: bar(Split::Composer),
         }
+    }
+
+    pub fn set_theme(&self, theme: &Theme) {
+        self.unstaged.update(|list| list.set_theme(theme));
+        self.staged.update(|list| list.set_theme(theme));
+        self.discard
+            .update(|button| button.set_theme(theme, theme.deleted));
+        self.stage_all
+            .update(|button| button.set_theme(theme, theme.added));
+        self.unstage_all
+            .update(|button| button.set_theme(theme, theme.warning));
+        self.files_bar.update(|bar| bar.set_theme(theme));
+        self.composer_bar.update(|bar| bar.set_theme(theme));
     }
 
     /// Puts the widgets into the details pane.

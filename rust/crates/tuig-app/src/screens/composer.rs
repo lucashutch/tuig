@@ -206,6 +206,26 @@ impl ComposerWidgets {
         }
     }
 
+    pub fn set_theme(&self, theme: &Theme) {
+        let colors = field_colors(theme);
+        self.frame.bg(color(theme.panel));
+        self.label.fg(color(theme.accent));
+        self.summary
+            .placeholder_color(color(colors.placeholder))
+            .colors(color(colors.fg), color(colors.bg))
+            .focused_colors(color(colors.focused_fg), color(colors.focused_bg))
+            .cursor_color(color(colors.cursor));
+        self.body
+            .placeholder_color(color(colors.placeholder))
+            .colors(color(colors.fg), color(colors.bg))
+            .focused_colors(color(colors.focused_fg), color(colors.focused_bg))
+            .cursor_color(color(colors.cursor));
+        self.amend
+            .update(|button| button.set_theme(theme, theme.muted, Rgba::TRANSPARENT));
+        self.commit
+            .update(|button| button.set_theme(theme, theme.added, theme.panel_raised));
+    }
+
     /// Puts the composer into the details pane.
     pub fn attach(&self, details: &View) {
         details.add(&self.frame);

@@ -2,8 +2,8 @@
 //! `tuig_ui_model::command_palette`.
 //!
 //! The command list is rebuilt on every repaint, so availability follows the repository. A command is a
-//! [`PaletteCommand`] with an id. [`Shell::run_palette_command`] maps the id to its action. The theme commands are
-//! not ported yet and show a notice when run.
+//! [`PaletteCommand`] with an id. [`Shell::run_palette_command`] maps the id to its action. The theme commands open
+//! the picker pages of `screens/theme.rs`, which list themes or modes in the same palette.
 
 use crate::screens::files::Focus;
 use crate::shell::{Dirty, Shell};
@@ -14,8 +14,28 @@ use tuig_ui_model::command_palette::{
 };
 use tuig_widgets::popup::{PaletteRowView, PaletteView};
 
+/// What the palette lists: the commands, or one of the theme pickers.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum PalettePage {
+    #[default]
+    Commands,
+    Themes,
+    ThemeMode,
+}
+
+impl PalettePage {
+    pub fn placeholder(self) -> &'static str {
+        match self {
+            Self::Commands => "Search commands",
+            Self::Themes => "Search themes",
+            Self::ThemeMode => "Search modes",
+        }
+    }
+}
+
 #[derive(Default)]
 pub struct PaletteState {
+    pub page: PalettePage,
     /// The selected match, or -1 when nothing can be selected.
     pub index: isize,
     pub start: i64,
@@ -90,6 +110,10 @@ impl Shell {
     /// Every command, in the order of `RuntimePaletteController.commands`.
     fn palette_commands(&self) -> Vec<PaletteCommand> {
         use CommandCategory::*;
+        let page = self.overlay.palette.as_ref().map(|palette| palette.page);
+        if let Some(page @ (PalettePage::Themes | PalettePage::ThemeMode)) = page {
+            return self.theme_page_commands(page);
+        }
         let snapshot = self.snapshot.as_ref();
         let busy = self.busy_reason();
         let availability = |mut command: PaletteCommand, enabled: bool, reason: &str| {
@@ -356,20 +380,37 @@ impl Shell {
         if self.overlay.palette.is_some() {
             return self.close_palette(app, true);
         }
+        self.open_palette(app, PalettePage::Commands);
+    }
+
+    /// `show`, on `page`.
+    pub(crate) fn open_palette(&mut self, app: &App, page: PalettePage) {
+        if self.overlay.palette.is_some() {
+            return self.close_palette(app, true);
+        }
         self.close_popup(app);
         self.remember_focus(app);
         self.widgets.overlay.palette_input.set_value("");
-        self.overlay.palette = Some(PaletteState::default());
+        self.overlay.palette = Some(PaletteState {
+            page,
+            ..PaletteState::default()
+        });
+        if page != PalettePage::Commands {
+            self.theme_picker_opened();
+        }
         self.repaint_palette_state();
         self.widgets.overlay.palette_input.visible(true);
         self.widgets.overlay.palette_input.focus();
     }
 
     pub(crate) fn close_palette(&mut self, app: &App, restore: bool) {
-        if self.overlay.palette.take().is_none() {
+        let Some(closed) = self.overlay.palette.take() else {
             return;
-        }
+        };
         self.dirty |= Dirty::OVERLAY;
+        if closed.page != PalettePage::Commands {
+            self.theme_picker_closed(app);
+        }
         if restore {
             self.restore_focus(app);
         } else {
@@ -391,6 +432,10 @@ impl Shell {
         if self.overlay.palette.is_none() {
             return;
         }
+        self.widgets
+            .overlay
+            .layer
+            .update(|layer| layer.refresh_footer_theme());
         let query = self.widgets.overlay.palette_input.value();
         let commands = self.palette_commands();
         let terminal_width = i64::from(self.layout.width).max(1);
@@ -429,6 +474,7 @@ impl Shell {
             count as i64,
         );
         self.dirty |= Dirty::OVERLAY;
+        self.theme_preview_due();
     }
 
     pub(crate) fn palette_move(&mut self, delta: isize) {
@@ -502,6 +548,7 @@ impl Shell {
             return;
         };
         let id = selected.id.clone();
+        let page = palette.page;
         let still_enabled = self
             .palette_commands()
             .iter()
@@ -510,7 +557,10 @@ impl Shell {
             return self.repaint_palette_state();
         }
         self.close_palette(app, true);
-        self.run_palette_command(app, &id);
+        match page {
+            PalettePage::Commands => self.run_palette_command(app, &id),
+            _ => self.theme_picked(app, page, &id),
+        }
     }
 
     pub(crate) fn run_palette_command(&mut self, app: &App, id: &str) {
@@ -585,7 +635,8 @@ impl Shell {
                     "Author avatars off"
                 });
             }
-            "theme.change" | "theme.mode" => self.notify("Themes are not available yet"),
+            "theme.change" => self.show_theme_picker(app, PalettePage::Themes),
+            "theme.mode" => self.show_theme_picker(app, PalettePage::ThemeMode),
             "repository.open" => self.show_repository_picker(app),
             "repository.close" => {
                 let active = self.header.active.clone();

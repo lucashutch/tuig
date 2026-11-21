@@ -26,7 +26,7 @@ use tuig_ui_model::file_tree::{
 use tuig_ui_model::history_viewport::WHEEL_ROWS;
 use tuig_ui_model::icon_theme::resolve_material_icon;
 use tuig_ui_model::text_width::{fit_tree_label, string_width};
-use tuig_ui_model::theme::{Theme, interaction_background};
+use tuig_ui_model::theme::{Surface, Theme, ThemeStates, interaction_background, semantic_color};
 
 /// One visible tree row.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -402,10 +402,19 @@ impl Component for FileList {
     }
 }
 
+/// Which semantic tokens color an [`ActionButton`]. `applyActionTheme`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ActionVariant {
+    Destructive,
+    Primary,
+    Secondary,
+}
+
 /// A one-row button. Used for the pane actions: Discard all, Stage all, Unstage all.
 pub struct ActionButton {
     label: String,
     fg: Rgba,
+    variant: ActionVariant,
     theme: Theme,
     hovered: bool,
     pressed: bool,
@@ -417,11 +426,22 @@ impl ActionButton {
         Self {
             label: label.to_string(),
             fg,
+            variant: ActionVariant::Primary,
             theme,
             hovered: false,
             pressed: false,
             on_press: None,
         }
+    }
+
+    pub fn variant(mut self, variant: ActionVariant) -> Self {
+        self.variant = variant;
+        self
+    }
+
+    pub fn set_theme(&mut self, theme: &Theme, fg: Rgba) {
+        self.theme = theme.clone();
+        self.fg = fg;
     }
 
     /// Set from the widget's hover handler. Leaving cancels a press, as `buttonMouse` does.
@@ -446,20 +466,31 @@ impl ActionButton {
 impl Component for ActionButton {
     fn paint(&self, painter: &mut Painter<'_>) {
         let (width, height) = painter.size();
-        let background = to_color(interaction_background(
+        let (text, background) = match self.variant {
+            ActionVariant::Destructive => {
+                ("text.action.destructive", "background.action.destructive")
+            }
+            ActionVariant::Primary => ("text.action.primary", "background.action.primary"),
+            ActionVariant::Secondary => ("text.action.secondary", "background.action.secondary"),
+        };
+        let none = ThemeStates::default();
+        let fg = semantic_color(&self.theme, text, self.fg, Surface::Default, none);
+        let semantic_bg = semantic_color(
             &self.theme,
+            background,
             self.theme.panel_raised,
-            self.pressed,
-            false,
-            self.hovered,
-        ));
-        painter.fill(0, 0, width, height, background);
-        painter.text(
-            0,
-            0,
-            &self.label,
-            Style::new().fg(to_color(self.fg)).bg(background),
+            Surface::Default,
+            none,
         );
+        let bg =
+            interaction_background(&self.theme, semantic_bg, self.pressed, false, self.hovered);
+        let mut style = Style::new().fg(to_color(fg));
+        // A transparent background shows the pane behind the button.
+        if bg.a > 0 {
+            painter.fill(0, 0, width, height, to_color(bg));
+            style = style.bg(to_color(bg));
+        }
+        painter.text(0, 0, &self.label, style);
     }
 
     fn mouse(&mut self, cx: &mut Cx<'_>, event: &MouseEvent, _local: (i32, i32)) -> bool {
@@ -506,6 +537,10 @@ impl SplitBar {
         }
     }
 
+    pub fn set_theme(&mut self, theme: &Theme) {
+        self.theme = theme.clone();
+    }
+
     /// Set from the widget's hover handler.
     pub fn set_hovered(&mut self, hovered: bool) {
         self.hovered = hovered;
@@ -534,7 +569,16 @@ impl SplitBar {
 impl Component for SplitBar {
     fn paint(&self, painter: &mut Painter<'_>) {
         let (width, height) = painter.size();
-        let mut style = Style::new().fg(to_color(self.theme.divider));
+        let mut style = Style::new().fg(to_color(
+            // `updateWidgetTheme` gives a divider bar the `text.base` token.
+            semantic_color(
+                &self.theme,
+                "text.base",
+                self.theme.divider,
+                Surface::Default,
+                ThemeStates::default(),
+            ),
+        ));
         let bg = interaction_background(
             &self.theme,
             self.theme.panel,

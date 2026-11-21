@@ -141,6 +141,24 @@ impl Widgets {
     }
 }
 
+impl Widgets {
+    /// `updateWidgetTheme` and `setBackgroundColor`: recolors every widget for `theme`.
+    pub fn set_theme(&mut self, app: &App, theme: &Theme) {
+        app.root().bg(color(theme.bg));
+        self.backdrop.bg(color(theme.bg));
+        self.details.bg(color(theme.panel));
+        self.history.update(|list| list.set_theme(theme));
+        self.diff.update(|pane| pane.set_theme(theme));
+        self.header.set_theme(theme);
+        self.sidebar.set_theme(theme);
+        self.files.set_theme(theme);
+        self.composer.set_theme(theme);
+        self.details_view.set_theme(theme);
+        self.footer.update(|footer| footer.set_theme(theme));
+        self.overlay.set_theme(theme);
+    }
+}
+
 pub(crate) fn place(widget: &impl Widget, left: i64, top: i64, width: i64, height: i64) {
     let cells = |value: i64| u32::try_from(value.max(0)).unwrap_or(0);
     widget
@@ -152,6 +170,8 @@ pub(crate) fn place(widget: &impl Widget, left: i64, top: i64, width: i64, heigh
 
 impl Shell {
     pub fn sync(&mut self, app: &App) {
+        // A theme change marks everything dirty, so it goes first.
+        self.sync_theme(app);
         if self.dirty.contains(Dirty::LAYOUT) {
             let panes = self.layout.panes;
             let top = i64::from(PANE_TOP);

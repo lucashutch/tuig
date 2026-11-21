@@ -23,6 +23,7 @@ use tuig_cli::{
 use tuig_git::repository::{GitRepository, GitRepositoryService};
 use tuig_ui_model::preferences::{layout_preferences_path, load_layout_preferences};
 use tuig_ui_model::session_preferences::session_preferences_path;
+use tuig_ui_model::theme_store::{ThemeModeSelection, load_theme_preferences};
 
 /// Runs `tuig update` on a plain tokio runtime, because it must not start the terminal UI.
 fn update() -> Result<(), CliError> {
@@ -41,9 +42,24 @@ fn active_position(repositories: &[GitRepositoryService], active: Option<&str>) 
         .unwrap_or(0)
 }
 
+/// The system theme mode follows the terminal, so OpenTUI asks the terminal for its colors at start. That wait only
+/// happens when the saved mode is `system`, as in TS (`waitForThemeMode`).
+fn app_options() -> AppOptions {
+    let system = matches!(
+        load_theme_preferences(),
+        Ok(selection) if selection.mode == ThemeModeSelection::System
+    );
+    let options = AppOptions::default();
+    if system {
+        // The same palette in both slots: the choice of theme comes from `theme.json`, not from OpenTUI.
+        options.with_themes(Theme::dark(), Theme::dark())
+    } else {
+        options
+    }
+}
+
 fn run(request: &StartRequest) -> Result<(), CliError> {
-    let app =
-        App::new(AppOptions::default()).map_err(|error| CliError::Other(error.to_string()))?;
+    let app = App::new(app_options()).map_err(|error| CliError::Other(error.to_string()))?;
     let start = match app.runtime().block_on(open_start_repositories(request)) {
         Ok(start) => start,
         Err(error) => {

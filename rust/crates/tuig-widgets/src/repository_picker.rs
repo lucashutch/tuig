@@ -58,6 +58,10 @@ impl RepositoryPicker {
         }
     }
 
+    pub fn set_theme(&mut self, theme: &Theme) {
+        self.theme = theme.clone();
+    }
+
     pub fn set_view(&mut self, view: PickerView) {
         self.view = view;
     }

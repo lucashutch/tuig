@@ -118,6 +118,9 @@ type EventHandler = Box<dyn FnMut(&mut Cx<'_>, PopupEvent)>;
 
 pub struct PopupLayer {
     theme: Theme,
+    /// The theme of the palette footer. TS builds the footer text before it previews a theme, so the footer keeps the
+    /// old muted color until the palette repaints. See [`PopupLayer::refresh_footer_theme`].
+    footer_theme: Theme,
     content: PopupContent,
     /// The layer covers the screen and takes every pointer event while it shows. Widgets under it read the last
     /// position back when the layer closes, to hover what is under the still pointer.
@@ -132,6 +135,7 @@ fn to_color(color: Rgba) -> Color {
 impl PopupLayer {
     pub fn new(theme: Theme) -> Self {
         Self {
+            footer_theme: theme.clone(),
             theme,
             content: PopupContent::Hidden,
             pointer: PointerTracker::default(),
@@ -146,6 +150,11 @@ impl PopupLayer {
 
     pub fn set_theme(&mut self, theme: &Theme) {
         self.theme = theme.clone();
+    }
+
+    /// The palette repainted: its footer takes the current theme.
+    pub fn refresh_footer_theme(&mut self) {
+        self.footer_theme = self.theme.clone();
     }
 
     pub fn set_content(&mut self, content: PopupContent) {
@@ -314,7 +323,13 @@ impl PopupLayer {
             (view.left + 2) as i32,
             (view.top + view.visible_rows + 4) as i32,
             &clip_columns(PALETTE_FOOTER, inner),
-            Style::new().fg(muted),
+            Style::new().fg(to_color(semantic_color(
+                &self.footer_theme,
+                "text.muted",
+                self.footer_theme.muted,
+                Surface::Dialog,
+                none,
+            ))),
         );
     }
 }

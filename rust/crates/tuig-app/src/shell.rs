@@ -20,6 +20,7 @@ use crate::screens::history::HistoryState;
 use crate::screens::popup::{OverlayMsg, OverlayState};
 use crate::screens::pull_requests::PullRequestsState;
 use crate::screens::sidebar::{SidebarMsg, SidebarState};
+use crate::screens::theme::ThemeState;
 use crate::selected_file::SelectedFile;
 use crate::services::Services;
 use crate::sync::Widgets;
@@ -40,10 +41,38 @@ use tuig_git::types::{
 use tuig_ui_model::file_tree::FileRowAction;
 use tuig_ui_model::history_viewport::history_lines;
 use tuig_ui_model::runtime_layout::{PaneInputs, PaneLayout, layout_panes};
-use tuig_ui_model::theme::one_dark_theme;
+use tuig_ui_model::theme_resolver::ThemeMode;
 use tuig_widgets::diff::{DiffDocument, DiffEvent};
 use tuig_widgets::files::ListKind;
 use tuig_widgets::history::ClickPart;
+
+/// The terminal's appearance in the terms of `tuig-ui-model`.
+fn appearance(mode: opentui::prelude::ThemeMode) -> ThemeMode {
+    match mode {
+        opentui::prelude::ThemeMode::Light => ThemeMode::Light,
+        opentui::prelude::ThemeMode::Dark => ThemeMode::Dark,
+    }
+}
+
+/// The colors OpenTUI gives new widgets and the screen background, from a tuig theme. `renderer.setBackgroundColor`.
+fn app_theme(theme: &tuig_ui_model::theme::Theme) -> opentui::prelude::Theme {
+    let color = |c: tuig_ui_model::color::Rgba| Color::rgba(c.r, c.g, c.b, c.a);
+    let base = match opentui::prelude::ThemeMode::from_background(color(theme.bg)) {
+        opentui::prelude::ThemeMode::Light => opentui::prelude::Theme::light(),
+        opentui::prelude::ThemeMode::Dark => opentui::prelude::Theme::dark(),
+    };
+    opentui::prelude::Theme {
+        background: color(theme.bg),
+        surface: color(theme.panel),
+        foreground: color(theme.text),
+        muted: color(theme.muted),
+        accent: color(theme.accent),
+        border: color(theme.border),
+        focus: color(theme.focus_ring),
+        selection_bg: color(theme.selected),
+        ..base
+    }
+}
 
 pub type GitResult<T> = Result<T, GitError>;
 
@@ -89,6 +118,8 @@ pub enum Msg {
         y: u16,
     },
     Resize(u16, u16),
+    /// The terminal changed between a light and a dark background.
+    TerminalAppearance(ThemeMode),
     Details(DetailsAction),
     Composer(ComposerAction),
     FileHistoryClick(usize),
@@ -271,6 +302,8 @@ pub struct Shell {
     pub sidebar: SidebarState,
     pub avatars: AvatarState,
     pub header: HeaderState,
+    /// The active theme, the catalog and the saved choice. See `screens/theme.rs`.
+    pub themes: ThemeState,
     /// The message for the footer row. It clears after six seconds. See `screens/footer.rs`.
     pub notice: Option<String>,
     pub(crate) footer: FooterState,
@@ -294,7 +327,13 @@ impl Shell {
         repo: Arc<dyn GitRepository>,
         services: Services,
     ) -> Rc<RefCell<Shell>> {
-        let theme = one_dark_theme();
+        let initial = ThemeState::load(
+            services.theme_config.as_deref(),
+            Some(std::path::Path::new(repo.root())),
+            app.theme_mode().map(appearance),
+        );
+        let theme = initial.state.theme.clone();
+        app.set_theme(app_theme(&theme));
         let inbox = Rc::new(Inbox {
             queue: RefCell::new(VecDeque::new()),
             scheduled: Cell::new(false),
@@ -321,6 +360,7 @@ impl Shell {
             sidebar: SidebarState::new(&theme),
             avatars: AvatarState::new(services.avatars.clone(), services.avatars_enabled),
             header: HeaderState::new(repo.clone(), services.pull_requests_for),
+            themes: initial.state,
             notice: None,
             footer: FooterState::default(),
             dirty: Dirty::all(),
@@ -344,10 +384,19 @@ impl Shell {
                 inbox.post(cx.app(), Msg::Resize(width, height))
             });
         }
+        {
+            let inbox = inbox.clone();
+            app.on_theme_mode(move |cx, mode| {
+                inbox.post(cx.app(), Msg::TerminalAppearance(appearance(mode)))
+            });
+        }
         crate::refresh::install(app, &inbox);
 
         {
             let mut shell = shell.borrow_mut();
+            if let Some(warning) = initial.warning {
+                shell.notify_error(warning);
+            }
             shell.sidebar.prefs_path = services.layout_path.clone();
             shell.restore_layout(&services.layout);
             shell.start_snapshot(app);
@@ -410,6 +459,7 @@ impl Shell {
             Msg::HistoryScrollGraph(delta) => {
                 self.scroll_graph(i64::from(delta));
             }
+            Msg::TerminalAppearance(mode) => self.terminal_appearance_changed(app, mode),
             Msg::Resize(width, height) => {
                 self.layout.resize(width, height);
                 self.dirty |= Dirty::LAYOUT | Dirty::HISTORY | Dirty::DETAILS | Dirty::OVERLAY;

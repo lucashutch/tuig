@@ -17,6 +17,7 @@ use crate::shell::{Dirty, GitResult, Inbox, Msg, Shell, window_title};
 use crate::sync::wire_hover;
 use crate::tasks::ReqId;
 
+use crate::screens::popup::style_field;
 use opentui::prelude::*;
 use opentui::widget::{Input, View};
 use std::collections::BTreeMap;
@@ -37,7 +38,7 @@ use tuig_ui_model::session_preferences::{
     SessionPreferences, SubmoduleRelation, promote_recent_repository, remove_recent_repository,
     save_session_preferences,
 };
-use tuig_ui_model::theme::{Theme, one_dark_theme};
+use tuig_ui_model::theme::{Surface, Theme};
 use tuig_ui_model::toolbar::{ToolbarAction, toolbar_buttons};
 use tuig_widgets::commit_text::short_sha;
 use tuig_widgets::diff::effective_diff_view;
@@ -211,11 +212,8 @@ impl HeaderWidgets {
             .z_index(92)
             .height(1)
             .placeholder("Path from current directory")
-            // The TS golden (`golden/repo-tabs/picker.snap`) shows fg=5c6370.
-            .placeholder_color(Color::rgb(0x5c, 0x63, 0x70))
-            .colors(color(theme.text), color(theme.selected))
-            .focused_colors(color(theme.text), color(theme.selected))
             .visible(false);
+        style_field(&input, theme, theme.selected, Surface::Dialog);
         // The arrows move the suggestion selection. The input has one line.
         input.unbind("up");
         input.unbind("down");
@@ -249,6 +247,12 @@ impl HeaderWidgets {
         }
     }
 
+    pub fn set_theme(&self, theme: &Theme) {
+        self.bar.update(|bar| bar.set_theme(theme));
+        self.picker.update(|picker| picker.set_theme(theme));
+        style_field(&self.picker_input, theme, theme.selected, Surface::Dialog);
+    }
+
     pub fn attach(&self, root: &View) {
         root.add(&self.bar)
             .add(&self.picker)
@@ -258,10 +262,6 @@ impl HeaderWidgets {
     pub fn place(&self, width: i64, height: i64) {
         crate::sync::place(&self.bar, 0, 0, width, height);
     }
-}
-
-fn color(color: tuig_ui_model::color::Rgba) -> Color {
-    Color::rgba(color.r, color.g, color.b, color.a)
 }
 
 fn folder_name(path: &str) -> String {
@@ -873,7 +873,7 @@ impl Shell {
         self.diff = crate::screens::diff::DiffState::new();
         self.diff.side_by_side = side_by_side;
         self.snapshot = None;
-        self.history = crate::screens::history::HistoryState::new(&one_dark_theme());
+        self.history = crate::screens::history::HistoryState::new(&self.themes.theme);
         if let Some(saved) = restore {
             self.history.limit = saved.limit;
             self.history.restore = Some(saved);

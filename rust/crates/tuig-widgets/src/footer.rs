@@ -117,6 +117,10 @@ impl Footer {
         }
     }
 
+    pub fn set_theme(&mut self, theme: &Theme) {
+        self.theme = theme.clone();
+    }
+
     /// The `(left, width)` of each pane that is showing.
     pub fn set_panes(&mut self, sidebar: Option<(u32, u32)>, details: Option<(u32, u32)>) {
         self.sidebar = sidebar;

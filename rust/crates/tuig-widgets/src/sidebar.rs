@@ -28,7 +28,7 @@ use tuig_ui_model::runtime_layout::vertical_divider_content;
 use tuig_ui_model::scrollbar::{ScrollbarCell, scrollbar_cell, scrollbar_thumb};
 use tuig_ui_model::sidebar::{PerSection, Section, SidebarRect, sidebar_header};
 use tuig_ui_model::text_width::{fit_columns, take_columns};
-use tuig_ui_model::theme::{Theme, interaction_background};
+use tuig_ui_model::theme::{Surface, Theme, ThemeStates, interaction_background, semantic_color};
 
 /// Worktree marker. `WORKTREE_ICON` in `src/ui/history.ts`.
 pub const WORKTREE_ICON: &str = "⎇";
@@ -570,7 +570,13 @@ impl Component for Sidebar {
                 }
             }
             if let Some(top) = rect.divider_top {
-                let mut style = Style::new().fg(to_color(theme.divider));
+                let mut style = Style::new().fg(to_color(semantic_color(
+                    theme,
+                    "text.base",
+                    theme.divider,
+                    Surface::Default,
+                    ThemeStates::default(),
+                )));
                 if self.divider_drag == Some(section) {
                     style = style.bg(to_color(theme.pressed));
                 }
@@ -703,6 +709,10 @@ impl PaneDivider {
         }
     }
 
+    pub fn set_theme(&mut self, theme: &Theme) {
+        self.theme = theme.clone();
+    }
+
     /// Set from the widget's hover handler.
     pub fn set_hovered(&mut self, hovered: bool) {
         self.hovered = hovered && !self.dragged;
@@ -737,7 +747,16 @@ impl Component for PaneDivider {
         for (column, backdrop) in self.backdrop.iter().enumerate() {
             painter.fill(column as i32, 0, 1, height, to_color(*backdrop));
         }
-        let mut style = Style::new().fg(to_color(self.theme.divider));
+        let mut style = Style::new().fg(to_color(
+            // `updateWidgetTheme` gives a divider bar the `text.base` token.
+            semantic_color(
+                &self.theme,
+                "text.base",
+                self.theme.divider,
+                Surface::Default,
+                ThemeStates::default(),
+            ),
+        ));
         // `dividerBackground`: the bar is transparent until the pointer is over it or drags it.
         if self.dragging || self.hovered {
             let background = interaction_background(

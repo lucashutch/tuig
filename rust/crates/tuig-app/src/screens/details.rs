@@ -270,6 +270,32 @@ impl DetailsView {
         }
     }
 
+    pub fn set_theme(&mut self, theme: &Theme) {
+        self.theme = theme.clone();
+        self.banner.fg(color(theme.warning));
+        self.message_box
+            .wrapper_view()
+            .bg(color(theme.panel_raised));
+        self.message_box
+            .content_view()
+            .bg(color(theme.panel_raised));
+        self.message_label.fg(color(theme.text));
+        self.edit_button.set_text(vec![
+            " Edit Message "
+                .fg(color(theme.accent))
+                .bg(color(theme.selected)),
+        ]);
+        self.header.fg(color(theme.muted));
+        self.body.fg(color(theme.text));
+        self.info_box.bg(color(theme.panel));
+        self.info_label.fg(color(theme.accent));
+        self.info.fg(color(theme.text));
+        self.badge.fg(color(theme.author));
+        self.co_authors.fg(color(theme.muted));
+        self.history_label.fg(color(theme.muted));
+        self.history_list.update(|list| list.set_theme(theme));
+    }
+
     /// Adds the widgets to the details pane. Call once.
     pub fn attach(&self, pane: &View) {
         pane.add(&self.info_box)

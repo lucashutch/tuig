@@ -16,3 +16,4 @@ pub mod pull_requests;
 pub mod sidebar;
 #[cfg(test)]
 pub mod test_support;
+pub mod theme;

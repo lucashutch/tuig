@@ -91,6 +91,9 @@ type EventHandler = Box<dyn FnMut(&mut Cx<'_>, HeaderEvent)>;
 
 pub struct HeaderBar {
     theme: Theme,
+    /// The theme the tab strip last painted with. TS paints the strip on tab events only, so a theme change leaves
+    /// its tab and background colors as they were until the tabs change or the pointer moves over them.
+    tabs_theme: Theme,
     view: HeaderView,
     hovered: Option<Target>,
     /// The button under a left press, which runs when the release lands on it.
@@ -130,6 +133,7 @@ fn to_color(color: Rgba) -> Color {
 impl HeaderBar {
     pub fn new(theme: Theme) -> Self {
         Self {
+            tabs_theme: theme.clone(),
             theme,
             view: HeaderView::default(),
             hovered: None,
@@ -173,7 +177,14 @@ impl HeaderBar {
         }
     }
 
+    pub fn set_theme(&mut self, theme: &Theme) {
+        self.theme = theme.clone();
+    }
+
     pub fn set_view(&mut self, view: HeaderView) {
+        if view.tabs != self.view.tabs || view.active_tab != self.view.active_tab {
+            self.tabs_theme = self.theme.clone();
+        }
         self.view = view;
     }
 
@@ -245,14 +256,23 @@ impl HeaderBar {
     }
 
     fn paint_tabs(&self, painter: &mut Painter<'_>, width: usize) {
-        let theme = &self.theme;
+        let theme = &self.tabs_theme;
+        let semantic = |path: &str, fallback: Rgba, states: ThemeStates| {
+            to_color(semantic_color(
+                theme,
+                path,
+                fallback,
+                Surface::Default,
+                states,
+            ))
+        };
         blank(
             painter,
             0,
             0,
             width,
             to_color(theme.panel_raised),
-            to_color(theme.text),
+            to_color(self.theme.text),
         );
         let layout =
             layout_repository_tabs(&self.view.tabs, self.view.active_tab.as_deref(), width);
@@ -264,8 +284,8 @@ impl HeaderBar {
                 ..ThemeStates::default()
             };
             let base = interaction_background(theme, theme.panel, false, tab.active, hovered);
-            let bg = self.semantic("background.action.secondary", base, states);
-            let fg = self.semantic(
+            let bg = semantic("background.action.secondary", base, states);
+            let fg = semantic(
                 "text.action.secondary",
                 if tab.active {
                     theme.accent
@@ -297,8 +317,8 @@ impl HeaderBar {
             0,
             &label,
             Style::new()
-                .bg(self.semantic("background.action.secondary", base, states))
-                .fg(self.semantic(
+                .bg(semantic("background.action.secondary", base, states))
+                .fg(semantic(
                     "text.action.secondary",
                     theme.accent,
                     ThemeStates::default(),
@@ -345,7 +365,19 @@ impl HeaderBar {
                 false,
                 states.hovered,
             );
-            let background = self.semantic("background.action.secondary", base, states);
+            // A transparent button shows the screen background, as in TS.
+            let background = semantic_color(
+                theme,
+                "background.action.secondary",
+                base,
+                Surface::Default,
+                states,
+            );
+            let background = to_color(if background.a == 0 {
+                theme.bg
+            } else {
+                background
+            });
             let x = cell.start as i32;
             painter.text(
                 x,
@@ -506,6 +538,11 @@ impl Component for HeaderBar {
                 let hovered = self.target_at(x, y);
                 if hovered == self.hovered {
                     return false;
+                }
+                if matches!(self.hovered, Some(Target::Tab(_) | Target::Open))
+                    || matches!(hovered, Some(Target::Tab(_) | Target::Open))
+                {
+                    self.tabs_theme = self.theme.clone();
                 }
                 self.hovered = hovered;
                 self.pressed = None;

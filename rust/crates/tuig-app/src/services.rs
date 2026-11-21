@@ -7,6 +7,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use tuig_git::pull_request_types::PullRequestService;
 use tuig_git::pull_requests::GhPullRequestService;
+use tuig_ui_model::config::config_root;
 use tuig_ui_model::preferences::{LayoutPreferences, layout_preferences_path};
 
 /// Opens a web page in the browser. [`SystemOpener`] runs `xdg-open`. Tests use none, so they never open a browser.
@@ -50,6 +51,9 @@ pub struct Services {
     pub layout: LayoutPreferences,
     /// Where layout changes are saved. Without it they stay in memory.
     pub layout_path: Option<PathBuf>,
+    /// The `tuig` configuration directory, which holds `theme.json` and `themes/`. Without it the theme choice stays
+    /// in memory and only the built-in themes load.
+    pub theme_config: Option<PathBuf>,
 }
 
 fn pull_request_service(root: &str) -> Arc<dyn PullRequestService> {
@@ -71,6 +75,7 @@ impl Services {
             url_opener: Some(Arc::new(SystemOpener)),
             layout: preferences.clone(),
             layout_path: Some(layout_preferences_path()),
+            theme_config: Some(config_root()),
         }
     }
 }
