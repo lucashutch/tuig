@@ -1184,3 +1184,63 @@ async fn remote_failures_without_credentials_block_background_fetch() {
     assert!(matches!(error, GitError::Command(_)));
     assert!(!repo.auth_blocked());
 }
+
+/// The background fetch skips a repository after a credential failure, and a successful remote operation lifts the
+/// block (`authBlocked` in `src/git/repository.ts`). The ssh command is a script that rejects the key.
+#[cfg(unix)]
+#[tokio::test]
+async fn a_credential_failure_blocks_background_fetch_until_a_fetch_succeeds() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let dir = repo_dir().await;
+    git(dir.path(), &["commit", "--allow-empty", "-m", "base"]).await;
+    let tools = TempDir::new("tuig-ssh-stub");
+    let ssh = tools.path().join("ssh");
+    std::fs::write(
+        &ssh,
+        "#!/bin/sh\necho 'git@example.invalid: Permission denied (publickey).' >&2\nexit 255\n",
+    )
+    .unwrap();
+    std::fs::set_permissions(&ssh, std::fs::Permissions::from_mode(0o755)).unwrap();
+    git(
+        dir.path(),
+        &["config", "core.sshCommand", ssh.to_str().unwrap()],
+    )
+    .await;
+    git(
+        dir.path(),
+        &[
+            "remote",
+            "add",
+            "origin",
+            "ssh://git@example.invalid/team/repo.git",
+        ],
+    )
+    .await;
+    let repo = open(&dir).await;
+    assert!(!repo.auth_blocked());
+    let error = repo.fetch(Some("origin"), None).await.err().unwrap();
+    assert!(
+        error
+            .to_string()
+            .contains("needs credentials for origin (example.invalid)"),
+        "{error}"
+    );
+    assert!(repo.auth_blocked());
+
+    // The same repository fetches from a reachable remote: the block ends.
+    let origin = TempDir::new("tuig-origin");
+    git(origin.path(), &["init", "--bare", "-b", "main"]).await;
+    git(
+        dir.path(),
+        &[
+            "remote",
+            "set-url",
+            "origin",
+            origin.path().to_str().unwrap(),
+        ],
+    )
+    .await;
+    repo.fetch(Some("origin"), None).await.unwrap();
+    assert!(!repo.auth_blocked());
+}
