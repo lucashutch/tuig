@@ -11,9 +11,9 @@ license = "MIT"
 all = "warn"
 
 [workspace.dependencies]
-# One pin for every crate. scripts/build-opentui-native.sh reads this rev to build the matching native library.
-# To bump it, see README.md.
-opentui = { git = "https://github.com/anomalyco/opentui", rev = "d5c7fca0c916e0be34578fcb6ea85f172356b045", features = ["tokio", "tree-sitter"] }
+# One pin for every crate, from crates.io. The exact version also names the git tag that scripts/build-opentui-native.sh
+# builds the native library from, because the crates do not ship that library. To bump it, see README.md.
+opentui = { version = "=0.9.7", features = ["tokio", "tree-sitter"] }
 
 # Release binary: LTO and one codegen unit shrink and speed up the code, strip drops symbols and debug info.
 # panic stays "unwind": the terminal restore runs from Drop, and tokio tasks isolate panics.

@@ -1,5 +1,5 @@
 #!/bin/sh
-# Builds OpenTUI's native library at the rev pinned in rust/Cargo.toml and installs it in
+# Builds OpenTUI's native library at the version pinned in rust/Cargo.toml and installs it in
 # rust/.opentui-native/lib, where .cargo/config.toml points OPENTUI_LIB_DIR.
 #
 # Needs git, zig (the version in OpenTUI's .zig-version) and a C toolchain that zig can drive. It does not need bun:
@@ -14,9 +14,11 @@ RUST_DIR=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 CACHE=${OPENTUI_CACHE_DIR:-$RUST_DIR/.opentui-native}
 URL=https://github.com/anomalyco/opentui
 
-# Single source of truth: the rev of the workspace dependency.
-REV=$(sed -n 's|^opentui = {.*git = "https://github.com/anomalyco/opentui".*rev = "\([0-9a-f]\{40\}\)".*|\1|p' "$RUST_DIR/Cargo.toml")
-[ -n "$REV" ] || { echo "error: no pinned opentui rev in $RUST_DIR/Cargo.toml" >&2; exit 1; }
+# Single source of truth: the exact version of the workspace dependency. The crates.io release v<version> and the git
+# tag v<version> hold the same source, so the Rust crates and the native library cannot differ.
+VERSION=$(sed -n 's|^opentui = {.*version = "=\([0-9][0-9.]*\)".*|\1|p' "$RUST_DIR/Cargo.toml")
+[ -n "$VERSION" ] || { echo "error: no pinned opentui version in $RUST_DIR/Cargo.toml" >&2; exit 1; }
+REF=v$VERSION
 
 case "$(uname -s)-$(uname -m)" in
   Linux-x86_64) ZIG_TARGET=x86_64-linux-gnu.2.17 PLATFORM=x86_64-linux ;;
@@ -28,26 +30,25 @@ case "$(uname -s)-$(uname -m)" in
 esac
 
 LIB_DIR=$CACHE/lib
-if [ "$(cat "$LIB_DIR/.rev" 2>/dev/null || true)" = "$REV" ] && [ -f "$LIB_DIR/libopentui.a" ]; then
-  echo "native library for $REV is up to date: $LIB_DIR" >&2
+if [ "$(cat "$LIB_DIR/.rev" 2>/dev/null || true)" = "$VERSION" ] && [ -f "$LIB_DIR/libopentui.a" ]; then
+  echo "native library for $VERSION is up to date: $LIB_DIR" >&2
   echo "$LIB_DIR"
   exit 0
 fi
 
 SRC=$CACHE/src
-if [ "$(git -C "$SRC" rev-parse HEAD 2>/dev/null || true)" != "$REV" ]; then
+if [ "$(git -C "$SRC" describe --tags --exact-match HEAD 2>/dev/null || true)" != "$REF" ]; then
   rm -rf "$SRC"
   mkdir -p "$SRC"
   git -C "$SRC" init -q
-  git -C "$SRC" fetch -q --depth 1 "$URL" "$REV"
-  git -C "$SRC" checkout -q --detach FETCH_HEAD
+  git -C "$SRC" fetch -q --depth 1 "$URL" "refs/tags/$REF:refs/tags/$REF"
+  git -C "$SRC" checkout -q --detach "$REF"
 fi
-[ "$(git -C "$SRC" rev-parse HEAD)" = "$REV" ] || { echo "error: checkout is not $REV" >&2; exit 1; }
 
 WANT_ZIG=$(cat "$SRC/.zig-version")
 HAVE_ZIG=$(zig version)
 if [ "$WANT_ZIG" != "$HAVE_ZIG" ]; then
-  echo "error: OpenTUI $REV needs zig $WANT_ZIG, found $HAVE_ZIG" >&2
+  echo "error: OpenTUI $VERSION needs zig $WANT_ZIG, found $HAVE_ZIG" >&2
   exit 1
 fi
 
@@ -58,6 +59,6 @@ zig build -Doptimize=ReleaseFast "-Dlibrary-target=$ZIG_TARGET"
 rm -rf "$LIB_DIR"
 mkdir -p "$LIB_DIR"
 cp "lib/$PLATFORM"/* "$LIB_DIR/"
-echo "$REV" > "$LIB_DIR/.rev"
-echo "built native library for $REV: $LIB_DIR" >&2
+echo "$VERSION" > "$LIB_DIR/.rev"
+echo "built native library for $VERSION: $LIB_DIR" >&2
 echo "$LIB_DIR"

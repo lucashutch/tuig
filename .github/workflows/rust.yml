@@ -12,9 +12,9 @@ permissions:
 
 env:
   CARGO_TERM_COLOR: always
-  # Keep equal to .zig-version of the OpenTUI rev pinned in rust/Cargo.toml. build-opentui-native.sh stops on a mismatch.
+  # Keep equal to .zig-version of the OpenTUI version pinned in rust/Cargo.toml. build-opentui-native.sh stops on a mismatch.
   # Change it here and in release.yml.
-  ZIG_VERSION: 0.17.0
+  ZIG_VERSION: 0.17.1
   CARGO_ZIGBUILD_VERSION: 0.24.1
 
 jobs:
@@ -35,14 +35,14 @@ jobs:
       - uses: taiki-e/install-action@v2
         with:
           tool: cargo-zigbuild@${{ env.CARGO_ZIGBUILD_VERSION }}
-      - name: Read the pinned OpenTUI rev
+      - name: Read the pinned OpenTUI version
         id: opentui
-        run: echo "rev=$(sed -n 's|^opentui = {.*rev = "\([0-9a-f]\{40\}\)".*|\1|p' Cargo.toml)" >> "$GITHUB_OUTPUT"
+        run: echo "version=$(sed -n 's|^opentui = {.*version = "=\([0-9][0-9.]*\)".*|\1|p' Cargo.toml)" >> "$GITHUB_OUTPUT"
       - name: Cache the OpenTUI native library
         uses: actions/cache@v5
         with:
           path: rust/.opentui-native
-          key: opentui-native-x86_64-linux-${{ steps.opentui.outputs.rev }}-${{ hashFiles('rust/scripts/build-opentui-native.sh') }}
+          key: opentui-native-x86_64-linux-${{ steps.opentui.outputs.version }}-${{ hashFiles('rust/scripts/build-opentui-native.sh') }}
       - run: sh scripts/build-opentui-native.sh
       - uses: Swatinem/rust-cache@v2
         with:
