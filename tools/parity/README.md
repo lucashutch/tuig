@@ -122,6 +122,15 @@ Waits use screen quiet time, not sleeps. A wait ends when no cell has changed fo
 
 The first 26 scenarios take about 1.5 minutes to record and about the same to compare. All 49 take about 8 minutes, because `auto-fetch` waits 63 s for the first automatic fetch.
 
+## Hunk separators (deliberate Rust-only difference)
+
+The Rust app shows one blank row between consecutive hunks of a diff. The TS app does not, and the TS goldens are not re-recorded. A Rust diff screen with two or more hunks therefore differs from its golden. The blank row is not a diff line: it has no line number, no sign, and no target for clicks.
+
+Snapshots that differ for this reason, all in the diff pane of the `demo` fixture's `src/server.py` (3 hunks, 2 gaps): `changed-files/server-diff`, `diff-click/*` (2), `diff-menu/*` (3), `line-selection/*` (3), `line-staging/*` (3). The single-hunk diffs of `diff-scroll` and `syntax-highlight` are unchanged.
+
+- `TUIG_DIFF_HUNK_GAP=0` turns the blank row off, so `compare` matches the goldens again. The harness passes no caller environment to the app, so set it in the command: `--app "env TUIG_DIFF_HUNK_GAP=0 ./target/release/tuig --clean {repo}" --cwd rust`.
+- `python3 tools/parity/hunk_gap_check.py [scenario...]` plays each scenario with and without the row. Outside the diff pane the screens must be equal. Inside it, the screen with the row, minus the blank rows, must equal the screen without it, cell by cell and style by style. `line-selection` and `line-staging` click and drag on fixed screen rows below the first gap, so the check moves those gestures down one row in the run with the row.
+
 ## Known gesture to avoid
 
 Do not start a `drag` on a sidebar section header, for example `drag 22 13 50 16` on the demo fixture. The goldens do not use it. Before the fix, the header was selectable text. A press on selectable text starts a text selection, and OpenTUI then sends every drag event to the cell under the pointer (`processSingleMouseEvent` in `@opentui/core`) instead of the pressed widget. The drag crossed the sidebar divider (the `makeDivider` drag handler, `src/ui/runtime-widgets.ts:316`, which calls `resizeLeft`). Each resize moves the divider by one cell, and the pointer can pass it before the next frame updates the hit grid, so the sidebar width stopped at 31 to 46 columns depending on timing. The header (`sidebar-<section>-header`, `src/ui/runtime-widgets.ts:377-391`) and the changed-file labels are now `selectable: false`, and `tests/ui/runtime-widgets.test.ts` covers it. The gesture is deterministic now, but scenarios still avoid it.

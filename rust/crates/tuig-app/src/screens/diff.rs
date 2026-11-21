@@ -100,6 +100,12 @@ pub fn diff_widget(app: &App, theme: &Theme, inbox: &Rc<Inbox>) -> Custom<DiffPa
     Custom::new(app, pane).absolute().visible(false)
 }
 
+/// Hunks are shown with one blank row between them. `TUIG_DIFF_HUNK_GAP=0` turns that off, so the parity harness can
+/// compare the diff pane with the TS goldens. Not for users: the gap is a deliberate difference from the TS app.
+fn hunk_gap_enabled() -> bool {
+    std::env::var_os("TUIG_DIFF_HUNK_GAP").is_none_or(|value| value != "0")
+}
+
 fn request_for(file: &SelectedFile, context: u32, max_bytes: Option<usize>) -> DiffRequest {
     let (staged, commit) = match &file.source {
         FileSource::WorkingUnstaged => (false, None),
@@ -179,6 +185,7 @@ impl Shell {
         );
         let repo = self.repo.clone();
         let path = file.path;
+        let hunk_gap = hunk_gap_enabled();
         self.spawn(
             app,
             |tasks| &mut tasks.diff,
@@ -194,7 +201,7 @@ impl Shell {
                 }
                 let filetype =
                     filetype_for_path(&path).filter(|_| !allow_large && can_highlight_diff(&patch));
-                Ok(DiffDocument::new(patch, filetype))
+                Ok(DiffDocument::with_hunk_gap(patch, filetype, hunk_gap))
             },
             Msg::Diff,
         );

@@ -17,6 +17,11 @@
 //! - No word-level highlight inside changed lines. The TS app on OpenTUI 0.8.4 shows none either.
 //! - Long lines are cut at the pane edge. There is no horizontal scroll.
 //! - Text selection copies tabs as two spaces.
+//!
+//! Deliberate difference from the TypeScript app: one blank separator row sits between consecutive hunks of a file,
+//! so the end of one hunk and the start of the next are easy to see. The separator is a display row only. It has no
+//! [`DiffLineTarget`], no line number and no syntax text, and the raw patch rows that line staging and the hunk
+//! lookup use do not change.
 
 use opentui::prelude::*;
 use opentui::syntax::{Capture, SyntaxTheme, highlights, spans};
@@ -58,14 +63,18 @@ pub struct DiffRow {
     pub target: Option<DiffLineTarget>,
     /// The line number in the gutter: the old file's on the left of a split view.
     pub number: Option<u64>,
+    /// The blank row between two hunks. It has no target, so it selects nothing, and it holds no text.
+    pub separator: bool,
 }
 
 /// The rows of one column and the text shown in them, one line per row.
 #[derive(Debug, Clone, Default)]
 pub struct DiffColumn {
     pub rows: Vec<DiffRow>,
-    /// Row contents joined with `\n`, the text that is highlighted as one document.
+    /// Contents of the rows that are not separators, joined with `\n`. This is the text that is highlighted as one
+    /// document, so a separator never changes how the code around it parses.
     text: String,
+    text_rows: usize,
     captures: Vec<Capture>,
 }
 
@@ -81,11 +90,24 @@ impl DiffColumn {
         number: Option<u64>,
         content: &str,
     ) {
-        if !self.rows.is_empty() {
+        if self.text_rows > 0 {
             self.text.push('\n');
         }
+        self.text_rows += 1;
         self.text.push_str(content);
-        self.rows.push(DiffRow { target, number });
+        self.rows.push(DiffRow {
+            target,
+            number,
+            separator: false,
+        });
+    }
+
+    fn push_separator(&mut self) {
+        self.rows.push(DiffRow {
+            target: None,
+            number: None,
+            separator: true,
+        });
     }
 
     fn digits(&self) -> usize {
@@ -122,6 +144,12 @@ impl DiffDocument {
     /// Parses every hunk body of `patch`, as `diffLineTarget` counts rows: header rows and `\ No newline` markers
     /// have no row, and a `diff --git` line ends the hunk before it. With a `filetype`, highlights each column.
     pub fn new(patch: String, filetype: Option<&str>) -> Self {
+        Self::with_hunk_gap(patch, filetype, true)
+    }
+
+    /// Like [`DiffDocument::new`]. `hunk_gap` false leaves out the separator rows, which shows the diff as the TS
+    /// app does. The parity harness uses it to compare against the TS goldens.
+    pub fn with_hunk_gap(patch: String, filetype: Option<&str>, hunk_gap: bool) -> Self {
         let mut document = Self {
             filetype: filetype.map(str::to_owned),
             ..Self::default()
@@ -129,6 +157,10 @@ impl DiffDocument {
         let lines: Vec<&str> = patch.split('\n').collect();
         let last = lines.len().saturating_sub(1);
         let (mut old, mut new, mut in_hunk) = (0u64, 0u64, false);
+        // Diff lines so far, which numbers `rendered_row`. Separator rows are not diff lines.
+        let mut diff_rows = 0usize;
+        // The file has shown a row, so the next hunk needs a separator before its first row.
+        let (mut file_has_rows, mut gap_pending) = (false, false);
         // Changed rows wait here until the run ends, so the split view can pair removals with additions.
         let mut removed: Vec<(DiffLineTarget, &str)> = Vec::new();
         let mut added: Vec<(DiffLineTarget, &str)> = Vec::new();
@@ -155,17 +187,28 @@ impl DiffDocument {
             if let Some((old_start, new_start)) = hunk_starts(text) {
                 flush(&mut document, &mut removed, &mut added);
                 (old, new, in_hunk) = (old_start, new_start, true);
+                gap_pending = hunk_gap && file_has_rows;
                 continue;
             }
             if text.starts_with("diff --git ") {
                 flush(&mut document, &mut removed, &mut added);
                 in_hunk = false;
+                (file_has_rows, gap_pending) = (false, false);
                 continue;
             }
             if !in_hunk || text.starts_with('\\') || (raw_row == last && text.is_empty()) {
                 continue;
             }
-            let rendered_row = document.unified.rows.len();
+            // The pending runs were flushed at the hunk header, so the separator comes before this hunk's rows in
+            // all three columns.
+            if std::mem::take(&mut gap_pending) {
+                document.unified.push_separator();
+                document.old.push_separator();
+                document.new.push_separator();
+            }
+            file_has_rows = true;
+            let rendered_row = diff_rows;
+            diff_rows += 1;
             let (kind, side, line, old_line, content) = match text.as_bytes().first() {
                 Some(b'-') => (
                     DiffLineKind::Removed,
@@ -236,6 +279,14 @@ impl DiffDocument {
     /// `renderedDiffLineTarget` and `splitDiffLineTarget`.
     pub fn target_at(&self, view: DiffView, side: DiffSide, row: usize) -> Option<DiffLineTarget> {
         self.column(view, side).rows.get(row)?.target
+    }
+
+    /// Whether a display row is the blank row between two hunks. Both sides of a split view agree.
+    pub fn is_separator(&self, view: DiffView, side: DiffSide, row: usize) -> bool {
+        self.column(view, side)
+            .rows
+            .get(row)
+            .is_some_and(|row| row.separator)
     }
 
     /// Changed raw patch rows between two raw rows, inclusive. Ports `changedDiffRowsInRange`.
@@ -463,9 +514,16 @@ struct Run {
 fn styled_rows(column: &DiffColumn, syntax: &SyntaxTheme) -> Vec<Vec<Run>> {
     let default = syntax.get("default").unwrap_or_default();
     let mut rows: Vec<Vec<Run>> = vec![Vec::new(); column.rows.len()];
-    let mut row = 0;
-    let push = |rows: &mut Vec<Vec<Run>>, row: usize, text: &str, style: Style| {
-        if text.is_empty() || row >= rows.len() {
+    // The highlighted text has no separator rows, so its line `n` is the `n`th row that is not a separator.
+    let text_rows: Vec<usize> = (0..column.rows.len())
+        .filter(|&row| !column.rows[row].separator)
+        .collect();
+    let mut line = 0;
+    let push = |rows: &mut Vec<Vec<Run>>, line: usize, text: &str, style: Style| {
+        let Some(&row) = text_rows.get(line) else {
+            return;
+        };
+        if text.is_empty() {
             return;
         }
         rows[row].push(Run {
@@ -481,11 +539,11 @@ fn styled_rows(column: &DiffColumn, syntax: &SyntaxTheme) -> Vec<Vec<Run>> {
     for piece in pieces {
         let mut parts = piece.content.split('\n');
         if let Some(first) = parts.next() {
-            push(&mut rows, row, first, piece.style);
+            push(&mut rows, line, first, piece.style);
         }
         for part in parts {
-            row += 1;
-            push(&mut rows, row, part, piece.style);
+            line += 1;
+            push(&mut rows, line, part, piece.style);
         }
     }
     rows
@@ -722,7 +780,16 @@ impl DiffPane {
     /// The selected code text, rows joined with `\n`.
     pub fn selected_text(&self) -> Option<String> {
         let selection = self.selection?;
-        let ((start, _), (end, _)) = selection.ordered();
+        let ((mut start, _), (mut end, _)) = selection.ordered();
+        // A selection that starts or ends on the gap between hunks copies no blank line at that end.
+        let document = self.document.as_ref()?;
+        let separator = |row| document.is_separator(self.view, selection.side, row);
+        while start < end && separator(start) {
+            start += 1;
+        }
+        while end > start && separator(end) {
+            end -= 1;
+        }
         let mut lines = Vec::new();
         for row in start..=end {
             let text = self.row_text(selection.side, row);
@@ -803,7 +870,7 @@ impl DiffPane {
                 break;
             };
             let Some(target) = entry.target else {
-                // A filler row of the split view.
+                // A filler row of the split view, or the separator between hunks. Both are plain background.
                 let fill = " ".repeat(pane.width.max(0) as usize);
                 painter.text(pane.left, y, &fill, blank.bg(palette.bg));
                 continue;
@@ -937,7 +1004,11 @@ impl Component for DiffPane {
                     && !ctrl
                     && !alt
                     && let Some(point) = self.code_point(pane, local)
-                    && self.row_at(local.1).is_some()
+                    && let Some(row) = self.row_at(local.1)
+                    && !self
+                        .document
+                        .as_ref()
+                        .is_some_and(|document| document.is_separator(self.view, pane.side, row))
                 {
                     let now = cx.app().now();
                     let clicks = match self.last_press {

@@ -50,6 +50,24 @@ fn edited_repository() -> TempRepo {
     TempRepo(dir)
 }
 
+/// `c.txt` has 40 lines. The work tree changes line 2 and line 35, so the unstaged diff has two hunks.
+fn two_hunk_repository() -> TempRepo {
+    let repo = edited_repository();
+    let lines = |edit: bool| {
+        (1..=40)
+            .map(|n| match (edit, n) {
+                (true, 2 | 35) => format!("LINE {n}\n"),
+                _ => format!("line {n}\n"),
+            })
+            .collect::<String>()
+    };
+    std::fs::write(repo.0.join("c.txt"), lines(false)).unwrap();
+    git(&repo.0, &["add", "c.txt"]);
+    git(&repo.0, &["commit", "-q", "-m", "add c"]);
+    std::fs::write(repo.0.join("c.txt"), lines(true)).unwrap();
+    repo
+}
+
 struct Harness {
     app: TestApp,
     shell: Rc<RefCell<Shell>>,
@@ -58,7 +76,10 @@ struct Harness {
 
 impl Harness {
     fn new() -> Self {
-        let repo = edited_repository();
+        Self::with_repo(edited_repository())
+    }
+
+    fn with_repo(repo: TempRepo) -> Self {
         let app = TestApp::new(160, 48);
         let service = app
             .app()
@@ -384,4 +405,117 @@ fn moving_the_history_selection_onto_the_working_row_closes_the_commit_view_in_b
         crate::screens::files::Contents::Working
     );
     assert!(shell.details_commit().is_none());
+}
+
+/// Display row of the unified row that shows `line` of the patch. A separator row counts as a display row.
+fn display_row(document: &DiffDocument, line: &str) -> usize {
+    let raw = document
+        .patch
+        .split('\n')
+        .position(|own| own == line)
+        .unwrap();
+    document
+        .unified
+        .rows
+        .iter()
+        .position(|row| row.target.is_some_and(|target| target.raw_row == raw))
+        .unwrap()
+}
+
+impl Harness {
+    /// A left click on a display row of the unified pane, through the widget.
+    fn click_display_row(&self, row: usize) {
+        let left = self.shell.borrow().layout.panes.history_content_left;
+        self.app.render();
+        // The pane starts at `PANE_TOP` and has a blank row on top. The gutter is six cells for two-digit numbers.
+        self.app.click((left + 8) as u16, PANE_TOP + 1 + row as u16);
+    }
+}
+
+fn two_hunk_harness() -> (Harness, Rc<DiffDocument>) {
+    let h = Harness::with_repo(two_hunk_repository());
+    h.shell.borrow_mut().diff.side_by_side = false;
+    h.show("c.txt", FileSource::WorkingUnstaged);
+    let document = h.wait_for_document("c.txt");
+    h.wait_idle();
+    (h, document)
+}
+
+#[test]
+fn a_click_after_the_separator_stages_exactly_that_line_of_the_second_hunk() {
+    let (h, document) = two_hunk_harness();
+    let gap = document
+        .unified
+        .rows
+        .iter()
+        .position(|r| r.separator)
+        .unwrap();
+    assert_eq!(gap, display_row(&document, "+LINE 35") - 7 - 1);
+    h.click_display_row(display_row(&document, "+LINE 35"));
+    assert_eq!(
+        h.shell.borrow().diff.selected_rows,
+        HashSet::from([document
+            .patch
+            .split('\n')
+            .position(|l| l == "+LINE 35")
+            .unwrap()]),
+        "the click maps past the separator row to the right patch row"
+    );
+    h.update(Msg::Key(KeyEvent::from(opentui::input::KeyCode::Enter)));
+    h.wait_for_mutation();
+    // Only the added line is staged: the new line 35 sits next to the old one, and line 2 is untouched.
+    let index = git(&h.repo.0, &["show", ":c.txt"]);
+    assert!(index.contains("line 2\n") && !index.contains("LINE 2\n"));
+    assert_eq!(index.matches("LINE 35\n").count(), 1);
+    assert!(index.contains("line 35\n"), "the old line stays: {index}");
+    assert_eq!(index.lines().count(), 41);
+}
+
+#[test]
+fn a_click_on_the_separator_selects_nothing() {
+    let (h, document) = two_hunk_harness();
+    let gap = document
+        .unified
+        .rows
+        .iter()
+        .position(|r| r.separator)
+        .unwrap();
+    h.click_display_row(display_row(&document, "+LINE 2"));
+    assert_eq!(h.shell.borrow().diff.selected_rows.len(), 1);
+    h.click_display_row(gap);
+    assert_eq!(
+        h.shell.borrow().diff.selected_rows.len(),
+        1,
+        "a click on the gap neither adds to nor clears the selection"
+    );
+}
+
+#[test]
+fn the_hunk_lookup_is_right_for_rows_on_both_sides_of_a_separator() {
+    let (h, document) = two_hunk_harness();
+    let gap = document
+        .unified
+        .rows
+        .iter()
+        .position(|r| r.separator)
+        .unwrap();
+    let hunk_of = |display_row: usize| {
+        let target = document.unified.rows[display_row].target.unwrap();
+        h.shell.borrow().hunk_patch_at(target.raw_row).unwrap()
+    };
+    let (before, after) = (hunk_of(gap - 1), hunk_of(gap + 1));
+    assert!(before.contains("+LINE 2\n") && !before.contains("LINE 35"));
+    assert!(after.contains("+LINE 35\n") && !after.contains("LINE 2\n"));
+    assert_eq!(hunk_of(document.unified.rows.len() - 1), after);
+    // Staging the hunk found for a row after the separator changes line 35 and leaves line 2.
+    h.shell
+        .borrow_mut()
+        .hunk_action(h.app.app(), HunkAction::Stage, after);
+    h.wait_for_mutation();
+    let index = git(&h.repo.0, &["show", ":c.txt"]);
+    assert!(
+        index.contains("\nLINE 35\n") && !index.contains("LINE 2\n"),
+        "{index}"
+    );
+    assert!(index.contains("line 2\n") && !index.contains("line 35\n"));
 }
