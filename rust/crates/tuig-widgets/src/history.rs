@@ -14,7 +14,7 @@
 //!
 //! - The `A ` comparison marker.
 //! - The PR number is not a terminal hyperlink: `Painter` has no hyperlink support.
-//! - Click hits on the SHA and on labels, and the scrollbar drag.
+//! - The scrollbar drag.
 
 use crate::branch_hints::BranchHintIndex;
 use crate::decorations::{RefIndex, summarise_decorations};
