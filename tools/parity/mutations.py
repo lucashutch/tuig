@@ -134,6 +134,38 @@ CASES: dict[str, tuple[str, list[tuple]]] = {
     "fetch-button": ("remote-behind", [("click", *FETCH)]),
     "pull-button": ("remote-behind", [("click", *PULL)]),
     "push-button": ("remote-ahead", [("click", *PUSH)]),
+    # Palette entries. The apps use the same titles.
+    "fetch-palette": ("remote-behind", [("palette", "Fetch remotes")]),
+    "pull-palette": ("remote-behind", [("palette", "Pull current branch")]),
+    "push-palette": ("remote-ahead", [("palette", "Push current branch")]),
+    "stash-palette": ("demo", [("palette", "Stash working changes")]),
+    "stash-pop-palette": ("demo", [("click", *STASH), ("palette", "Pop latest stash")]),
+    "stage-all-palette": ("demo", [("palette", "Stage all changes")]),
+    # The first run arms the discard and asks for a second one.
+    "discard-all-palette": ("demo", [("palette", "Discard all unstaged changes"), ("palette", "Discard all unstaged changes")]),
+    "stage-selected-palette": ("demo", [*OPEN_SERVER, ("palette", "Stage selected file")]),
+    "unstage-selected-palette": ("demo", [*OPEN_UTIL, ("palette", "Unstage selected file")]),
+    # Changed-file context menu. The menu opens at the click, and its first item is one row below.
+    "file-menu-stage": ("demo", [("rclick", 124, 6), ("wait", "Stage server.py"), ("click", 126, 7)]),
+    "file-menu-discard": ("demo", [("rclick", 124, 6), ("wait", "Discard changes in"), ("click", 126, 8), ("wait", "Discard"), ("key", "enter")]),
+    "file-menu-discard-untracked": ("demo", [("rclick", 124, 7), ("wait", "Discard changes in"), ("click", 126, 9), ("wait", "Discard"), ("key", "enter")]),
+    "file-menu-unstage": ("demo", [("rclick", 124, 23), ("wait", "Unstage util.py"), ("click", 126, 24)]),
+    # Sidebar stash menu: Rename, Apply, Pop, Drop. Worktree menu: Open, Lock, Remove, Copy path.
+    # Submodule menu: Open, Update, Update and initialize, Sync URL, Copy path.
+    "stash-apply-menu": ("linked", [("rclick", 8, 32), ("wait", "Apply stash"), ("click", 10, 34)]),
+    "stash-apply-menu-staged": ("linked", [("rclick", 8, 34), ("wait", "Apply stash"), ("click", 10, 36)]),
+    "stash-pop-menu": ("linked", [("rclick", 8, 32), ("wait", "Pop stash"), ("click", 10, 35), ("wait", "Cancel"), ("key", "enter")]),
+    "stash-drop-menu": ("linked", [("rclick", 8, 32), ("wait", "Drop stash"), ("click", 10, 36), ("wait", "Drop"), ("key", "enter")]),
+    "stash-rename-menu": ("linked", [("rclick", 8, 32), ("wait", "Rename stash"), ("click", 10, 33), *name_prompt(" renamed")]),
+    "worktree-lock-menu": ("linked", [("rclick", 8, 43), ("wait", "Lock linked-wt"), ("click", 10, 44)]),
+    "worktree-unlock-menu": ("linked-locked", [("rclick", 8, 43), ("wait", "Unlock linked-wt"), ("click", 10, 44)]),
+    "worktree-remove-menu": ("linked", [("rclick", 8, 43), ("wait", "Remove linked-wt"), ("click", 10, 45), ("wait", "Remove"), ("key", "enter")]),
+    # The submodule is behind the commit the checked-out branch records, so Update moves it.
+    "submodule-update-menu": ("linked-behind", [("rclick", 8, 23), ("wait", "Update vendor"), ("click", 10, 25)]),
+    "submodule-sync-menu": ("linked-sync", [("rclick", 8, 23), ("wait", "Sync URL"), ("click", 10, 27)]),
+    "submodule-update-init-menu": ("linked-uninit", [("rclick", 8, 23), ("wait", "Update and initialize"), ("click", 10, 26)]),
+    # Checkout through the sidebar menu moves the submodule to the commit the branch records.
+    "checkout-submodule-bump": ("linked-bump", [("rclick", 8, 4), ("wait", "Checkout bump"), ("click", 12, 5)]),
 }
 
 # Rust has no binding for these keys (see rust/crates/tuig-app/src/keys.rs). The Rust run uses the
@@ -218,7 +250,70 @@ def build_side(work: Path) -> Path:
     return repo
 
 
+def build_linked(work: Path) -> Path:
+    """Demo history, clean tree, a remote, two stashes, a second worktree and a submodule (`fixtures.build_linked`)."""
+    return fixtures.build("linked", work)
+
+
+def build_linked_sync(work: Path) -> Path:
+    """`linked`, with a committed `.gitmodules` URL that differs from the URL in `.git/config`."""
+    repo = build_linked(work)
+    r = fixtures.Repo(repo)
+    r.git("config", "-f", ".gitmodules", "submodule.vendor/libsub.url", "../libsub-moved")
+    r.git("add", ".gitmodules")
+    r.git("commit", "-q", "-m", "chore: move the submodule", date=True)
+    return repo
+
+
+def build_linked_uninit(work: Path) -> Path:
+    """`linked`, with the submodule listed but not initialized."""
+    repo = build_linked(work)
+    fixtures.Repo(repo).git("submodule", "deinit", "-f", "vendor/libsub")
+    return repo
+
+
+def build_linked_bump(work: Path) -> Path:
+    """`linked`, plus branch `bump` whose commit moves the submodule to a newer commit. main is checked out
+    and the submodule is at the older commit."""
+    repo = build_linked(work)
+    r = fixtures.Repo(repo)
+    lib = fixtures.Repo(work / "libsub")
+    lib.write("lib.txt", "lib, newer\n")
+    lib.commit("feat: newer library")
+    newer = lib.git("rev-parse", "HEAD").strip()
+    older = r.git("rev-parse", "HEAD:vendor/libsub").strip()
+    r.git("switch", "-q", "-c", "bump")
+    sub = fixtures.Repo(repo / "vendor" / "libsub")
+    sub.git("fetch", "-q", "origin")
+    sub.git("checkout", "-q", newer)
+    r.git("add", "vendor/libsub")
+    r.git("commit", "-q", "-m", "chore: bump the library", date=True)
+    r.git("switch", "-q", "main")
+    sub.git("checkout", "-q", older)
+    return repo
+
+
+def build_linked_locked(work: Path) -> Path:
+    """`linked`, with the second worktree locked."""
+    repo = build_linked(work)
+    fixtures.Repo(repo).git("worktree", "lock", str(work / "linked-wt"))
+    return repo
+
+
+def build_linked_behind(work: Path) -> Path:
+    """`linked-bump` with `bump` checked out and the submodule left at the older commit."""
+    repo = build_linked_bump(work)
+    fixtures.Repo(repo).git("switch", "-q", "bump")
+    return repo
+
+
 FIXTURE_BUILDERS = {
+    "linked-locked": build_linked_locked,
+    "linked-behind": build_linked_behind,
+    "linked": build_linked,
+    "linked-sync": build_linked_sync,
+    "linked-uninit": build_linked_uninit,
+    "linked-bump": build_linked_bump,
     "demo": build_demo,
     "clean": build_clean,
     "clean-staged": build_clean_staged,
@@ -293,6 +388,8 @@ def repo_state(path: Path) -> list[str]:
         "worktree": worktree_state(path),
         "config": sorted(git(path, "config", "--local", "--list").splitlines()),
         "in-progress": [n for n in in_progress if (path / ".git" / n).exists()],
+        "worktrees": [line for line in git(path, "worktree", "list", "--porcelain").splitlines() if not line.startswith("HEAD ")],
+        "submodules": git(path, "submodule", "status").replace(" ", "\n").splitlines() if (path / ".gitmodules").exists() else [],
     }  # fmt: skip
     return [line for key, rows in sections.items() for line in (f"[{key}]", *rows)]
 
@@ -375,7 +472,7 @@ def run_case(fixture: str, steps: list[tuple], app: str, template: str, native_k
         before = full_state(repo, work)
         session = Session(app_argv(template, repo), COLS, ROWS, ROOT)
         try:
-            session.wait_text("initial commit", TIMEOUT)
+            session.wait_text("initial com", TIMEOUT)
             session.wait_quiet(500, TIMEOUT)
             for n, step in enumerate(steps, 1):
                 try:
