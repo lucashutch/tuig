@@ -1,7 +1,11 @@
+import fcntl
 import re
 import shutil
+import struct
+import subprocess
 import sys
 import tempfile
+import termios
 import unittest
 from pathlib import Path
 
@@ -189,6 +193,121 @@ class SnapshotTest(unittest.TestCase):
         snap = snapshot.capture(s, masks)
         self.assertEqual("".join(c.char for c in snap.cells[4][9:14]), snapshot.MASK_CHAR * 5)
         self.assertEqual("".join(c.char for c in snap.cells[0][:3]), snapshot.MASK_CHAR * 3)
+
+
+class NewDirectiveTest(unittest.TestCase):
+    """Directives that act outside the screen: git, clipboard, resize, seeds, stubs and start options."""
+
+    def steps(self, steps, repo=None, extras=None, cols=60, rows=10):
+        from parity import scenario
+
+        sc = scenario.Scenario(name="t", quiet_ms=100, timeout=5)
+        sc.steps = [scenario.Step(op, args, n) for n, (op, args) in enumerate(steps, 1)]
+        s = Session(FAKE_APP, cols, rows, HERE)
+        self.addCleanup(s.close)
+        s.wait_text("hello", 5)
+        return s, scenario._steps(sc, s, extras, repo)
+
+    def test_git_step_commits_in_the_main_fixture_and_in_an_extra_one(self):
+        d = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, d, ignore_errors=True)
+        main = fixtures.Repo(fixtures.build("demo", d))
+        second = fixtures.Repo(fixtures.build("second", d))
+        self.steps(
+            [("git", ["commit", "-q", "--allow-empty", "-m", "outside"]), ("git", ["@second", "commit", "-q", "--allow-empty", "-m", "other"])],
+            repo=main.path,
+            extras={"second": str(second.path)},
+        )
+        self.assertEqual(main.git("log", "-1", "--format=%s").strip(), "outside")
+        self.assertEqual(second.git("log", "-1", "--format=%s").strip(), "other")
+
+    def test_expect_clipboard_reads_the_last_osc52_text_and_fails_on_a_mismatch(self):
+        from parity import scenario
+
+        s = Session(FAKE_APP, 60, 10, HERE)
+        self.addCleanup(s.close)
+        s.wait_text("hello", 5)
+        s.raw += b"\x1b]52;c;b25l\x07" + b"\x1b]52;c;dHdvCmxpbmU=\x1b\\"  # "one", then "two\nline" with ST
+        ok = scenario.Scenario(name="t", quiet_ms=100, timeout=5, steps=[scenario.Step("expect-clipboard", ["two\\nline"], 1)])
+        scenario._steps(ok, s)
+        bad = scenario.Scenario(name="t", quiet_ms=100, timeout=5, steps=[scenario.Step("expect-clipboard", ["one"], 1)])
+        with self.assertRaises(RuntimeError):
+            scenario._steps(bad, s)
+
+    def test_resize_changes_the_pty_size_and_the_emulator(self):
+        s, snaps = self.steps([("resize", ["80", "12"]), ("snapshot", ["big"])])
+        rows, cols, _, _ = struct.unpack("HHHH", fcntl.ioctl(s.fd, termios.TIOCGWINSZ, b"\0" * 8))
+        self.assertEqual((cols, rows), (80, 12))
+        self.assertEqual((snaps["big"].cols, snaps["big"].rows), (80, 12))
+
+    def test_wheel_left_and_right_send_buttons_66_and_67_with_shift(self):
+        _, snaps = self.steps(
+            [("wheel", ["right", "4", "2", "1", "shift"]), ("snapshot", ["r"]), ("wheel", ["left", "4", "2"]), ("snapshot", ["l"])]
+        )
+        self.assertIn(r"\x1b[<71;5;3M", "".join(c.char for c in snaps["r"].cells[0]))  # 67 plus shift 4
+        self.assertIn(r"\x1b[<66;5;3M", "".join(c.char for c in snaps["l"].cells[0]))
+
+    def test_seeds_and_stubs_are_in_place_before_the_app_starts(self):
+        s = Session(FAKE_APP, 40, 10, HERE, stubs=("ssh-denied",), seeds={"config/tuig/layout.json": "home={home}"})
+        self.addCleanup(s.close)
+        self.assertEqual((s.home / "config/tuig/layout.json").read_text(), f"home={s.home}")
+        ssh = s.home / "bin" / "ssh"
+        env = {"HOME": str(s.home)}
+        with_batch = subprocess.run([str(ssh), "-o", "BatchMode=yes", "host"], env=env, capture_output=True, text=True)
+        without = subprocess.run([str(ssh), "host"], env=env, capture_output=True, text=True)
+        self.assertIn("Permission denied (publickey)", with_batch.stderr)
+        self.assertIn("BatchMode=yes was not set", without.stderr)  # a prompt could hang the app
+
+    def test_scenario_files_accept_the_new_start_options_and_reject_unknown_stubs(self):
+        from parity import scenario
+
+        d = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, d, ignore_errors=True)
+        (d / "ok.scn").write_text("restore\nnopath\nstub xdg-open-log\nseed config/a.json '{\"k\": 1}'\n")
+        sc = scenario.parse(d / "ok.scn")
+        self.assertEqual((sc.restore, sc.nopath, sc.stubs, sc.seeds), (True, True, ["xdg-open-log"], {"config/a.json": '{"k": 1}'}))
+        (d / "bad.scn").write_text("stub no-such-stub\n")
+        with self.assertRaises(ValueError):
+            scenario.parse(d / "bad.scn")
+
+    def test_app_argv_drops_clean_and_the_path_on_request(self):
+        from parity.scenario import app_argv
+
+        template = "tuig --clean {repo}"
+        self.assertEqual(app_argv(template, Path("/r")), ["tuig", "--clean", "/r"])
+        self.assertEqual(app_argv(template, Path("/r"), restore=True), ["tuig", "/r"])
+        self.assertEqual(app_argv(template, Path("/r"), restore=True, nopath=True), ["tuig"])
+        self.assertEqual(app_argv("tuig --clean", Path("/r"), nopath=True), ["tuig", "--clean"])
+
+
+class NewFixtureTest(unittest.TestCase):
+    """The goldens of the new scenarios hold SHAs, so each new fixture must build the same history every time."""
+
+    def log(self, name):
+        d = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, d, ignore_errors=True)
+        repo = fixtures.Repo(fixtures.build(name, d))
+        return repo, repo.git("log", "--all", "--format=%H %P %s"), repo.git("stash", "list")
+
+    def test_linked_lanes_and_behind_are_deterministic(self):
+        for name in ("linked", "lanes", "behind"):
+            a, b = self.log(name), self.log(name)
+            self.assertEqual(a[1:], b[1:], name)
+
+    def test_linked_has_a_remote_two_stashes_a_worktree_and_a_submodule_on_a_clean_tree(self):
+        repo, _, stashes = self.log("linked")
+        self.assertEqual(len(stashes.splitlines()), 2)
+        self.assertEqual(repo.git("status", "--porcelain").strip(), "")
+        self.assertIn("linked-wt", repo.git("worktree", "list"))
+        self.assertIn("vendor/libsub", repo.git("submodule", "status"))
+        self.assertIn("origin/feature/login", repo.git("branch", "-r"))
+
+    def test_bigdiff_crosses_the_display_limits_and_small_has_fewer_line_numbers_than_rows(self):
+        repo, _, _ = self.log("bigdiff")
+        self.assertGreater(len(repo.git("diff", "--", "data/huge.py")), 5 * 1024 * 1024)
+        self.assertGreater(repo.git("diff", "--", "data/lines.py").count("\n"), 20000)
+        small = repo.git("diff", "--", "data/small.py").splitlines()
+        self.assertEqual(sum(1 for line in small if line[:1] in "+-" and line[:3] not in ("+++", "---")), 120)
 
 
 if __name__ == "__main__":

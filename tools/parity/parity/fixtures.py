@@ -227,7 +227,127 @@ def build_second(dest: Path) -> Path:
     return dest
 
 
-FIXTURES = {"demo": build_demo, "history": build_long, "second": build_second}
+def _clean(dest: Path) -> Repo:
+    """The demo history with no working changes."""
+    repo = Repo(build_demo(dest))
+    repo.git("reset", "-q", "--hard")
+    repo.git("clean", "-fdq")
+    return repo
+
+
+def _bare_origin(repo: Repo, *branches: str) -> Path:
+    bare = repo.path.parent / "origin.git"
+    repo.git("init", "-q", "--bare", "-b", "main", str(bare))
+    repo.git("remote", "add", "origin", str(bare))
+    repo.git("push", "-q", "origin", *branches, "--tags")
+    repo.git("fetch", "-q", "origin")
+    return bare
+
+
+def build_linked(dest: Path) -> Path:
+    """Demo history, clean tree, with one of everything the sidebar lists: a remote with branches,
+    two stashes, a second worktree and a submodule."""
+    repo = Repo(dest)
+    build_demo(dest)
+    repo.git("stash", "push", "-q", "-u", "-m", "wip: sidebar spike", date=True)
+    repo.write("scratch.txt", "scratch\n")
+    repo.git("stash", "push", "-q", "-u", "-m", "wip: scratch", date=True)
+    _bare_origin(repo, "main", "feature/login", "fix/typo")
+    repo.git("worktree", "add", "-q", str(dest.parent / "linked-wt"), "feature/login")
+    lib = Repo(dest.parent / "libsub")
+    lib.path.mkdir()
+    lib.git("init", "-q", "-b", "main")
+    lib.write("lib.txt", "lib\n")
+    lib.commit("chore: library start")
+    repo.git("config", "protocol.file.allow", "always")
+    repo.git("-c", "protocol.file.allow=always", "submodule", "add", "-q", "../libsub", "vendor/libsub")
+    repo.git("commit", "-q", "-m", "chore: add libsub submodule", date=True)
+    return dest
+
+
+def build_behind(dest: Path) -> Path:
+    """Clean demo whose origin has one commit that the repository has not fetched."""
+    repo = _clean(dest)
+    bare = _bare_origin(repo, "main")
+    repo.git("branch", "-u", "origin/main", "main")
+    repo.git("clone", "-q", str(bare), str(dest.parent / "other"))
+    other = Repo(dest.parent / "other")
+    other.write("remote.txt", "remote\n")
+    other.commit("feat: remote commit from another clone", "remote.txt")
+    other.git("push", "-q", "origin", "main")
+    return dest
+
+
+def build_slow_remote(dest: Path) -> Path:
+    """Demo history with one untracked file, whose origin takes 30 s to answer a fetch, so Esc and busy
+    states can be tested."""
+    repo = _clean(dest)
+    _bare_origin(repo, "main")
+    repo.git("branch", "-u", "origin/main", "main")
+    script = dest.parent / "slow-upload-pack"
+    script.write_text('#!/bin/sh\nexec sleep 30\n')
+    script.chmod(0o755)
+    repo.git("config", "remote.origin.uploadpack", str(script))
+    repo.write("scratch.txt", "scratch\n")  # something for Stash to take, so a refused Stash shows
+    return dest
+
+
+def build_ssh_remote(dest: Path) -> Path:
+    """Clean demo whose origin is an ssh URL. Use it with the `ssh-denied` stub: no network is used."""
+    repo = _clean(dest)
+    repo.git("remote", "add", "origin", "ssh://git@example.invalid/team/repo.git")
+    repo.git("config", "branch.main.remote", "origin")
+    repo.git("config", "branch.main.merge", "refs/heads/main")
+    return dest
+
+
+def build_bigdiff(dest: Path) -> Path:
+    """Clean tree except three edits. `data/lines.py` gives a diff of about 24k lines, which is
+    shown without highlight. `data/huge.py` gives one of about 6 MiB, which needs Shift+L. `data/small.py` replaces all of 60
+    lines, so the diff has 120 rows but line numbers up to 60."""
+    repo = Repo(dest)
+    dest.mkdir(parents=True)
+    repo.git("init", "-q", "-b", "main")
+    repo.git("config", "commit.gpgsign", "false")
+    repo.write("README.md", "# Big diff\n")
+    repo.write("data/lines.py", "".join(f"v{i} = {i}\n" for i in range(12000)))
+    pad = "x" * 40
+    repo.write("data/huge.py", "".join(f"value_{i:06d} = '{pad}'\n" for i in range(70000)))
+    repo.write("data/small.py", "".join(f"s{i} = {i}\n" for i in range(60)))
+    repo.commit("chore: add data")
+    repo.write("data/lines.py", "".join(f"v{i} = {i + 1}\n" for i in range(12000)))
+    repo.write("data/huge.py", "".join(f"value_{i:06d} = '{pad.upper()}'\n" for i in range(70000)))
+    repo.write("data/small.py", "".join(f"s{i} = {i + 1}\n" for i in range(60)))  # 60 lines, 120 diff rows
+    return dest
+
+
+def build_lanes(dest: Path) -> Path:
+    """Sixteen branches that stay open at the same time and merge into main, so the graph is wider than
+    its column and can be panned."""
+    repo = Repo(dest)
+    dest.mkdir(parents=True)
+    repo.git("init", "-q", "-b", "main")
+    repo.git("config", "commit.gpgsign", "false")
+    repo.write("README.md", "# Lanes\n")
+    repo.commit("chore: initial commit")
+    names = [f"lane/l{i}" for i in range(1, 17)]
+    for name in names:
+        repo.git("branch", name, "main")
+    for step in range(1, 4):
+        for name in names:
+            repo.git("switch", "-q", name)
+            repo.write(f"{name.split('/')[1]}.txt", f"{name} step {step}\n")
+            repo.commit(f"feat: {name} step {step}")
+    repo.git("switch", "-q", "main")
+    for name in names:
+        repo.merge(name, f"merge: {name}")
+    return dest
+
+
+FIXTURES = {
+    "demo": build_demo, "history": build_long, "second": build_second,
+    "lanes": build_lanes, "linked": build_linked, "behind": build_behind, "slow-remote": build_slow_remote, "ssh-remote": build_ssh_remote, "bigdiff": build_bigdiff,
+}  # fmt: skip
 
 
 def build(name: str, parent: Path) -> Path:

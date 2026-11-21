@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import base64
 import fcntl
 import os
 import re
@@ -29,7 +30,52 @@ GH_STUB = (
     "known GitHub host' >&2\n"
     "exit 1\n"
 )
+GH_PRS_JSON = (
+    '{"data":{"viewer":{"login":"ada"},"repository":{"pullRequests":{"nodes":['
+    '{"number":3,"title":"Tidy the main branch","url":"https://github.com/ada/demo/pull/3","isDraft":false,'
+    '"updatedAt":"2024-04-01T00:00:00Z","author":{"login":"ada"},"headRefName":"main","headRefOid":"{sha:main}",'
+    '"isCrossRepository":false,"commits":{"nodes":[{"commit":{"statusCheckRollup":{"contexts":{'
+    '"checkRunCountsByState":[{"state":"SUCCESS","count":3}],"statusContextCountsByState":[]}}}}]}},'
+    '{"number":12,"title":"Add login flow","url":"https://github.com/ada/demo/pull/12","isDraft":false,'
+    '"updatedAt":"2024-03-30T00:00:00Z","author":{"login":"bob"},"headRefName":"feature/login","headRefOid":"{sha:feature/login}",'
+    '"isCrossRepository":false,"commits":{"nodes":[{"commit":{"statusCheckRollup":{"contexts":{'
+    '"checkRunCountsByState":[{"state":"SUCCESS","count":2},{"state":"FAILURE","count":1}],"statusContextCountsByState":[]}}}}]}},'
+    '{"number":7,"title":"Fix typo in the readme","url":"https://github.com/ada/demo/pull/7","isDraft":true,'
+    '"updatedAt":"2024-03-28T00:00:00Z","author":{"login":"carol"},"headRefName":"fix/typo","headRefOid":"{sha:fix/typo}",'
+    '"isCrossRepository":false,"commits":{"nodes":[]}},'
+    '{"number":20,"title":"Work that was never fetched","url":"https://github.com/ada/demo/pull/20","isDraft":false,'
+    '"updatedAt":"2024-03-01T00:00:00Z","author":{"login":"ada"},"headRefName":"feature/unknown",'
+    '"headRefOid":"ffffffffffffffffffffffffffffffffffffffff","isCrossRepository":true,"commits":{"nodes":[]}}'
+    ']}},"review":{"nodes":[{"number":12}]}}}'
+)
+GH_PRS_STUB = (
+    "#!/bin/sh\n"
+    'case "$1 $2" in\n'
+    '"api graphql") cat <<\'EOF\'\n' + GH_PRS_JSON + "\nEOF\n;;\n"
+    '*) echo "$@" >> "$HOME/gh.log" ;;\n'
+    "esac\n"
+)
 DEAD_PROXY = "http://127.0.0.1:9"  # nothing listens on the discard port
+
+# Optional stubs a scenario can ask for with `stub <name>`. Each is (binary name, script). Scripts
+# log to $HOME so a harness test can read them. They replace nothing unless the scenario names them.
+STUBS = {
+    # An ssh that fails like a server that rejects the key. It reports a missing BatchMode option,
+    # because git must not let ssh prompt for a password under the app.
+    "ssh-denied": (
+        "ssh",
+        "#!/bin/sh\n"
+        'echo "$@" >> "$HOME/ssh.log"\n'
+        'case "$*" in *BatchMode=yes*) echo "git@example.invalid: Permission denied (publickey)." >&2 ;;\n'
+        '*) echo "ssh stub: BatchMode=yes was not set" >&2 ;; esac\n'
+        "exit 255\n",
+    ),
+    # A gh that answers the pull request query with four pull requests, and records any other call.
+    # `{sha:REF}` is replaced with the commit REF points to in the fixture, when the scenario starts.
+    "gh-prs": ("gh", GH_PRS_STUB),
+    # An xdg-open that only records the URL it gets.
+    "xdg-open-log": ("xdg-open", '#!/bin/sh\necho "$@" >> "$HOME/xdg-open.log"\n'),
+}
 
 KEYS = {
     "enter": "\r", "tab": "\t", "esc": "\x1b", "backspace": "\x7f",
@@ -68,7 +114,8 @@ class Cell:
 
 
 class Session:
-    def __init__(self, argv: list[str], cols: int, rows: int, cwd: Path):
+    def __init__(self, argv: list[str], cols: int, rows: int, cwd: Path, stubs: tuple | dict = (), seeds: dict | None = None):
+        """`stubs` are names from STUBS, or a dict from binary name to script text. `seeds` maps a path under HOME to its text, written before the app starts."""
         self.cols, self.rows = cols, rows
         self.home = Path(tempfile.mkdtemp(prefix="parity-home-"))
         for d in ("config", "cache", "data", "state", "bin"):
@@ -76,6 +123,13 @@ class Session:
         gh = self.home / "bin" / "gh"
         gh.write_text(GH_STUB)
         gh.chmod(0o755)
+        for binary, script in (stubs.items() if isinstance(stubs, dict) else (STUBS[name] for name in stubs)):
+            (self.home / "bin" / binary).write_text(script)
+            (self.home / "bin" / binary).chmod(0o755)
+        for rel, text in (seeds or {}).items():
+            target = self.home / rel
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text(text.replace("{home}", str(self.home)))
         path = f"{self.home / 'bin'}:{os.environ.get('PATH', '/usr/bin:/bin')}"
         env = {
             "PATH": path,
@@ -210,6 +264,26 @@ class Session:
             if text in "\n".join(self.screen.display):
                 return
         raise TimeoutError(f"text not on screen within {timeout}s: {text!r}")
+
+    _OSC52 = re.compile(rb"\x1b\]52;[a-z]*;([A-Za-z0-9+/=]*)(?:\x07|\x1b\\)")
+
+    def clipboard(self) -> list[str]:
+        """Text the app copied with OSC 52, oldest first."""
+        out = []
+        for m in self._OSC52.finditer(bytes(self.raw)):
+            try:
+                out.append(base64.b64decode(m.group(1)).decode("utf-8", "replace"))
+            except ValueError:
+                pass
+        return out
+
+    def resize(self, cols: int, rows: int) -> None:
+        """Change the terminal size. The kernel sends SIGWINCH to the app."""
+        self.cols, self.rows = cols, rows
+        fcntl.ioctl(self.fd, termios.TIOCSWINSZ, struct.pack("HHHH", rows, cols, 0, 0))
+        self.screen.resize(rows, cols)
+        self._rows.clear()
+        self.last_send = time.monotonic()
 
     # -- input ------------------------------------------------------------
 
