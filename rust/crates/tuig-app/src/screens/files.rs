@@ -13,6 +13,7 @@ use crate::screens::commands::FileAction;
 use crate::screens::popup::OverlayMsg;
 use crate::selected_file::{FileSource, SelectedFile};
 use crate::shell::{Dirty, GitResult, Inbox, Msg, PANE_TOP, Shell};
+use crate::sync::wire_hover;
 use opentui::prelude::*;
 use opentui::widget::View;
 use std::collections::HashSet;
@@ -38,6 +39,7 @@ use tuig_widgets::files::{
     ActionButton, FileList, FileListData, FileListEvent, FileRow, ListKind, ListStatus, SplitBar,
     SplitEvent,
 };
+use tuig_widgets::pointer::PointerTracker;
 
 /// Wait before a commit's files load after the selection moves. 0 until the parity harness waits for loads
 /// (`rust/docs/app-shell.md`, "Selection debounce").
@@ -386,9 +388,10 @@ pub struct FilesWidgets {
 }
 
 impl FilesWidgets {
-    pub fn new(app: &App, theme: &Theme, inbox: &Rc<Inbox>) -> Self {
+    pub fn new(app: &App, theme: &Theme, inbox: &Rc<Inbox>, pointer: &PointerTracker) -> Self {
         let list = |section: ListKind| {
             let mut list = FileList::new(theme.clone());
+            list.set_pointer_tracker(pointer.clone());
             let inbox = inbox.clone();
             list.on_event(move |cx, event| {
                 let msg = match event {
@@ -406,13 +409,23 @@ impl FilesWidgets {
                 };
                 inbox.post(cx.app(), msg);
             });
-            Custom::new(app, list).absolute()
+            let list = Custom::new(app, list).absolute();
+            wire_hover(&list, |list, entered| {
+                if entered {
+                    list.pointer_entered();
+                } else {
+                    list.pointer_left();
+                }
+            });
+            list
         };
         let button = |label: &str, fg: Rgba, action: ChangesAction| {
             let mut button = ActionButton::new(theme.clone(), label, fg);
             let inbox = inbox.clone();
             button.on_press(move |cx| inbox.post(cx.app(), Msg::ChangesAction(action)));
-            Custom::new(app, button).absolute().height(1)
+            let button = Custom::new(app, button).absolute().height(1);
+            wire_hover(&button, |button, entered| button.set_hovered(entered));
+            button
         };
         let bar = |split: Split| {
             let mut bar = SplitBar::new(theme.clone());
@@ -421,7 +434,9 @@ impl FilesWidgets {
                 let SplitEvent::Drag { y } = event;
                 inbox.post(cx.app(), Msg::SplitDrag { split, y });
             });
-            Custom::new(app, bar).absolute().height(1)
+            let bar = Custom::new(app, bar).absolute().height(1);
+            wire_hover(&bar, |bar, entered| bar.set_hovered(entered));
+            bar
         };
         Self {
             unstaged: list(ListKind::Unstaged),

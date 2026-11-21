@@ -6,10 +6,11 @@
 //! One [`Component`] covers all three rows. The shell pushes a [`HeaderView`] and receives [`HeaderEvent`]s. The
 //! widget keeps only pointer state: the hovered and pressed button, and the tab being dragged.
 //!
-//! Known gap: `Widget::on_hover` reports `false` when the pointer leaves (with `MouseTracking::Motion`), but Rust does
-//! not use `on_hover(false)` yet. A hover highlight stays until the pointer moves over another cell of the header.
+//! The shell wires `Widget::on_hover` to [`HeaderBar::pointer_left`] and [`HeaderBar::pointer_entered`], so a hover
+//! highlight clears when the pointer leaves the header, and returns when a popup closes over a still pointer.
 
 use crate::decorations::display_branch_name;
+use crate::pointer::{PointerTracker, origin_of};
 use opentui::prelude::*;
 use tuig_ui_model::color::Rgba;
 use tuig_ui_model::graph_menu::clip_columns;
@@ -95,9 +96,26 @@ pub struct HeaderBar {
     /// The button under a left press, which runs when the release lands on it.
     pressed: Option<Target>,
     dragging: Option<String>,
+    /// The dragged tab moved since the press.
+    drag_moved: bool,
     /// The width of the last paint, for hit tests.
     width: std::cell::Cell<usize>,
+    pointer: PointerTracker,
+    /// The header's top left cell on the terminal, from the last pointer event.
+    origin: Option<(i32, i32)>,
     on_event: Option<EventHandler>,
+}
+
+/// The TS renderable a target belongs to. A pointer press on another renderable moves the hover there, as the
+/// `over` event does in TS. The tab strip, the toolbar and each toggle are separate renderables.
+fn hover_group(target: Option<&Target>) -> u8 {
+    match target {
+        None => 0,
+        Some(Target::Tab(_) | Target::Open) => 1,
+        Some(Target::Toolbar(_)) => 2,
+        Some(Target::Avatars) => 3,
+        Some(Target::DiffView) => 4,
+    }
 }
 
 /// A run of spaces with a foreground, because the TS cells carry one and the parity check compares it.
@@ -117,8 +135,41 @@ impl HeaderBar {
             hovered: None,
             pressed: None,
             dragging: None,
+            drag_moved: false,
             width: std::cell::Cell::new(0),
+            pointer: PointerTracker::default(),
+            origin: None,
             on_event: None,
+        }
+    }
+
+    /// Shares the pointer position with the other widgets that need it when a popup closes.
+    pub fn set_pointer_tracker(&mut self, pointer: PointerTracker) {
+        self.pointer = pointer;
+    }
+
+    /// The pointer left the header: no button or tab is hovered or pressed.
+    pub fn pointer_left(&mut self) {
+        self.hovered = None;
+        self.pressed = None;
+    }
+
+    /// The pointer is over the header without having moved, for example after a popup closed. Hovers what is under
+    /// the last known position.
+    pub fn pointer_entered(&mut self) {
+        let hovered = self
+            .pointer
+            .local(self.origin)
+            .and_then(|(x, y)| self.target_at(usize::try_from(x).ok()?, usize::try_from(y).ok()?));
+        self.hovered = hovered;
+    }
+
+    /// A press moves the hover to its target when that is another renderable than the hovered one. Within one
+    /// renderable the hover follows motion only, so a press does not move it.
+    fn press_hover(&mut self, x: usize, y: usize) {
+        let target = self.target_at(x, y);
+        if hover_group(target.as_ref()) != hover_group(self.hovered.as_ref()) {
+            self.hovered = target;
         }
     }
 
@@ -446,6 +497,8 @@ impl Component for HeaderBar {
     }
 
     fn mouse(&mut self, cx: &mut Cx<'_>, event: &MouseEvent, local: (i32, i32)) -> bool {
+        self.pointer.record(event);
+        self.origin = Some(origin_of(event, local));
         let x = usize::try_from(local.0).unwrap_or(0);
         let y = usize::try_from(local.1).unwrap_or(0);
         match event.kind {
@@ -459,6 +512,7 @@ impl Component for HeaderBar {
                 true
             }
             MouseEventKind::Down(MouseButton::Middle) => {
+                self.press_hover(x, y);
                 if let Some(Target::Tab(id)) = self.target_at(x, y) {
                     self.emit(cx, HeaderEvent::TabMiddleClose(id));
                 }
@@ -466,6 +520,7 @@ impl Component for HeaderBar {
             }
             MouseEventKind::Down(MouseButton::Left) => {
                 let target = self.target_at(x, y);
+                self.press_hover(x, y);
                 match target.clone() {
                     Some(Target::Open) => self.emit(cx, HeaderEvent::TabOpen),
                     Some(Target::Tab(id)) => {
@@ -480,6 +535,7 @@ impl Component for HeaderBar {
                             self.emit(cx, HeaderEvent::TabClose(id));
                         } else {
                             self.dragging = Some(id.clone());
+                            self.drag_moved = false;
                             self.emit(cx, HeaderEvent::TabSelect(id));
                         }
                     }
@@ -489,13 +545,17 @@ impl Component for HeaderBar {
             }
             MouseEventKind::Drag(MouseButton::Left) => match self.dragging.clone() {
                 Some(id) => {
+                    self.drag_moved = true;
                     self.emit(cx, HeaderEvent::TabDrag { id, x });
                     true
                 }
                 None => false,
             },
             MouseEventKind::Up(button) => {
-                self.dragging = None;
+                // TS repaints the tab strip hover for the pointer's new place when a tab drag ends.
+                if self.dragging.take().is_some() && std::mem::take(&mut self.drag_moved) {
+                    self.hovered = self.target_at(x, y);
+                }
                 if button != MouseButton::Left {
                     return false;
                 }

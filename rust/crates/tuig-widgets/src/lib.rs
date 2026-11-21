@@ -11,6 +11,7 @@ pub mod footer;
 pub mod grammars;
 pub mod header;
 pub mod history;
+pub mod pointer;
 pub mod popup;
 pub mod pull_requests;
 pub mod repository_picker;

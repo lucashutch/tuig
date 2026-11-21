@@ -16,6 +16,7 @@ use tuig_ui_model::theme::Theme;
 use tuig_widgets::diff::DiffPane;
 use tuig_widgets::footer::Footer;
 use tuig_widgets::history::{HistoryEvent, HistoryList};
+use tuig_widgets::pointer::PointerTracker;
 
 fn color(color: Rgba) -> Color {
     Color::rgba(color.r, color.g, color.b, color.a)
@@ -40,13 +41,37 @@ pub struct Widgets {
     pub overlay: OverlayWidgets,
 }
 
+/// Changes the component when the pointer enters or leaves the widget: `change(component, entered)`. OpenTUI sends
+/// the leave only with motion tracking, which `AppOptions::default` turns on.
+///
+/// OpenTUI looks again at what is under a still pointer right after it presents a frame, and sends the enter from
+/// there. The loop has already chosen how long to sleep by then, so the frame that the change asks for would wait for
+/// the next event. A posted no-op wakes the loop.
+pub(crate) fn wire_hover<T: Component + 'static>(
+    widget: &Custom<T>,
+    change: impl Fn(&mut T, bool) + 'static,
+) {
+    let handle = widget.clone();
+    widget.on_hover(move |cx, entered| {
+        handle.update(|component| change(component, entered));
+        let _ = cx.app().proxy().post(|_| {});
+    });
+}
+
 fn placeholder(app: &App, theme: &Theme) -> View {
     View::new(app).absolute().bg(color(theme.bg))
 }
 
 impl Widgets {
     pub fn new(app: &App, theme: &Theme, inbox: &Rc<Inbox>) -> Self {
+        let pointer = PointerTracker::default();
+        {
+            // Pointer events that no widget takes still tell the widgets where the pointer is.
+            let pointer = pointer.clone();
+            app.on_mouse(move |_, event| pointer.record(event));
+        }
         let mut list = HistoryList::new(theme.clone());
+        list.set_pointer_tracker(pointer.clone());
         list.set_focused(true);
         {
             let inbox = inbox.clone();
@@ -79,8 +104,15 @@ impl Widgets {
             });
         }
         let history = Custom::new(app, list).absolute();
+        wire_hover(&history, |list, entered| {
+            if entered {
+                list.pointer_entered();
+            } else {
+                list.pointer_left();
+            }
+        });
         let details = placeholder(app, theme).bg(color(theme.panel));
-        let files = FilesWidgets::new(app, theme, inbox);
+        let files = FilesWidgets::new(app, theme, inbox, &pointer);
         files.attach(&details);
         let composer = ComposerWidgets::new(app, theme, inbox);
         composer.attach(&details);
@@ -90,14 +122,14 @@ impl Widgets {
             backdrop: placeholder(app, theme),
             history,
             diff: crate::screens::diff::diff_widget(app, theme, inbox),
-            header: HeaderWidgets::new(app, theme, inbox),
+            header: HeaderWidgets::new(app, theme, inbox, &pointer),
             sidebar: SidebarWidgets::new(app, theme, inbox),
             details,
             files,
             composer,
             details_view,
             footer: Custom::new(app, Footer::new(theme.clone())).absolute(),
-            overlay: OverlayWidgets::new(app, theme, inbox),
+            overlay: OverlayWidgets::new(app, theme, inbox, &pointer),
         };
         app.root()
             .bg(color(theme.bg))

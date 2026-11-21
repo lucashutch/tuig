@@ -7,10 +7,13 @@
 //! [`FileListEvent`] through [`FileList::on_event`]. Row numbers in events are indexes into the whole flattened
 //! list, so the shell does not need to know the viewport offset.
 //!
-//! Known parity gaps with the TypeScript widgets: a right click does nothing (the file menu is not ported), hover
-//! colors on [`ActionButton`] and [`SplitBar`] are missing, and the split bar accepts a drag on its one row only,
-//! where TS also accepts the row above it.
+//! The shell wires `Widget::on_hover` to each widget, so the hover colors of the buttons, the split bars and the
+//! row highlight clear when the pointer leaves.
+//!
+//! Known parity gap with the TypeScript widgets: the split bar accepts a drag on its one row only, where TS also
+//! accepts the row above it.
 
+use crate::pointer::{PointerTracker, origin_of};
 use opentui::prelude::*;
 use std::cell::Cell;
 use std::rc::Rc;
@@ -23,7 +26,7 @@ use tuig_ui_model::file_tree::{
 use tuig_ui_model::history_viewport::WHEEL_ROWS;
 use tuig_ui_model::icon_theme::resolve_material_icon;
 use tuig_ui_model::text_width::{fit_tree_label, string_width};
-use tuig_ui_model::theme::Theme;
+use tuig_ui_model::theme::{Theme, interaction_background};
 
 /// One visible tree row.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -109,6 +112,9 @@ pub struct FileList {
     hovered: Option<usize>,
     /// The width of the last paint, for hit tests on the hover actions.
     width: Cell<u32>,
+    pointer: PointerTracker,
+    /// The list's top left cell on the terminal, from the last pointer event.
+    origin: Option<(i32, i32)>,
     on_event: Option<ListHandler>,
 }
 
@@ -146,8 +152,28 @@ impl FileList {
             theme,
             hovered: None,
             width: Cell::new(0),
+            pointer: PointerTracker::default(),
+            origin: None,
             on_event: None,
         }
+    }
+
+    /// Shares the pointer position, so a hover can return after a popup closes over a still pointer.
+    pub fn set_pointer_tracker(&mut self, pointer: PointerTracker) {
+        self.pointer = pointer;
+    }
+
+    /// The pointer left the list: no row is hovered.
+    pub fn pointer_left(&mut self) {
+        self.hovered = None;
+    }
+
+    /// The pointer is over the list without having moved. Hovers the row under the last known position.
+    pub fn pointer_entered(&mut self) {
+        self.hovered = self
+            .pointer
+            .local(self.origin)
+            .and_then(|(_, line)| self.row_at_line(line));
     }
 
     pub fn set_data(&mut self, data: Rc<FileListData>) {
@@ -324,13 +350,9 @@ impl Component for FileList {
         paint_lines(painter, &self.render(width, height));
     }
 
-    fn focus_changed(&mut self, _cx: &mut Cx<'_>, focused: bool) {
-        if !focused {
-            self.hovered = None;
-        }
-    }
-
     fn mouse(&mut self, cx: &mut Cx<'_>, event: &MouseEvent, local: (i32, i32)) -> bool {
+        self.pointer.record(event);
+        self.origin = Some(origin_of(event, local));
         let event = match event.kind {
             MouseEventKind::Moved => {
                 let hovered = self.row_at_line(local.1);
@@ -385,6 +407,8 @@ pub struct ActionButton {
     label: String,
     fg: Rgba,
     theme: Theme,
+    hovered: bool,
+    pressed: bool,
     on_press: Option<PressHandler>,
 }
 
@@ -394,7 +418,17 @@ impl ActionButton {
             label: label.to_string(),
             fg,
             theme,
+            hovered: false,
+            pressed: false,
             on_press: None,
+        }
+    }
+
+    /// Set from the widget's hover handler. Leaving cancels a press, as `buttonMouse` does.
+    pub fn set_hovered(&mut self, hovered: bool) {
+        self.hovered = hovered;
+        if !hovered {
+            self.pressed = false;
         }
     }
 
@@ -412,25 +446,38 @@ impl ActionButton {
 impl Component for ActionButton {
     fn paint(&self, painter: &mut Painter<'_>) {
         let (width, height) = painter.size();
-        painter.fill(0, 0, width, height, to_color(self.theme.panel_raised));
+        let background = to_color(interaction_background(
+            &self.theme,
+            self.theme.panel_raised,
+            self.pressed,
+            false,
+            self.hovered,
+        ));
+        painter.fill(0, 0, width, height, background);
         painter.text(
             0,
             0,
             &self.label,
-            Style::new()
-                .fg(to_color(self.fg))
-                .bg(to_color(self.theme.panel_raised)),
+            Style::new().fg(to_color(self.fg)).bg(background),
         );
     }
 
     fn mouse(&mut self, cx: &mut Cx<'_>, event: &MouseEvent, _local: (i32, i32)) -> bool {
-        if event.kind != MouseEventKind::Down(MouseButton::Left) {
-            return false;
+        match event.kind {
+            MouseEventKind::Down(MouseButton::Left) => {
+                self.hovered = true;
+                self.pressed = true;
+                if let Some(handler) = self.on_press.as_mut() {
+                    handler(cx);
+                }
+                true
+            }
+            MouseEventKind::Up(MouseButton::Left) if self.pressed => {
+                self.pressed = false;
+                true
+            }
+            _ => false,
         }
-        if let Some(handler) = self.on_press.as_mut() {
-            handler(cx);
-        }
-        true
     }
 }
 
@@ -445,6 +492,7 @@ pub enum SplitEvent {
 pub struct SplitBar {
     theme: Theme,
     dragging: bool,
+    hovered: bool,
     on_event: Option<SplitHandler>,
 }
 
@@ -453,8 +501,14 @@ impl SplitBar {
         Self {
             theme,
             dragging: false,
+            hovered: false,
             on_event: None,
         }
+    }
+
+    /// Set from the widget's hover handler.
+    pub fn set_hovered(&mut self, hovered: bool) {
+        self.hovered = hovered;
     }
 
     /// The handler must not call `Custom::update` or `Custom::with` on this widget. Queue a message instead.
@@ -481,11 +535,13 @@ impl Component for SplitBar {
     fn paint(&self, painter: &mut Painter<'_>) {
         let (width, height) = painter.size();
         let mut style = Style::new().fg(to_color(self.theme.divider));
-        let bg = if self.dragging {
-            self.theme.pressed
-        } else {
-            self.theme.panel
-        };
+        let bg = interaction_background(
+            &self.theme,
+            self.theme.panel,
+            self.dragging,
+            false,
+            self.hovered,
+        );
         style = style.bg(to_color(bg));
         painter.fill(0, 0, width, height, to_color(bg));
         painter.text(0, 0, &Self::content(width), style);

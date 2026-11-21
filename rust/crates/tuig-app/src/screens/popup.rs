@@ -25,6 +25,7 @@ use tuig_ui_model::graph_menu::{
     menu_width, place_menu, place_pane,
 };
 use tuig_ui_model::theme::{Surface, Theme, ThemeStates, semantic_color};
+use tuig_widgets::pointer::PointerTracker;
 use tuig_widgets::popup::{MenuView, PopupContent, PopupEvent, PopupLayer};
 
 pub type MenuSelect = Box<dyn FnOnce(&mut Shell, &App, GraphMenuItem)>;
@@ -126,8 +127,9 @@ fn style_input(input: &Input, theme: &Theme, base: Rgba) {
 }
 
 impl OverlayWidgets {
-    pub fn new(app: &App, theme: &Theme, inbox: &Rc<Inbox>) -> Self {
+    pub fn new(app: &App, theme: &Theme, inbox: &Rc<Inbox>, pointer: &PointerTracker) -> Self {
         let mut layer = PopupLayer::new(theme.clone());
+        layer.set_pointer_tracker(pointer.clone());
         {
             let inbox = inbox.clone();
             layer.on_event(move |cx, event| {

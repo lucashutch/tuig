@@ -17,6 +17,7 @@
 use crate::screens::footer::NoticeTone;
 use crate::services::PullRequestServiceFor;
 use crate::shell::{Dirty, GitResult, Inbox, Msg, Shell};
+use crate::sync::wire_hover;
 
 use opentui::prelude::*;
 use opentui::widget::{Input, View};
@@ -43,6 +44,7 @@ use tuig_ui_model::toolbar::{ToolbarAction, toolbar_buttons};
 use tuig_widgets::commit_text::short_sha;
 use tuig_widgets::diff::effective_diff_view;
 use tuig_widgets::header::{HeaderBar, HeaderEvent, HeaderView, SummaryState};
+use tuig_widgets::pointer::PointerTracker;
 use tuig_widgets::pull_requests::SPINNER_FRAMES;
 use tuig_widgets::repository_picker::{PickerEvent, PickerRow, PickerView, RepositoryPicker};
 
@@ -185,8 +187,9 @@ pub struct HeaderWidgets {
 }
 
 impl HeaderWidgets {
-    pub fn new(app: &App, theme: &Theme, inbox: &Rc<Inbox>) -> Self {
+    pub fn new(app: &App, theme: &Theme, inbox: &Rc<Inbox>, pointer: &PointerTracker) -> Self {
         let mut bar = HeaderBar::new(theme.clone());
+        bar.set_pointer_tracker(pointer.clone());
         {
             let inbox = inbox.clone();
             bar.on_event(move |cx, event| {
@@ -205,6 +208,8 @@ impl HeaderWidgets {
             .z_index(92)
             .height(1)
             .placeholder("Path from current directory")
+            // The TS golden (`golden/repo-tabs/picker.snap`) shows fg=5c6370.
+            .placeholder_color(Color::rgb(0x5c, 0x63, 0x70))
             .colors(color(theme.text), color(theme.selected))
             .focused_colors(color(theme.text), color(theme.selected))
             .visible(false);
@@ -223,8 +228,16 @@ impl HeaderWidgets {
                 inbox.post(cx.app(), Msg::Header(HeaderMsg::PickerSubmit));
             });
         }
+        let bar = Custom::new(app, bar).absolute();
+        wire_hover(&bar, |bar, entered| {
+            if entered {
+                bar.pointer_entered();
+            } else {
+                bar.pointer_left();
+            }
+        });
         Self {
-            bar: Custom::new(app, bar).absolute(),
+            bar,
             picker: Custom::new(app, picker)
                 .absolute()
                 .z_index(90)

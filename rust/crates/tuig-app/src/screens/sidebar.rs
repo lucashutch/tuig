@@ -12,6 +12,7 @@
 //! Layout changes save to `layout.json` after [`PERSIST_DELAY`], as TS does.
 
 use crate::shell::{Dirty, Inbox, Msg, PANE_TOP, Shell};
+use crate::sync::wire_hover;
 use opentui::prelude::*;
 use opentui::widget::{Input, View};
 use std::path::PathBuf;
@@ -93,10 +94,12 @@ impl SidebarWidgets {
             divider.on_event(move |cx, event| {
                 inbox.post(cx.app(), Msg::Sidebar(SidebarMsg::Divider(side, event)));
             });
-            Custom::new(app, divider)
+            let divider = Custom::new(app, divider)
                 .absolute()
                 .z_index(10)
-                .position(Edge::Top, u32::from(PANE_TOP))
+                .position(Edge::Top, u32::from(PANE_TOP));
+            wire_hover(&divider, |divider, entered| divider.set_hovered(entered));
+            divider
         };
         let filter = Input::new(app)
             .absolute()

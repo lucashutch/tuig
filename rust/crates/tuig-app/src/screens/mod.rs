@@ -8,6 +8,8 @@ pub mod footer;
 pub mod graph_avatars;
 pub mod header;
 pub mod history;
+#[cfg(test)]
+mod hover_tests;
 pub mod palette;
 pub mod popup;
 pub mod pull_requests;

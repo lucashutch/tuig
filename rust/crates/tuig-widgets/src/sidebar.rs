@@ -6,8 +6,8 @@
 //! widget paints that view and reports raw pointer input as [`SidebarEvent`]. The shell decides what a press or a
 //! wheel notch means. The widget keeps the hit boxes that TS gives to its header and divider renderables.
 //!
-//! Known parity gap: the divider bars have no hover color. `Widget::on_hover` reports `false` when the pointer leaves
-//! (with `MouseTracking::Motion`), but Rust does not use `on_hover(false)` yet, so a hover could not be cleared.
+//! The divider bars take the hover and pressed colors of a button. The shell wires `Widget::on_hover` to
+//! [`PaneDivider::set_hovered`], so the color clears when the pointer leaves.
 
 use crate::decorations::{
     HEAD_ICON, LAPTOP_BRANCH_ICON, REMOTE_BRANCH_ICON, RefIndex, display_branch_name,
@@ -28,7 +28,7 @@ use tuig_ui_model::runtime_layout::vertical_divider_content;
 use tuig_ui_model::scrollbar::{ScrollbarCell, scrollbar_cell, scrollbar_thumb};
 use tuig_ui_model::sidebar::{PerSection, Section, SidebarRect, sidebar_header};
 use tuig_ui_model::text_width::{fit_columns, take_columns};
-use tuig_ui_model::theme::Theme;
+use tuig_ui_model::theme::{Theme, interaction_background};
 
 /// Worktree marker. `WORKTREE_ICON` in `src/ui/history.ts`.
 pub const WORKTREE_ICON: &str = "⎇";
@@ -681,6 +681,10 @@ pub struct PaneDivider {
     /// The color under each column of the hit box. The widget paints it so the cells keep the pane colors.
     backdrop: Vec<Rgba>,
     dragging: bool,
+    hovered: bool,
+    /// A drag just ended. TS leaves the bar plain until the pointer moves again, because the bar moved while the
+    /// pointer stayed where it was.
+    dragged: bool,
     moved: bool,
     on_event: Option<DividerHandler>,
 }
@@ -692,8 +696,18 @@ impl PaneDivider {
             bar_column: 0,
             backdrop: Vec::new(),
             dragging: false,
+            hovered: false,
+            dragged: false,
             moved: false,
             on_event: None,
+        }
+    }
+
+    /// Set from the widget's hover handler.
+    pub fn set_hovered(&mut self, hovered: bool) {
+        self.hovered = hovered && !self.dragged;
+        if !hovered {
+            self.dragged = false;
         }
     }
 
@@ -724,8 +738,16 @@ impl Component for PaneDivider {
             painter.fill(column as i32, 0, 1, height, to_color(*backdrop));
         }
         let mut style = Style::new().fg(to_color(self.theme.divider));
-        if self.dragging {
-            style = style.bg(to_color(self.theme.pressed));
+        // `dividerBackground`: the bar is transparent until the pointer is over it or drags it.
+        if self.dragging || self.hovered {
+            let background = interaction_background(
+                &self.theme,
+                Rgba::TRANSPARENT,
+                self.dragging,
+                false,
+                self.hovered,
+            );
+            style = style.bg(to_color(background));
         }
         for (row, glyph) in vertical_divider_content(i64::from(height))
             .split('\n')
@@ -740,7 +762,16 @@ impl Component for PaneDivider {
             MouseEventKind::Down(_) => {
                 self.moved = false;
                 self.dragging = true;
+                self.dragged = false;
+                self.hovered = true;
                 true
+            }
+            MouseEventKind::Moved => {
+                // Motion over the bar after a drag brings the highlight back.
+                let changed = self.dragged || !self.hovered;
+                self.dragged = false;
+                self.hovered = true;
+                changed
             }
             MouseEventKind::Drag(_) => {
                 self.moved = true;
@@ -749,6 +780,10 @@ impl Component for PaneDivider {
             }
             MouseEventKind::Up(_) => {
                 let click = self.dragging && !self.moved;
+                self.dragged = self.dragging && self.moved;
+                if self.dragged {
+                    self.hovered = false;
+                }
                 self.dragging = false;
                 if click {
                     self.emit(cx, DividerEvent::Toggle);

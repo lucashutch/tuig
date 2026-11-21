@@ -7,6 +7,7 @@
 //! [`PopupLayer::set_content`]. The text inputs of the palette and the name prompt are separate widgets above this
 //! layer.
 
+use crate::pointer::PointerTracker;
 use opentui::native::BoxSpec;
 use opentui::prelude::*;
 use tuig_ui_model::color::Rgba;
@@ -118,6 +119,9 @@ type EventHandler = Box<dyn FnMut(&mut Cx<'_>, PopupEvent)>;
 pub struct PopupLayer {
     theme: Theme,
     content: PopupContent,
+    /// The layer covers the screen and takes every pointer event while it shows. Widgets under it read the last
+    /// position back when the layer closes, to hover what is under the still pointer.
+    pointer: PointerTracker,
     on_event: Option<EventHandler>,
 }
 
@@ -130,8 +134,14 @@ impl PopupLayer {
         Self {
             theme,
             content: PopupContent::Hidden,
+            pointer: PointerTracker::default(),
             on_event: None,
         }
+    }
+
+    /// Shares the pointer position with the widgets under the layer.
+    pub fn set_pointer_tracker(&mut self, pointer: PointerTracker) {
+        self.pointer = pointer;
     }
 
     pub fn set_theme(&mut self, theme: &Theme) {
@@ -324,6 +334,7 @@ impl Component for PopupLayer {
     }
 
     fn mouse(&mut self, cx: &mut Cx<'_>, event: &MouseEvent, local: (i32, i32)) -> bool {
+        self.pointer.record(event);
         let (x, y) = (i64::from(local.0), i64::from(local.1));
         let cell = |value: i32| u16::try_from(value.max(0)).unwrap_or(u16::MAX);
         let (cell_x, cell_y) = (cell(local.0), cell(local.1));

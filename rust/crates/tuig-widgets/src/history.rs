@@ -15,10 +15,10 @@
 //! - Branch hints.
 //! - The `A ` comparison marker.
 //! - The PR number is not a terminal hyperlink: `Painter` has no hyperlink support.
-//! - Divider hover and drag colors.
 //! - Click hits on the SHA and on labels, and the scrollbar drag.
 
 use crate::decorations::{RefIndex, summarise_decorations};
+use crate::pointer::{PointerTracker, origin_of};
 use crate::pull_requests::{PullRequestCommitIndex, SPINNER_FRAMES, pull_request_history_cell};
 use opentui::prelude::*;
 use std::cell::Cell;
@@ -212,6 +212,9 @@ pub struct HistoryList {
     last_press: Option<(usize, Instant)>,
     /// The width of the last paint, for the label hit test.
     width: Cell<u32>,
+    pointer: PointerTracker,
+    /// The list's top left cell on the terminal, from the last pointer event.
+    origin: Option<(i32, i32)>,
     on_event: Option<EventHandler>,
 }
 
@@ -232,8 +235,29 @@ impl HistoryList {
             spinner: 0,
             last_press: None,
             width: Cell::new(0),
+            pointer: PointerTracker::default(),
+            origin: None,
             on_event: None,
         }
+    }
+
+    /// Shares the pointer position, so the row under a still pointer is highlighted again after a popup closes.
+    pub fn set_pointer_tracker(&mut self, pointer: PointerTracker) {
+        self.pointer = pointer;
+    }
+
+    /// The pointer left the list: no row is hovered.
+    pub fn pointer_left(&mut self) {
+        self.hovered_line = None;
+    }
+
+    /// The pointer is over the list without having moved, for example after a popup closed. Hovers the row under
+    /// the last known position, as TS does when the renderable under the pointer changes.
+    pub fn pointer_entered(&mut self) {
+        let line = self.pointer.local(self.origin).map(|(_, line)| line);
+        self.hovered_line = line
+            .filter(|line| self.row_at_line(*line).is_some())
+            .and_then(|line| usize::try_from(line - 1).ok());
     }
 
     pub fn set_window(&mut self, window: Rc<HistoryWindow>) {
@@ -699,13 +723,9 @@ impl Component for HistoryList {
         }
     }
 
-    fn focus_changed(&mut self, _cx: &mut Cx<'_>, focused: bool) {
-        if !focused {
-            self.hovered_line = None;
-        }
-    }
-
     fn mouse(&mut self, cx: &mut Cx<'_>, event: &MouseEvent, local: (i32, i32)) -> bool {
+        self.pointer.record(event);
+        self.origin = Some(origin_of(event, local));
         let sideways = event.modifiers.contains(Modifiers::SHIFT);
         if matches!(
             event.kind,
