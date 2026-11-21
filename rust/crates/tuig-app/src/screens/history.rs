@@ -6,6 +6,7 @@ use crate::shell::{Dirty, GitResult, Msg, Shell};
 use opentui::prelude::*;
 use std::rc::Rc;
 use std::time::Duration;
+use tuig_git::debug_log::{debug_log, debug_log_error};
 use tuig_git::repository::DEFAULT_HISTORY_PAGE;
 use tuig_git::types::{Commit, CommitPage, RepositorySnapshot};
 use tuig_ui_model::graph_index::GraphIndex;
@@ -227,6 +228,14 @@ impl Shell {
             Err(error) => {
                 // History on screen stays usable. Repeated failures stop paging.
                 self.history.page_failures += 1;
+                debug_log_error(
+                    "history",
+                    &format!(
+                        "loading history past {} commits failed",
+                        self.history.commits.len()
+                    ),
+                    &error,
+                );
                 self.notify_error(error.to_string());
                 return;
             }
@@ -242,15 +251,31 @@ impl Shell {
             (Some(_), None) => false,
         };
         if !aligned {
+            debug_log(
+                "history",
+                &format!(
+                    "history diverged at {} commits; refreshing",
+                    history.commits.len()
+                ),
+            );
             history.limit += HISTORY_PAGE;
             self.request_refresh(app, false);
             return;
         }
         let skip = usize::from(last.is_some());
         let fresh: Vec<Commit> = page.commits.into_iter().skip(skip).collect();
+        let fresh_count = fresh.len();
         history.complete = page.complete || fresh.is_empty();
         history.commits.extend(fresh);
         history.limit = history.commits.len();
+        debug_log(
+            "history",
+            &format!(
+                "appended {fresh_count} commits ({} loaded, complete={})",
+                history.commits.len(),
+                history.complete
+            ),
+        );
         let branches = self
             .snapshot
             .as_ref()

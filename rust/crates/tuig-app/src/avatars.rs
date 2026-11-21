@@ -21,6 +21,7 @@ use std::sync::{Arc, LazyLock, Mutex, PoisonError};
 use std::time::{Duration, SystemTime};
 use tokio::process::Command;
 use tokio::sync::{OnceCell, Semaphore};
+use tuig_git::debug_log::{debug_log, debug_log_error};
 use tuig_git::pull_requests::{GhRunOptions, run_program};
 use tuig_ui_model::bounded_cache::BoundedCache;
 use tuig_ui_model::color::Rgba;
@@ -521,13 +522,16 @@ impl AvatarService {
                 Ok(pixels)
             }
             // A stale image is still useful when the network is unavailable.
-            Err(error) => match std::fs::read(&path)
-                .map_err(|e| e.to_string())
-                .and_then(|b| decode_avatar(&b))
-            {
-                Ok(pixels) => Ok(pixels),
-                Err(_) => Err(error),
-            },
+            Err(error) => {
+                debug_log_error("avatar", &format!("fetch failed for {source}"), &error);
+                match std::fs::read(&path)
+                    .map_err(|e| e.to_string())
+                    .and_then(|b| decode_avatar(&b))
+                {
+                    Ok(pixels) => Ok(pixels),
+                    Err(_) => Err(error),
+                }
+            }
         }
     }
 
@@ -601,6 +605,10 @@ impl AvatarService {
                 ..GitHubLookup::default()
             };
         }
+        debug_log(
+            "avatar",
+            &format!("gh api returned no avatar for {api_path}"),
+        );
         self.fetcher.api_commit_avatar(url).await
     }
 

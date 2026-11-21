@@ -8,6 +8,7 @@ use std::rc::Rc;
 use std::time::{Duration, Instant};
 use tokio::sync::mpsc::UnboundedReceiver;
 use tokio::sync::mpsc::error::TryRecvError;
+use tuig_git::debug_log::{debug_log, debug_log_error};
 use tuig_git::repository_watcher::{
     RepositoryWatchOptions, RepositoryWatcher, WatchEvent, watch_repository,
 };
@@ -137,6 +138,7 @@ impl Shell {
                 self.poll_every(app, WATCHED_REFRESH_INTERVAL);
             }
             Err(error) => {
+                debug_log_error("refresh", "watching failed, polling instead", &error);
                 self.notify_error(error.to_string());
                 self.poll_every(app, FALLBACK_REFRESH_INTERVAL);
             }
@@ -185,6 +187,10 @@ impl Shell {
         match event {
             WatchSignal::Changed { at } => self.watched_change(app, at),
             WatchSignal::Failed(error) => {
+                debug_log(
+                    "refresh",
+                    &format!("watching failed, polling instead: {error}"),
+                );
                 self.refresh.watcher = None;
                 self.notify_error(error);
                 self.poll_every(app, FALLBACK_REFRESH_INTERVAL);
