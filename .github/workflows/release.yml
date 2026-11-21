@@ -7,6 +7,13 @@ on:
 permissions:
   contents: write
 
+env:
+  # Keep equal to .zig-version of the OpenTUI rev pinned in rust/Cargo.toml. build-opentui-native.sh stops on a mismatch.
+  # Change it here and in rust.yml.
+  ZIG_VERSION: 0.17.0
+  # cargo-zigbuild links the Linux binaries against glibc 2.17. Change it here and in rust.yml.
+  CARGO_ZIGBUILD_VERSION: 0.24.1
+
 jobs:
   release:
     runs-on: ubuntu-latest
@@ -29,3 +36,56 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ github.ref_name }}
         run: gh release create "$TAG" --verify-tag --generate-notes --title "$TAG"
+
+  rust-package:
+    # Builds the Rust package for each platform and attaches it, with its SHA-256 file, to the release.
+    # `tuig update` downloads these assets, so the names come from rust/scripts/package.sh.
+    name: rust-package (${{ matrix.platform }})
+    needs: release
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Linux binaries link against glibc 2.17 through cargo-zigbuild, so the runner image sets no glibc floor.
+          - platform: x86_64-linux
+            runner: ubuntu-24.04
+          - platform: aarch64-linux
+            runner: ubuntu-24.04-arm
+          - platform: aarch64-macos
+            runner: macos-15
+          - platform: x86_64-macos
+            runner: macos-15-intel
+    defaults:
+      run:
+        working-directory: rust
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: mlugg/setup-zig@v2
+        with:
+          version: ${{ env.ZIG_VERSION }}
+      - name: Install cargo-zigbuild
+        if: runner.os == 'Linux'
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-zigbuild@${{ env.CARGO_ZIGBUILD_VERSION }}
+      - name: Read the pinned OpenTUI rev
+        id: opentui
+        run: echo "rev=$(sed -n 's|^opentui = {.*rev = "\([0-9a-f]\{40\}\)".*|\1|p' Cargo.toml)" >> "$GITHUB_OUTPUT"
+      - name: Cache the OpenTUI native library
+        uses: actions/cache@v5
+        with:
+          path: rust/.opentui-native
+          key: opentui-native-${{ matrix.platform }}-${{ steps.opentui.outputs.rev }}-${{ hashFiles('rust/scripts/build-opentui-native.sh') }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: rust
+          key: ${{ matrix.platform }}
+      - name: Build the package
+        run: sh scripts/package.sh
+      - name: Upload to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: gh release upload "$TAG" dist/*-${{ matrix.platform }}.tar.gz dist/*-${{ matrix.platform }}.tar.gz.sha256 --clobber

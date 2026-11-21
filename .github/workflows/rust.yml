@@ -12,10 +12,14 @@ permissions:
 
 env:
   CARGO_TERM_COLOR: always
+  # Keep equal to .zig-version of the OpenTUI rev pinned in rust/Cargo.toml. build-opentui-native.sh stops on a mismatch.
+  # Change it here and in release.yml.
+  ZIG_VERSION: 0.17.0
+  CARGO_ZIGBUILD_VERSION: 0.24.1
 
 jobs:
   rust:
-    # The package built here is a CI artifact, not a release. ubuntu-latest has a newer glibc than a release host should have.
+    # The package built here is a CI artifact. It uses the same Linux build as the release job (glibc 2.17 floor).
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -27,8 +31,10 @@ jobs:
           components: rustfmt, clippy
       - uses: mlugg/setup-zig@v2
         with:
-          # Keep equal to .zig-version of the OpenTUI rev pinned in rust/Cargo.toml. The build script stops on a mismatch.
-          version: 0.17.0
+          version: ${{ env.ZIG_VERSION }}
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-zigbuild@${{ env.CARGO_ZIGBUILD_VERSION }}
       - name: Read the pinned OpenTUI rev
         id: opentui
         run: echo "rev=$(sed -n 's|^opentui = {.*rev = "\([0-9a-f]\{40\}\)".*|\1|p' Cargo.toml)" >> "$GITHUB_OUTPUT"
