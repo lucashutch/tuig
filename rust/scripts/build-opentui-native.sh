@@ -4,6 +4,8 @@
 #
 # Needs git, zig (the version in OpenTUI's .zig-version) and a C toolchain that zig can drive. It does not need bun:
 # the vendored Zig dependencies unpack with tar, and the build skips FFmpeg, so the library has no video support.
+# It builds for the host platform: Linux or macOS, x86_64 or aarch64. On macOS it also needs the Xcode command line
+# tools, because OpenTUI's build reads the macOS SDK (xcrun). Linux libraries link against glibc 2.17 symbols only.
 #
 # OPENTUI_CACHE_DIR overrides the cache directory (default rust/.opentui-native).
 set -eu
@@ -19,7 +21,10 @@ REV=$(sed -n 's|^opentui = {.*git = "https://github.com/anomalyco/opentui".*rev 
 case "$(uname -s)-$(uname -m)" in
   Linux-x86_64) ZIG_TARGET=x86_64-linux-gnu.2.17 PLATFORM=x86_64-linux ;;
   Linux-aarch64 | Linux-arm64) ZIG_TARGET=aarch64-linux-gnu.2.17 PLATFORM=aarch64-linux ;;
-  *) echo "error: this script supports Linux x86_64 and aarch64 only" >&2; exit 1 ;;
+  # The 13.0 suffix is the macOS deployment target. It matches OpenTUI's own target table and package.sh.
+  Darwin-arm64 | Darwin-aarch64) ZIG_TARGET=aarch64-macos.13.0 PLATFORM=aarch64-macos ;;
+  Darwin-x86_64) ZIG_TARGET=x86_64-macos.13.0 PLATFORM=x86_64-macos ;;
+  *) echo "error: this script supports Linux and macOS on x86_64 and aarch64 only" >&2; exit 1 ;;
 esac
 
 LIB_DIR=$CACHE/lib

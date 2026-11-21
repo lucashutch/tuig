@@ -122,10 +122,19 @@ pub async fn check_for_update(
 }
 
 /// The release platform of this build, as it appears in asset names, or `None` when no release
-/// is built for it. The packaging script (`rust/scripts/package.sh`) builds `x86_64-linux` only.
+/// is built for it. `rust/scripts/package.sh` builds the four platforms that [`platform_for`] lists.
 pub fn current_platform() -> Option<&'static str> {
-    match (std::env::consts::OS, std::env::consts::ARCH) {
+    platform_for(std::env::consts::OS, std::env::consts::ARCH)
+}
+
+/// The release platform for an operating system and CPU architecture, named as in
+/// `std::env::consts`. The result is the platform part of the asset name that `package.sh` writes.
+fn platform_for(os: &str, arch: &str) -> Option<&'static str> {
+    match (os, arch) {
         ("linux", "x86_64") => Some("x86_64-linux"),
+        ("linux", "aarch64") => Some("aarch64-linux"),
+        ("macos", "aarch64") => Some("aarch64-macos"),
+        ("macos", "x86_64") => Some("x86_64-macos"),
         _ => None,
     }
 }
@@ -137,10 +146,8 @@ pub fn package_stem(tag: &str, platform: &str) -> String {
 }
 
 /// The download address of the package archive for a release tag. A `.sha256` file with the same
-/// name sits beside it.
-///
-/// TODO(hosting): this assumes the archive and its checksum are release assets of the GitHub
-/// release, uploaded by the release workflow. Change this one function if they live elsewhere.
+/// name sits beside it. Both are assets of the GitHub release, which the `rust-package` job in
+/// `.github/workflows/release.yml` uploads.
 pub fn package_url(tag: &str, platform: &str) -> String {
     format!(
         "https://github.com/{REPOSITORY}/releases/download/{tag}/{}.tar.gz",
@@ -468,6 +475,43 @@ mod tests {
             package_url("v0.1.22", "x86_64-linux"),
             "https://github.com/lucashutch/tuig/releases/download/v0.1.22/tuig-0.1.22-x86_64-linux.tar.gz"
         );
+    }
+
+    #[test]
+    fn picks_the_release_platform_for_each_supported_target() {
+        for (os, arch, platform) in [
+            ("linux", "x86_64", "x86_64-linux"),
+            ("linux", "aarch64", "aarch64-linux"),
+            ("macos", "aarch64", "aarch64-macos"),
+            ("macos", "x86_64", "x86_64-macos"),
+        ] {
+            assert_eq!(platform_for(os, arch), Some(platform), "{os} {arch}");
+        }
+        for (os, arch) in [
+            ("windows", "x86_64"),
+            ("linux", "riscv64"),
+            ("linux", "x86"),
+            ("freebsd", "x86_64"),
+        ] {
+            assert_eq!(platform_for(os, arch), None, "{os} {arch}");
+        }
+    }
+
+    #[test]
+    fn names_the_release_asset_for_each_platform() {
+        for platform in [
+            "x86_64-linux",
+            "aarch64-linux",
+            "aarch64-macos",
+            "x86_64-macos",
+        ] {
+            assert_eq!(
+                package_url("v0.1.22", platform),
+                format!(
+                    "https://github.com/lucashutch/tuig/releases/download/v0.1.22/tuig-0.1.22-{platform}.tar.gz"
+                )
+            );
+        }
     }
 
     #[tokio::test]
