@@ -1,16 +1,18 @@
 //! Debounced file system watch of a repository's HEAD, index, refs, and work
 //! tree. Port of `src/git/repository-watcher.ts`.
 //!
-//! The `notify` crate delivers events on its own thread. Its callback sends
-//! them into an unbounded tokio channel. One tokio task owns the debounce
+//! A watcher thread (`inotify_backend` on Linux, the `notify` crate elsewhere)
+//! sends events into an unbounded tokio channel. One tokio task owns the debounce
 //! state and the timers, and sends each report as a [`WatchEvent`] into the
 //! receiver that [`watch_repository`] returns.
 //!
 //! Differences from the TypeScript code:
 //! - [`watch_repository`] must run inside a Tokio runtime. It spawns the task.
 //! - `changed_at` is an [`Instant`] taken when the task receives the event.
-//! - Read-only events (open, close without write) are dropped. `inotify`
-//!   reports them, and Node's `fs.watch` does not.
+//! - Read-only events (open, close without write) never reach the worker.
+//!   `notify` reports them on `inotify`, and Node's `fs.watch` does not, so
+//!   Linux uses its own `inotify` watcher with no open events in its mask.
+//!   Elsewhere the callback drops them.
 //! - Reports go into a channel instead of callbacks. TypeScript's `onChange`
 //!   returns false when the caller cannot refresh yet and the watcher asks
 //!   again later. A channel cannot answer, so the receiver keeps that retry.
@@ -21,7 +23,9 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::{Duration, Instant};
 
-use notify::{Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
+use notify::RecursiveMode;
+#[cfg(not(target_os = "linux"))]
+use notify::{Event, EventKind, RecommendedWatcher, Watcher};
 use tokio::sync::mpsc::{self, UnboundedReceiver, UnboundedSender};
 
 use crate::process::{RunOptions, own_git_active, run_git_with};
@@ -162,10 +166,55 @@ enum Message {
     Close,
 }
 
+/// The file system watcher behind one target. Linux uses its own inotify watcher, which asks the kernel for
+/// changes only. The `notify` crate also watches opens, and every Git command Tuig runs opens thousands of files.
+#[cfg(target_os = "linux")]
+type Backend = crate::inotify_backend::InotifyWatcher;
+#[cfg(not(target_os = "linux"))]
+type Backend = RecommendedWatcher;
+
+#[cfg(target_os = "linux")]
+fn start_backend(
+    path: &Path,
+    mode: RecursiveMode,
+    sender: UnboundedSender<Message>,
+) -> notify::Result<Backend> {
+    use crate::inotify_backend::{BackendEvent, InotifyWatcher};
+    InotifyWatcher::start(path, mode == RecursiveMode::Recursive, move |event| {
+        let _ = sender.send(match event {
+            BackendEvent::Paths(paths) => Message::Paths(paths),
+            BackendEvent::Failed(error) => Message::Error(error),
+        });
+    })
+}
+
+#[cfg(not(target_os = "linux"))]
+fn start_backend(
+    path: &Path,
+    mode: RecursiveMode,
+    sender: UnboundedSender<Message>,
+) -> notify::Result<Backend> {
+    let sender = Mutex::new(sender);
+    let mut watcher = notify::recommended_watcher(move |event: notify::Result<Event>| {
+        let message = match event {
+            // Reads do not change Git state.
+            Ok(event) if matches!(event.kind, EventKind::Access(_)) => return,
+            Ok(event) => Message::Paths(event.paths),
+            Err(error) => Message::Error(error),
+        };
+        let _ = sender
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .send(message);
+    })?;
+    watcher.watch(path, mode)?;
+    Ok(watcher)
+}
+
 /// A running watch. Dropping it closes the watch.
 pub struct RepositoryWatcher {
     closed: Arc<AtomicBool>,
-    watchers: Arc<Mutex<Vec<RecommendedWatcher>>>,
+    watchers: Arc<Mutex<Vec<Backend>>>,
     sender: UnboundedSender<Message>,
 }
 
@@ -185,7 +234,7 @@ impl Drop for RepositoryWatcher {
     }
 }
 
-fn close_watch(closed: &AtomicBool, watchers: &Mutex<Vec<RecommendedWatcher>>) {
+fn close_watch(closed: &AtomicBool, watchers: &Mutex<Vec<Backend>>) {
     closed.store(true, Ordering::SeqCst);
     watchers
         .lock()
@@ -224,20 +273,7 @@ pub fn watch_repository(
 
     let started = (|| {
         for (path, mode) in watch_targets(&paths) {
-            let tx = Mutex::new(sender.clone());
-            let mut watcher = notify::recommended_watcher(move |event: notify::Result<Event>| {
-                let message = match event {
-                    // Reads do not change Git state. `inotify` also reports opens.
-                    Ok(event) if matches!(event.kind, EventKind::Access(_)) => return,
-                    Ok(event) => Message::Paths(event.paths),
-                    Err(error) => Message::Error(error),
-                };
-                let _ = tx
-                    .lock()
-                    .unwrap_or_else(PoisonError::into_inner)
-                    .send(message);
-            })?;
-            watcher.watch(&path, mode)?;
+            let watcher = start_backend(&path, mode, sender.clone())?;
             watchers
                 .lock()
                 .unwrap_or_else(PoisonError::into_inner)
@@ -277,7 +313,7 @@ async fn run_worker(
     paths: &RepositoryWatchPaths,
     mut receiver: UnboundedReceiver<Message>,
     closed: &AtomicBool,
-    watchers: &Mutex<Vec<RecommendedWatcher>>,
+    watchers: &Mutex<Vec<Backend>>,
     events: &UnboundedSender<WatchEvent>,
     options: RepositoryWatchOptions,
 ) {
