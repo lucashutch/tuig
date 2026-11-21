@@ -32,6 +32,22 @@ pub const SCROLL_BATCH: Duration = Duration::from_millis(16);
 /// Scrolling counts as stopped after this quiet time. `markHistoryScrolling`.
 pub const SCROLL_SETTLE: Duration = Duration::from_millis(80);
 
+/// Where a repository tab's history was when the user left the tab. `saveActiveTabHistory` in
+/// `src/ui/runtime-tabs.ts`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SavedHistory {
+    /// First display row on screen.
+    pub start: usize,
+    /// The selected commit's SHA, to find it again when the commits changed. `None` for a working selection.
+    pub selected_sha: Option<String>,
+    /// The selected commit's index, used when the SHA is gone.
+    pub commit_index: usize,
+    pub selection: HistorySelection,
+    pub detached: bool,
+    /// How many commits to read, so the tab comes back as deep as it was.
+    pub limit: usize,
+}
+
 pub struct HistoryState {
     /// Newest first. Paging appends to it in place.
     pub commits: Vec<Commit>,
@@ -57,6 +73,8 @@ pub struct HistoryState {
     pub focus_sha: Option<String>,
     /// The window `sync` last gave the widget.
     pub window: Option<Rc<HistoryWindow>>,
+    /// The position to restore once the first snapshot of a revisited tab has loaded.
+    pub restore: Option<SavedHistory>,
 }
 
 impl HistoryState {
@@ -85,7 +103,37 @@ impl HistoryState {
             scrolling: false,
             focus_sha: None,
             window: None,
+            restore: None,
         }
+    }
+
+    /// The position to keep while the user is in another tab.
+    pub fn save(&self) -> SavedHistory {
+        SavedHistory {
+            start: self.viewport.start,
+            selected_sha: self.selected_sha().map(str::to_owned),
+            commit_index: self.selection.commit().unwrap_or(0),
+            selection: self.selection,
+            detached: self.viewport.detached,
+            limit: self.limit,
+        }
+    }
+
+    /// Puts a saved position back, once the commits are loaded. `restoreTabHistory`.
+    fn restore_position(&mut self, saved: SavedHistory, total_rows: usize) {
+        let found = saved
+            .selected_sha
+            .as_deref()
+            .and_then(|sha| self.commits.iter().position(|commit| commit.sha == sha));
+        let last = self.commits.len().saturating_sub(1);
+        self.selection = match saved.selection {
+            HistorySelection::Working => HistorySelection::Working,
+            HistorySelection::Commit(_) => {
+                HistorySelection::Commit(found.unwrap_or(saved.commit_index.min(last)))
+            }
+        };
+        self.viewport.detached = saved.detached;
+        self.viewport.start = saved.start.min(total_rows.saturating_sub(1));
     }
 
     pub fn selected_sha(&self) -> Option<&str> {
@@ -186,11 +234,16 @@ impl Shell {
             history.commits = commits;
             history.complete = snapshot.commits_complete;
         }
-        if first {
+        let restore = self.history.restore.take().filter(|_| first);
+        if first && restore.is_none() {
             // `focusCheckedOutCommit`: with no HEAD the selection stays on the working row.
             self.history.focus_sha = snapshot.head_sha.clone().or(head);
         }
+        let total_rows = self.history.commits.len() + usize::from(!snapshot.files.is_empty());
         self.snapshot = Some(snapshot);
+        if let Some(saved) = restore {
+            self.history.restore_position(saved, total_rows);
+        }
         // The branches may have moved under the pull requests.
         self.rebuild_pull_request_index();
         self.dirty |= Dirty::HISTORY;

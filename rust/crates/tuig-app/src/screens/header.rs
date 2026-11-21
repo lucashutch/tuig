@@ -8,16 +8,14 @@
 //!
 //! Differences from the TS app:
 //!
-//! - A tab does not remember its history position. A switched-to tab starts at its checked-out commit, as a newly
-//!   opened tab does in TS.
 //! - A click on a picker suggestion picks the row it is on. TS maps the click one row too low.
-//! - Directory suggestions are read on the UI thread.
-//! - The terminal title is not set.
 
 use crate::screens::footer::NoticeTone;
+use crate::screens::history::SavedHistory;
 use crate::services::PullRequestServiceFor;
-use crate::shell::{Dirty, GitResult, Inbox, Msg, Shell};
+use crate::shell::{Dirty, GitResult, Inbox, Msg, Shell, window_title};
 use crate::sync::wire_hover;
+use crate::tasks::ReqId;
 
 use opentui::prelude::*;
 use opentui::widget::{Input, View};
@@ -60,6 +58,8 @@ pub enum HeaderMsg {
     PickerInput,
     /// Enter in the path input.
     PickerSubmit,
+    /// The directory read for the picker's suggestions finished.
+    Suggestions(ReqId, Vec<DirectorySuggestion>),
     /// A repository finished opening.
     Opened(OpenSource, GitResult<Arc<dyn GitRepository>>),
     UndoPreview(GitResult<UndoPreview>),
@@ -81,6 +81,8 @@ pub struct Tab {
     pub id: String,
     pub repo: Arc<dyn GitRepository>,
     pub submodule_of: Option<SubmoduleRelation>,
+    /// Where the history was when the user left the tab. `None` until then.
+    pub history: Option<SavedHistory>,
 }
 
 pub struct PickerState {
@@ -127,6 +129,7 @@ impl HeaderState {
                 id: "repository-0".to_owned(),
                 repo,
                 submodule_of: None,
+                history: None,
             }],
             active: "repository-0".to_owned(),
             next_id: 1,
@@ -284,6 +287,7 @@ impl Shell {
                 id: format!("repository-{index}"),
                 submodule_of: init.submodules.get(repo.root()).cloned(),
                 repo,
+                history: None,
             })
             .collect();
         header.next_id = header.tabs.len();
@@ -337,7 +341,15 @@ impl Shell {
             HeaderMsg::PickerInput => {
                 if let Some(picker) = &mut self.header.picker {
                     picker.index = 0;
-                    self.update_suggestions();
+                    self.update_suggestions(app);
+                }
+            }
+            HeaderMsg::Suggestions(id, suggestions) => {
+                if self.tasks.suggestions.finish(id)
+                    && let Some(picker) = &mut self.header.picker
+                {
+                    picker.index = picker.index.min(suggestions.len().saturating_sub(1));
+                    picker.suggestions = suggestions;
                 }
             }
             HeaderMsg::PickerSubmit => {
@@ -434,7 +446,14 @@ impl Shell {
 
     // Tabs.
 
+    /// Switches to the tab. The history comes back where the user left it. `activateRepositoryTab`.
     pub(crate) fn activate_tab(&mut self, app: &App, id: &str) {
+        self.activate_tab_at(app, id, false);
+    }
+
+    /// As [`Self::activate_tab`]. With `focus_head` the history starts at the checked-out commit instead, as for a
+    /// repository the user just opened.
+    fn activate_tab_at(&mut self, app: &App, id: &str, focus_head: bool) {
         let Some(tab) = self.header.tabs.iter().find(|tab| tab.id == id).cloned() else {
             return;
         };
@@ -445,8 +464,13 @@ impl Shell {
             return self.notify(WAIT_FOR_GIT);
         }
         self.close_repository_picker(app);
+        let saved = self.history.save();
+        let leaving = self.header.active.clone();
+        if let Some(left) = self.header.tabs.iter_mut().find(|tab| tab.id == leaving) {
+            left.history = Some(saved);
+        }
         self.header.active = tab.id.clone();
-        self.switch_repository(app, tab.repo.clone());
+        self.switch_repository(app, tab.repo.clone(), tab.history.filter(|_| !focus_head));
         self.persist_session();
     }
 
@@ -478,7 +502,7 @@ impl Shell {
             let next = self.header.tabs[index.min(self.header.tabs.len() - 1)].clone();
             self.close_repository_picker(app);
             self.header.active = next.id;
-            self.switch_repository(app, next.repo);
+            self.switch_repository(app, next.repo, next.history);
         }
         self.persist_session();
     }
@@ -616,11 +640,12 @@ impl Shell {
                     id: id.clone(),
                     repo: repository,
                     submodule_of,
+                    history: None,
                 });
                 id
             }
         };
-        self.activate_tab(app, &id);
+        self.activate_tab_at(app, &id, true);
         // The picker closes on success even when the tab was already active.
         self.close_repository_picker(app);
         if matches!(source, OpenSource::Path(_)) {
@@ -650,7 +675,7 @@ impl Shell {
             height,
         });
         self.widgets.header.picker_input.set_value("");
-        self.update_suggestions();
+        self.update_suggestions(app);
         self.widgets.header.picker_input.visible(true);
         self.widgets.header.picker_input.focus();
     }
@@ -664,19 +689,30 @@ impl Shell {
         self.dirty |= Dirty::LAYOUT;
     }
 
-    fn update_suggestions(&mut self) {
+    /// Reads the directories that match the typed path. The read runs off the UI thread, because a slow or remote
+    /// file system would freeze the screen. The list changes when the read finishes, and a newer request drops the
+    /// result of an older one.
+    fn update_suggestions(&mut self, app: &App) {
         let typed = self.widgets.header.picker_input.value();
-        let suggestions = if typed.trim().is_empty() {
-            Vec::new()
-        } else {
-            let cwd = std::env::current_dir().unwrap_or_default();
-            suggest_directories(&typed, &cwd)
-        };
-        let Some(picker) = &mut self.header.picker else {
+        if typed.trim().is_empty() {
+            self.tasks.suggestions.cancel();
+            if let Some(picker) = &mut self.header.picker {
+                picker.index = 0;
+                picker.suggestions = Vec::new();
+            }
             return;
-        };
-        picker.index = picker.index.min(suggestions.len().saturating_sub(1));
-        picker.suggestions = suggestions;
+        }
+        let cwd = std::env::current_dir().unwrap_or_default();
+        self.spawn(
+            app,
+            |tasks| &mut tasks.suggestions,
+            async move {
+                tokio::task::spawn_blocking(move || suggest_directories(&typed, &cwd))
+                    .await
+                    .unwrap_or_default()
+            },
+            |id, suggestions| Msg::Header(HeaderMsg::Suggestions(id, suggestions)),
+        );
     }
 
     /// The rows on screen and the index of the first one. `paintRepositorySuggestions`.
@@ -723,19 +759,19 @@ impl Shell {
                 self.persist_session();
             }
         } else if key.matches("tab") {
-            self.complete_suggestion(recent, &entries);
+            self.complete_suggestion(app, recent, &entries);
         }
     }
 
     /// Tab: the selected recent path or the selected folder goes into the input. `completeRepositorySuggestion`.
-    fn complete_suggestion(&mut self, recent: bool, entries: &[String]) {
+    fn complete_suggestion(&mut self, app: &App, recent: bool, entries: &[String]) {
         let Some(picker) = &mut self.header.picker else {
             return;
         };
         if recent {
             if let Some(path) = entries.get(picker.index) {
                 self.widgets.header.picker_input.set_value(path);
-                self.update_suggestions();
+                self.update_suggestions(app);
             }
             return;
         }
@@ -745,7 +781,7 @@ impl Shell {
         let value = format!("{}/", suggestion.path.display());
         picker.index = 0;
         self.widgets.header.picker_input.set_value(value);
-        self.update_suggestions();
+        self.update_suggestions(app);
     }
 
     /// A click on suggestion `row`. A recent path opens. A folder goes into the input. `chooseRepositorySuggestion`.
@@ -767,7 +803,7 @@ impl Shell {
         let value = format!("{}/", suggestion.path.display());
         picker.index = 0;
         self.widgets.header.picker_input.set_value(value);
-        self.update_suggestions();
+        self.update_suggestions(app);
         self.widgets.header.picker_input.focus();
     }
 
@@ -800,7 +836,12 @@ impl Shell {
 
     /// Shows `repo` in place of the current repository: drops everything loaded for the old one and starts the
     /// loads for the new one. The caller has checked that no mutation runs. `activateRepositoryTab`.
-    fn switch_repository(&mut self, app: &App, repo: Arc<dyn GitRepository>) {
+    fn switch_repository(
+        &mut self,
+        app: &App,
+        repo: Arc<dyn GitRepository>,
+        restore: Option<SavedHistory>,
+    ) {
         self.close_popup(app);
         if self.overlay.palette.is_some() {
             self.close_palette(app, false);
@@ -833,6 +874,10 @@ impl Shell {
         self.diff.side_by_side = side_by_side;
         self.snapshot = None;
         self.history = crate::screens::history::HistoryState::new(&one_dark_theme());
+        if let Some(saved) = restore {
+            self.history.limit = saved.limit;
+            self.history.restore = Some(saved);
+        }
         self.files = crate::screens::files::FilesState::new();
         self.details = Default::default();
         self.commands = Default::default();
@@ -843,6 +888,7 @@ impl Shell {
         self.notice = None;
         self.widgets.history.focus();
 
+        app.set_title(&window_title(repo.root()));
         self.repo = repo;
         self.dirty = Dirty::all();
         self.start_snapshot(app);

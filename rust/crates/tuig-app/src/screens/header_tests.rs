@@ -268,3 +268,128 @@ fn a_repository_session_restores_the_saved_order_and_active_tab() {
         assert_eq!(shell.header.recent[0], active.root());
     });
 }
+
+#[test]
+fn a_tab_keeps_its_history_position_when_you_switch_away_and_back() {
+    let harness = Harness::start(
+        crate::screens::test_support::repository(120),
+        Services::default(),
+    );
+    harness.wait("the first snapshot", |shell| shell.snapshot.is_some());
+    harness.wait("the head commit", |shell| {
+        shell.history.selected_sha().is_some()
+    });
+    // The tab opens at HEAD. Move the selection down the list, which also scrolls it.
+    for _ in 0..100 {
+        harness.app.press("down");
+    }
+    let (sha, start) = harness.read(|shell| {
+        (
+            shell.history.selected_sha().unwrap().to_owned(),
+            shell.history.viewport.start,
+        )
+    });
+    assert!(start > 0, "the list scrolled");
+
+    let other = repository();
+    harness.open_path(&other.0);
+    harness.wait("the second tab", |shell| {
+        shell.repo.root().contains(other.0.to_str().unwrap()) && shell.snapshot.is_some()
+    });
+    let first = harness.read(|shell| shell.header.tabs[0].id.clone());
+    harness.with(|shell, app| shell.activate_tab(app, &first));
+    harness.wait("the first tab again", |shell| {
+        shell.snapshot.is_some() && shell.history.selected_sha().is_some()
+    });
+    harness.read(|shell| {
+        assert_eq!(shell.history.selected_sha(), Some(sha.as_str()));
+        assert_eq!(shell.history.viewport.start, start);
+        assert!(shell.history.focus_sha.is_none(), "no jump back to HEAD");
+    });
+}
+
+#[test]
+fn the_window_title_names_the_active_repository_and_follows_a_tab_switch() {
+    use opentui::app::{HeadlessOptions, HeadlessWrite};
+    use std::cell::RefCell;
+    use std::rc::Rc;
+
+    let app = App::headless(HeadlessOptions::default()).unwrap();
+    let titles = Rc::new(RefCell::new(Vec::new()));
+    {
+        let titles = titles.clone();
+        app.on_headless_write(move |_, write| {
+            if let HeadlessWrite::Title(title) = write {
+                titles.borrow_mut().push(title.clone());
+            }
+        });
+    }
+    let (first, second) = (repository(), repository());
+    let open = |dir: &TempDir| -> Arc<dyn GitRepository> {
+        Arc::new(
+            app.runtime()
+                .block_on(GitRepositoryService::open(&dir.0))
+                .unwrap(),
+        )
+    };
+    let (first_repo, second_repo) = (open(&first), open(&second));
+    let roots = [first_repo.root().to_owned(), second_repo.root().to_owned()];
+    let shell = Shell::start_with(&app, first_repo.clone(), Services::default());
+    shell.borrow_mut().restore_tabs(TabsInit {
+        repositories: vec![first_repo, second_repo],
+        submodules: BTreeMap::new(),
+        recent: Vec::new(),
+        session_path: None,
+    });
+    let second_tab = shell.borrow().header.tabs[1].id.clone();
+    let switching = shell.clone();
+    // A timer closure need not be `Send`, unlike a proxy task. It runs inside the running loop.
+    app.set_timeout(std::time::Duration::from_millis(10), move |cx| {
+        switching.borrow_mut().activate_tab(cx.app(), &second_tab);
+        cx.app().quit();
+    });
+    app.run().unwrap();
+    assert_eq!(
+        *titles.borrow(),
+        [
+            format!("tuig · {}", roots[0]),
+            format!("tuig · {}", roots[1])
+        ]
+    );
+}
+
+#[test]
+fn directory_suggestions_are_read_off_the_ui_thread_and_only_the_latest_input_counts() {
+    let harness = start();
+    let parent = TempDir::new("suggest");
+    for name in ["alpha", "beta"] {
+        std::fs::create_dir(parent.0.join(name)).unwrap();
+    }
+    harness.with(|shell, app| shell.show_repository_picker(app));
+    let typed = |text: String| {
+        harness.with(|shell, app| {
+            shell.widgets.header.picker_input.set_value(text);
+            shell.header_msg(app, HeaderMsg::PickerInput);
+        });
+    };
+    let base = format!("{}/", parent.0.display());
+    typed(format!("{base}a"));
+    // The read has not reached the UI thread, so nothing changed yet.
+    harness.read(|shell| assert!(shell.header.picker.as_ref().unwrap().suggestions.is_empty()));
+    typed(format!("{base}b"));
+    harness.wait("the suggestions", |shell| {
+        !shell.header.picker.as_ref().unwrap().suggestions.is_empty()
+    });
+    harness.read(|shell| {
+        let names: Vec<&str> = shell
+            .header
+            .picker
+            .as_ref()
+            .unwrap()
+            .suggestions
+            .iter()
+            .map(|suggestion| suggestion.name.as_str())
+            .collect();
+        assert_eq!(names, ["beta"], "the answer for `a` was dropped");
+    });
+}

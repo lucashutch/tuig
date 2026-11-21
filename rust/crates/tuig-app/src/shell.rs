@@ -53,6 +53,11 @@ pub const PANE_TOP: u16 = 3;
 const LEFT_WIDTH: i64 = 28;
 const DETAILS_WIDTH: i64 = 44;
 
+/// The terminal window title, `tuig · <repository root>`. `renderer.setTerminalTitle` in `src/ui/runtime.ts`.
+pub(crate) fn window_title(root: &str) -> String {
+    format!("tuig · {root}")
+}
+
 pub enum Msg {
     Key(KeyEvent),
     HistoryClick {
@@ -323,6 +328,7 @@ impl Shell {
             inbox: inbox.clone(),
         }));
         *inbox.shell.borrow_mut() = Rc::downgrade(&shell);
+        app.set_title(&window_title(repo.root()));
 
         {
             let inbox = inbox.clone();

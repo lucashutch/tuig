@@ -71,6 +71,8 @@ pub struct Tasks {
     pub file_history: Slot,
     pub blame: Slot,
     pub diff: Slot,
+    /// The directory read behind the repository picker's suggestions.
+    pub suggestions: Slot,
     /// Index and working-tree changes. Selection changes never cancel it.
     pub mutation: Slot,
 }
@@ -87,6 +89,7 @@ impl Tasks {
             &mut self.file_history,
             &mut self.blame,
             &mut self.diff,
+            &mut self.suggestions,
         ] {
             slot.cancel();
         }
