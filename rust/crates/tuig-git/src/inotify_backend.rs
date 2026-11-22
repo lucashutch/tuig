@@ -5,6 +5,7 @@
 //! to drop the event. A refresh in a repository with a few hundred directories cost thousands of wakeups. This
 //! backend sets the mask Tuig needs: changes, not reads.
 
+use crate::debug_log::debug_log_error;
 use inotify::{EventMask, Inotify, WatchDescriptor, WatchMask, Watches};
 use std::collections::HashMap;
 use std::io;
@@ -31,6 +32,16 @@ fn watch_mask() -> WatchMask {
         | WatchMask::MOVED_TO
         | WatchMask::DELETE_SELF
         | WatchMask::MOVE_SELF
+}
+
+/// `objects` and `logs` directly inside a `.git` directory.
+fn is_unwatched_git_dir(dir: &Path) -> bool {
+    dir.file_name()
+        .is_some_and(|name| name == "objects" || name == "logs")
+        && dir
+            .parent()
+            .and_then(Path::file_name)
+            .is_some_and(|name| name == ".git")
 }
 
 fn to_notify(error: io::Error, path: &Path) -> notify::Error {
@@ -64,6 +75,8 @@ impl InotifyWatcher {
             watches: inotify.watches(),
             directories: HashMap::new(),
             recursive,
+            root: root.to_path_buf(),
+            limit_logged: false,
         };
         state
             .add_tree(root, &mut Vec::new(), true)
@@ -129,13 +142,26 @@ struct State {
     watches: Watches,
     directories: HashMap<WatchDescriptor, PathBuf>,
     recursive: bool,
+    /// The directory the watch started on.
+    root: PathBuf,
+    /// Whether the watch limit was already logged, so a full limit logs once.
+    limit_logged: bool,
 }
 
 impl State {
     /// Watches `dir`, then its subdirectories when the watch is recursive. `found` collects what the walk saw, for
     /// a directory that appeared after the watch started. A directory that vanishes during the walk is skipped.
     fn add_tree(&mut self, dir: &Path, found: &mut Vec<PathBuf>, is_root: bool) -> io::Result<()> {
-        match self.watches.add(dir, watch_mask()) {
+        // Objects and logs change on every commit, and Tuig ignores them. Skipping them saves many watches.
+        if !is_root && is_unwatched_git_dir(dir) {
+            return Ok(());
+        }
+        let mask = if is_root {
+            watch_mask()
+        } else {
+            watch_mask() | WatchMask::DONT_FOLLOW | WatchMask::ONLYDIR
+        };
+        match self.watches.add(dir, mask) {
             Ok(descriptor) => {
                 self.directories.insert(descriptor, dir.to_path_buf());
             }
@@ -207,6 +233,7 @@ impl State {
                 };
                 let mut changed: Vec<PathBuf> = Vec::new();
                 let mut overflow = false;
+                let mut root_lost = false;
                 for event in events {
                     #[cfg(test)]
                     counter.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
@@ -215,7 +242,11 @@ impl State {
                         continue;
                     }
                     if event.mask.contains(EventMask::IGNORED) {
-                        self.directories.remove(&event.wd);
+                        if self.directories.remove(&event.wd).as_deref()
+                            == Some(self.root.as_path())
+                        {
+                            root_lost = true;
+                        }
                         continue;
                     }
                     let Some(dir) = self.directories.get(&event.wd).cloned() else {
@@ -236,19 +267,60 @@ impl State {
                             .intersects(EventMask::CREATE | EventMask::MOVED_TO)
                     {
                         // Entries made before the watch existed would otherwise go unreported.
-                        self.add_tree(&path, &mut changed, false)?;
+                        self.watch_new_directory(&path, &mut changed)?;
                     }
                     changed.push(path);
                 }
                 if overflow {
-                    // Events were lost. An empty report counts as a change of unknown paths.
+                    // Events were lost, so directories made in the gap are not watched yet.
+                    self.recover_from_overflow()?;
+                    // An empty report counts as a change of unknown paths.
                     sink(BackendEvent::Paths(Vec::new()));
                 }
                 if !changed.is_empty() {
                     sink(BackendEvent::Paths(changed));
                 }
+                if root_lost {
+                    return Err(io::ErrorKind::NotFound.into());
+                }
             }
         }
+    }
+
+    /// Watches a directory that appeared after the start. At the watch limit the directory stays unwatched, and
+    /// the watcher keeps running, so the paths already found still reach the app.
+    fn watch_new_directory(&mut self, path: &Path, changed: &mut Vec<PathBuf>) -> io::Result<()> {
+        let result = self.add_tree(path, changed, false);
+        self.tolerate_limit(result)
+    }
+
+    /// Turns a full watch limit into a logged warning. Other errors pass through.
+    fn tolerate_limit(&mut self, result: io::Result<()>) -> io::Result<()> {
+        match result {
+            Err(error) if error.raw_os_error() == Some(libc::ENOSPC) => {
+                if !self.limit_logged {
+                    self.limit_logged = true;
+                    debug_log_error(
+                        "watch",
+                        "watch limit reached, some directories are not watched",
+                        &error,
+                    );
+                }
+                Ok(())
+            }
+            other => other,
+        }
+    }
+
+    /// Walks the tree again to watch directories that appeared while the kernel dropped events. A directory that
+    /// is already watched keeps its descriptor, so the walk is safe to repeat.
+    fn recover_from_overflow(&mut self) -> io::Result<()> {
+        if !self.recursive {
+            return Ok(());
+        }
+        let root = self.root.clone();
+        let result = self.add_tree(&root, &mut Vec::new(), true);
+        self.tolerate_limit(result)
     }
 
     /// Drops the watches at and below `path`, for a directory that moved away.
@@ -357,5 +429,83 @@ mod tests {
             rx.recv_timeout(Duration::from_secs(2)),
             Err(mpsc::RecvTimeoutError::Disconnected)
         ));
+    }
+
+    #[test]
+    fn an_overflow_walk_watches_directories_made_while_events_were_lost() {
+        let dir = TempDir::new("inotify-overflow");
+        let root = dir.path();
+        let inotify = Inotify::init().unwrap();
+        let mut state = State {
+            watches: inotify.watches(),
+            directories: HashMap::new(),
+            recursive: true,
+            root: root.to_path_buf(),
+            limit_logged: false,
+        };
+        state.add_tree(root, &mut Vec::new(), true).unwrap();
+        // The kernel dropped the events for these, so `state` never saw them.
+        std::fs::create_dir_all(root.join("lost/deeper")).unwrap();
+        assert!(
+            !state
+                .directories
+                .values()
+                .any(|path| path.ends_with("lost"))
+        );
+
+        state.recover_from_overflow().unwrap();
+        let watched: Vec<&PathBuf> = state.directories.values().collect();
+        assert!(watched.contains(&&root.join("lost")));
+        assert!(watched.contains(&&root.join("lost/deeper")));
+        assert_eq!(watched.len(), 3, "a repeated walk added a duplicate watch");
+    }
+
+    #[test]
+    fn a_deleted_root_fails_the_watch() {
+        let dir = TempDir::new("inotify-root-gone");
+        let root = dir.path().join("watched");
+        std::fs::create_dir(&root).unwrap();
+        let (_watcher, rx) = watch(&root, true);
+
+        std::fs::remove_dir(&root).unwrap();
+        let deadline = std::time::Instant::now() + Duration::from_secs(5);
+        loop {
+            let left = deadline
+                .checked_duration_since(std::time::Instant::now())
+                .expect("no Failed event after the root was deleted");
+            if let Ok(BackendEvent::Failed(_)) = rx.recv_timeout(left) {
+                break;
+            }
+        }
+    }
+
+    #[test]
+    fn objects_and_logs_inside_a_git_dir_are_not_watched() {
+        let dir = TempDir::new("inotify-git-dir");
+        let root = dir.path();
+        for sub in [
+            ".git/objects/ab",
+            ".git/logs/refs",
+            ".git/refs/heads",
+            "objects",
+        ] {
+            std::fs::create_dir_all(root.join(sub)).unwrap();
+        }
+        let inotify = Inotify::init().unwrap();
+        let mut state = State {
+            watches: inotify.watches(),
+            directories: HashMap::new(),
+            recursive: true,
+            root: root.to_path_buf(),
+            limit_logged: false,
+        };
+        state.add_tree(root, &mut Vec::new(), true).unwrap();
+        let watched: Vec<&PathBuf> = state.directories.values().collect();
+        assert!(watched.contains(&&root.join(".git")));
+        assert!(watched.contains(&&root.join(".git/refs/heads")));
+        assert!(watched.contains(&&root.join("objects")));
+        assert!(!watched.contains(&&root.join(".git/objects")));
+        assert!(!watched.contains(&&root.join(".git/logs")));
+        assert!(!watched.contains(&&root.join(".git/logs/refs")));
     }
 }
