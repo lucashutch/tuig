@@ -80,8 +80,15 @@ pub fn is_current_release(version: &str, tag: &str) -> bool {
     tag.strip_prefix('v').unwrap_or(tag) == version.strip_prefix('v').unwrap_or(version)
 }
 
-/// The tag of the latest GitHub release.
-pub async fn latest_release_tag(fetcher: &dyn ReleaseFetcher) -> Result<String, CliError> {
+/// The latest GitHub release: its tag and the names of its assets.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LatestRelease {
+    pub tag: String,
+    pub assets: Vec<String>,
+}
+
+/// The latest GitHub release, with its tag and asset names.
+pub async fn latest_release(fetcher: &dyn ReleaseFetcher) -> Result<LatestRelease, CliError> {
     let response = fetcher
         .get(LATEST_URL, "application/vnd.github+json")
         .await?;
@@ -93,31 +100,67 @@ pub async fn latest_release_tag(fetcher: &dyn ReleaseFetcher) -> Result<String, 
     }
     let release: serde_json::Value =
         serde_json::from_str(&response.body).map_err(|error| CliError::Other(error.to_string()))?;
-    match release.get("tag_name").and_then(|tag| tag.as_str()) {
-        Some(tag) if !tag.is_empty() => Ok(tag.to_string()),
-        _ => Err(CliError::Other(
-            "GitHub returned a release without a tag".into(),
-        )),
-    }
+    let tag = match release.get("tag_name").and_then(|tag| tag.as_str()) {
+        Some(tag) if !tag.is_empty() => tag.to_string(),
+        _ => {
+            return Err(CliError::Other(
+                "GitHub returned a release without a tag".into(),
+            ));
+        }
+    };
+    let assets = release
+        .get("assets")
+        .and_then(|assets| assets.as_array())
+        .map(|assets| {
+            assets
+                .iter()
+                .filter_map(|asset| asset.get("name").and_then(|name| name.as_str()))
+                .map(str::to_string)
+                .collect()
+        })
+        .unwrap_or_default();
+    Ok(LatestRelease { tag, assets })
+}
+
+/// The tag of the latest GitHub release.
+pub async fn latest_release_tag(fetcher: &dyn ReleaseFetcher) -> Result<String, CliError> {
+    Ok(latest_release(fetcher).await?.tag)
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum UpdateStatus {
     UpToDate,
-    Available { tag: String },
+    Available {
+        tag: String,
+    },
+    /// The latest release exists, but it has no package for the platform yet. The release job
+    /// uploads the packages after it creates the release.
+    NoPackage {
+        tag: String,
+        platform: String,
+    },
 }
 
 /// Compare the running version with the latest release. Every call sends a request. The
-/// TypeScript app has no cache or background check, only the `tuig update` command.
+/// TypeScript app has no cache or background check, only the `tuig update` command. A newer
+/// release counts as available only when its assets include the package for `platform`.
 pub async fn check_for_update(
     current_version: &str,
+    platform: &str,
     fetcher: &dyn ReleaseFetcher,
 ) -> Result<UpdateStatus, CliError> {
-    let tag = latest_release_tag(fetcher).await?;
-    Ok(if is_current_release(current_version, &tag) {
-        UpdateStatus::UpToDate
+    let release = latest_release(fetcher).await?;
+    if is_current_release(current_version, &release.tag) {
+        return Ok(UpdateStatus::UpToDate);
+    }
+    let archive = format!("{}.tar.gz", package_stem(&release.tag, platform));
+    Ok(if release.assets.contains(&archive) {
+        UpdateStatus::Available { tag: release.tag }
     } else {
-        UpdateStatus::Available { tag }
+        UpdateStatus::NoPackage {
+            tag: release.tag,
+            platform: platform.to_string(),
+        }
     })
 }
 
@@ -323,9 +366,13 @@ pub async fn update_tuig_at(
     exe: &Path,
 ) -> Result<(), CliError> {
     println!("Checking for updates...");
-    let tag = match check_for_update(current_version, fetcher).await? {
+    let tag = match check_for_update(current_version, platform, fetcher).await? {
         UpdateStatus::UpToDate => {
             println!("Tuig is up to date.");
+            return Ok(());
+        }
+        UpdateStatus::NoPackage { tag, platform } => {
+            println!("no package for {platform} in {tag} yet");
             return Ok(());
         }
         UpdateStatus::Available { tag } => tag,
@@ -389,7 +436,8 @@ mod tests {
             let body = if url.ends_with(".sha256") {
                 format!("{}  archive.tar.gz\n", self.checksum)
             } else {
-                r#"{"tag_name":"v0.2.0"}"#.to_string()
+                r#"{"tag_name":"v0.2.0","assets":[{"name":"tuig-0.2.0-x86_64-linux.tar.gz"}]}"#
+                    .to_string()
             };
             Ok(HttpResponse { status: 200, body })
         }
@@ -695,9 +743,14 @@ mod tests {
 
     #[tokio::test]
     async fn asks_the_github_latest_release_endpoint() {
-        let fetcher = Fake::new(200, r#"{"tag_name":"v0.2.0"}"#);
+        let fetcher = Fake::new(
+            200,
+            r#"{"tag_name":"v0.2.0","assets":[{"name":"tuig-0.2.0-x86_64-linux.tar.gz"}]}"#,
+        );
         assert_eq!(
-            check_for_update("0.1.21", &fetcher).await.unwrap(),
+            check_for_update("0.1.21", "x86_64-linux", &fetcher)
+                .await
+                .unwrap(),
             UpdateStatus::Available {
                 tag: "v0.2.0".into()
             }
@@ -711,7 +764,9 @@ mod tests {
         );
         let fetcher = Fake::new(200, r#"{"tag_name":"v0.1.21"}"#);
         assert_eq!(
-            check_for_update("0.1.21", &fetcher).await.unwrap(),
+            check_for_update("0.1.21", "x86_64-linux", &fetcher)
+                .await
+                .unwrap(),
             UpdateStatus::UpToDate
         );
     }
@@ -727,5 +782,43 @@ mod tests {
             let error = latest_release_tag(&Fake::new(200, body)).await.unwrap_err();
             assert_eq!(error.to_string(), "GitHub returned a release without a tag");
         }
+    }
+
+    #[tokio::test]
+    async fn offers_no_update_while_the_release_lacks_this_platform_package() {
+        // The release job publishes the tag first and uploads each platform later.
+        let body = r#"{"tag_name":"v0.2.0","assets":[{"name":"tuig-0.2.0-aarch64-macos.tar.gz"},{"name":"tuig-0.2.0-x86_64-linux.tar.gz.sha256"}]}"#;
+        let fetcher = Fake::new(200, body);
+        assert_eq!(
+            check_for_update("0.1.21", "x86_64-linux", &fetcher)
+                .await
+                .unwrap(),
+            UpdateStatus::NoPackage {
+                tag: "v0.2.0".into(),
+                platform: "x86_64-linux".into()
+            }
+        );
+        for body in [
+            r#"{"tag_name":"v0.2.0"}"#,
+            r#"{"tag_name":"v0.2.0","assets":[]}"#,
+        ] {
+            let fetcher = Fake::new(200, body);
+            assert!(matches!(
+                check_for_update("0.1.21", "x86_64-linux", &fetcher)
+                    .await
+                    .unwrap(),
+                UpdateStatus::NoPackage { .. }
+            ));
+        }
+    }
+
+    #[tokio::test]
+    async fn update_downloads_nothing_when_the_package_is_missing() {
+        let fetcher = Fake::new(200, r#"{"tag_name":"v0.2.0","assets":[]}"#);
+        let exe = std::env::temp_dir().join("tuig-update-never-written-missing");
+        update_tuig_at("0.1.21", &fetcher, "x86_64-linux", &exe)
+            .await
+            .unwrap();
+        assert!(!exe.exists());
     }
 }

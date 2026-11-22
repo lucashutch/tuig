@@ -101,12 +101,13 @@ if tar --version 2>/dev/null | grep -q 'GNU tar'; then
   tar --sort=name --owner=0 --group=0 --numeric-owner --mtime=@0 -cf - -C "$STAGE" "$STEM" | gzip -9n > "$DIST/$STEM.tar.gz"
 else
   # BSD tar (macOS) has no --sort and no --mtime. Set the time on the files, and list them in byte order.
-  # COPYFILE_DISABLE keeps extended attributes and AppleDouble files out of the archive.
+  # COPYFILE_DISABLE and the --no-* options keep extended attributes, ACLs, file flags and AppleDouble files out of the archive.
+  # --format ustar leaves out the pax headers, which can carry times and other per-run data.
   COPYFILE_DISABLE=1
   export COPYFILE_DISABLE
   (cd "$STAGE" && find "$STEM" -exec env TZ=UTC touch -h -t 197001010000 {} +)
   (cd "$STAGE" && find "$STEM" | LC_ALL=C sort > "$STAGE/.list")
-  tar --no-recursion --uid 0 --gid 0 --uname '' --gname '' --numeric-owner -cf - -C "$STAGE" -T "$STAGE/.list" | gzip -9n > "$DIST/$STEM.tar.gz"
+  tar --format ustar --no-xattrs --no-acls --no-fflags --no-mac-metadata --no-recursion --uid 0 --gid 0 --uname '' --gname '' --numeric-owner -cf - -C "$STAGE" -T "$STAGE/.list" | gzip -9n > "$DIST/$STEM.tar.gz"
 fi
 (cd "$DIST" && sha256_file "$STEM.tar.gz" > "$STEM.tar.gz.sha256")
 echo "packed $DIST/$STEM.tar.gz" >&2

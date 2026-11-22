@@ -35,7 +35,8 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ github.ref_name }}
-        run: gh release create "$TAG" --verify-tag --generate-notes --title "$TAG"
+        # A draft stays out of /releases/latest until the publish job finds every asset uploaded.
+        run: gh release create "$TAG" --verify-tag --generate-notes --title "$TAG" --draft
 
   rust-package:
     # Builds the Rust package for each platform and attaches it, with its SHA-256 file, to the release.
@@ -61,7 +62,9 @@ jobs:
         working-directory: rust
     steps:
       - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.100.0
       - uses: mlugg/setup-zig@v2
         with:
           version: ${{ env.ZIG_VERSION }}
@@ -89,3 +92,15 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ github.ref_name }}
         run: gh release upload "$TAG" dist/*-${{ matrix.platform }}.tar.gz dist/*-${{ matrix.platform }}.tar.gz.sha256 --clobber
+
+  publish:
+    # Makes the release public after every package is uploaded. If a platform fails, the release stays a draft.
+    needs: [release, rust-package]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ github.ref_name }}
+        run: gh release edit "$TAG" --draft=false

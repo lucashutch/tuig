@@ -23,6 +23,6 @@ pub use start::{
 };
 pub use update::{
     CurlFetcher, HttpResponse, ReleaseFetcher, UpdateStatus, check_for_update, current_platform,
-    install_release, is_current_release, latest_release_tag, package_stem, package_url,
-    update_tuig, update_tuig_at,
+    install_release, is_current_release, latest_release, latest_release_tag, package_stem,
+    package_url, update_tuig, update_tuig_at,
 };
