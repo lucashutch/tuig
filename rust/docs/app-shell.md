@@ -1,6 +1,6 @@
 # App shell design
 
-This note describes the Rust app shell: the code that owns UI state, starts Git work, receives watcher events, and connects `tuig-ui-model` to OpenTUI widgets. It is tracker item 4. The TS reference is `src/ui/runtime*.ts`. The OpenTUI API references are to the pinned rev `d5c7fca` (`packages/rust/crates/opentui/src`).
+This note describes the Rust app shell: the code that owns UI state, starts Git work, receives watcher events, and connects `tuig-ui-model` to OpenTUI widgets. It is tracker item 4. The TS reference is `src/ui/runtime*.ts`. The OpenTUI API references are to the pinned version 0.9.7 (`packages/rust/crates/opentui/src`).
 
 ## Constraints from OpenTUI
 

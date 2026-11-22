@@ -3,7 +3,7 @@
 # rust/.opentui-native/lib, where .cargo/config.toml points OPENTUI_LIB_DIR.
 #
 # Needs git, zig (the version in OpenTUI's .zig-version) and a C toolchain that zig can drive. It does not need bun:
-# the vendored Zig dependencies unpack with tar, and the build skips FFmpeg, so the library has no video support.
+# the vendored Zig dependencies unpack with tar, and the build passes -Dvideo=false, so the library has no FFmpeg and no video support.
 # It builds for the host platform: Linux or macOS, x86_64 or aarch64. On macOS it also needs the Xcode command line
 # tools, because OpenTUI's build reads the macOS SDK (xcrun). Linux libraries link against glibc 2.17 symbols only.
 #
@@ -30,7 +30,7 @@ case "$(uname -s)-$(uname -m)" in
 esac
 
 LIB_DIR=$CACHE/lib
-if [ "$(cat "$LIB_DIR/.rev" 2>/dev/null || true)" = "$VERSION" ] && [ -f "$LIB_DIR/libopentui.a" ]; then
+if [ "$(cat "$LIB_DIR/.version" 2>/dev/null || true)" = "$VERSION" ] && [ -f "$LIB_DIR/libopentui.a" ]; then
   echo "native library for $VERSION is up to date: $LIB_DIR" >&2
   echo "$LIB_DIR"
   exit 0
@@ -54,11 +54,19 @@ fi
 
 cd "$SRC/packages/native"
 sh scripts/prepare-zig-deps.sh
-zig build -Doptimize=ReleaseFast "-Dlibrary-target=$ZIG_TARGET"
+# -Dvideo=false leaves FFmpeg out whether or not a prebuilt FFmpeg prefix exists in the cache (option of v0.9.7).
+zig build -Doptimize=ReleaseFast -Dvideo=false "-Dlibrary-target=$ZIG_TARGET"
+
+# FFmpeg is LGPL. Stop if the static library holds any of it.
+command -v nm >/dev/null 2>&1 || { echo "error: nm is needed to check the library for FFmpeg symbols" >&2; exit 1; }
+if nm "lib/$PLATFORM/libopentui.a" 2>/dev/null | grep -Eq '(avcodec_|avformat_)'; then
+  echo "error: libopentui.a contains FFmpeg symbols (avcodec_ or avformat_)" >&2
+  exit 1
+fi
 
 rm -rf "$LIB_DIR"
 mkdir -p "$LIB_DIR"
 cp "lib/$PLATFORM"/* "$LIB_DIR/"
-echo "$VERSION" > "$LIB_DIR/.rev"
+echo "$VERSION" > "$LIB_DIR/.version"
 echo "built native library for $VERSION: $LIB_DIR" >&2
 echo "$LIB_DIR"

@@ -2,7 +2,7 @@
 //! line staging, and code text selection. Ports `DiffView` in `src/ui/diff-view.ts` and the parts of OpenTUI Core's
 //! `DiffRenderable` that the TypeScript app shows.
 //!
-//! This is a custom painter instead of OpenTUI's `Diff` widget. At the pinned rev, `Diff` cannot color one row
+//! This is a custom painter instead of OpenTUI's `Diff` widget. At the pinned version, `Diff` cannot color one row
 //! differently from the other rows of its kind, so the selected rows of line staging cannot be shown. The TS app
 //! needs that (`setLineColor` per row). A painter also gives exact control of the gutter cells and of the text
 //! selection, which must cover code only and never line numbers or signs.
