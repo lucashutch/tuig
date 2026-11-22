@@ -69,12 +69,12 @@ so the terminal restores on a panic.
 
 ### Supported platforms
 
-| Platform | Built on | Minimum system |
-| --- | --- | --- |
-| `x86_64-linux` | `ubuntu-24.04` | glibc 2.17 |
-| `aarch64-linux` | `ubuntu-24.04-arm` | glibc 2.17 |
-| `aarch64-macos` | `macos-15` | macOS 13 |
-| `x86_64-macos` | `macos-15-intel` | macOS 13 |
+| Platform        | Built on           | Minimum system |
+| --------------- | ------------------ | -------------- |
+| `x86_64-linux`  | `ubuntu-24.04`     | glibc 2.17     |
+| `aarch64-linux` | `ubuntu-24.04-arm` | glibc 2.17     |
+| `aarch64-macos` | `macos-15`         | macOS 13       |
+| `x86_64-macos`  | `macos-15-intel`   | macOS 13       |
 
 Linux binaries link through `cargo-zigbuild` with the target `<triple>.2.17`, and the native library is built for
 `<arch>-linux-gnu.2.17`. The runner image does not set the glibc floor. After the build, `package.sh` reads the highest
