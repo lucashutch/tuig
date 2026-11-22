@@ -268,6 +268,48 @@ fn blame_maps_each_line_to_the_commit_that_last_changed_it() {
     assert_eq!(h.subject_at(2), "add notes");
 }
 
+#[test]
+fn the_arrow_and_vim_keys_step_through_the_file_history() {
+    let h = Harness::new();
+    let app = h.app.app();
+    // A third commit on the file, so that two steps both move.
+    std::fs::write(h._repo.0.join("notes.txt"), "one\nTWO\nthree\nfour\n").unwrap();
+    git(&h._repo.0, &["commit", "-q", "-am", "add four"]);
+    h.shell
+        .borrow_mut()
+        .show_file_history(app, Harness::notes(), None);
+    h.wait("the history", |shell| {
+        shell
+            .details
+            .file_history
+            .as_ref()
+            .is_some_and(|history| history.commits.len() == 3)
+    });
+    h.wait("the diff of the newest commit", |shell| {
+        shell.diff.file.as_ref().is_some_and(|file| {
+            file.source == FileSource::Commit(shell.details_commit().unwrap().sha.clone())
+        })
+    });
+    assert_eq!(
+        h.read(|shell| shell.details_commit().map(|c| c.subject.clone())),
+        Some("add four".into())
+    );
+
+    for (key, subject) in [("down", "shout line two"), ("j", "add notes")] {
+        h.app.press(key);
+        h.wait(subject, |shell| {
+            shell
+                .details_commit()
+                .is_some_and(|commit| commit.subject == subject)
+        });
+        h.wait("the diff to follow", |shell| {
+            shell.diff.file.as_ref().is_some_and(|file| {
+                file.source == FileSource::Commit(shell.details_commit().unwrap().sha.clone())
+            })
+        });
+    }
+}
+
 fn newest_sha(shell: &Shell) -> String {
     shell
         .details

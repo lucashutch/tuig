@@ -183,7 +183,7 @@ fn the_working_changes_open_with_the_first_unstaged_file_selected() {
 fn the_selection_follows_its_file_through_a_refresh_and_moves_when_the_file_is_gone() {
     let h = Harness::new();
     h.settle();
-    h.shell.borrow_mut().move_file(1);
+    h.shell.borrow_mut().move_file(h.app.app(), 1);
     h.settle();
     assert_eq!(h.selected_path().as_deref(), Some("README.md"));
 
@@ -277,7 +277,7 @@ fn the_selected_commit_file_survives_a_refresh_without_reloading() {
         shell.files.commit.files.is_some()
     });
     assert_eq!(h.selected_path().as_deref(), Some("src/a.rs"));
-    h.shell.borrow_mut().move_file(1);
+    h.shell.borrow_mut().move_file(h.app.app(), 1);
     h.settle();
     let before = h.selected_path();
     assert_eq!(before.as_deref(), Some("src/b.rs"));

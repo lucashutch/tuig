@@ -762,7 +762,14 @@ impl Shell {
     }
 
     /// Ports `moveFile`: steps through the visible files of the active list.
-    pub(crate) fn move_file(&mut self, delta: i64) {
+    pub(crate) fn move_file(&mut self, app: &App, delta: i64) {
+        if !self.diff.selected_rows.is_empty() {
+            self.clear_line_selection(false);
+        }
+        // An open file history takes the keys, as `historyFilterActive` does in TS.
+        if self.scroll_file_history(app, delta) {
+            return;
+        }
         self.focus_changes();
         let kind = self.files.active();
         let paths: Vec<String> = self

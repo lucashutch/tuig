@@ -747,6 +747,7 @@ impl Shell {
             return false;
         };
         let max = history.commits.len().saturating_sub(1) as i64;
+        let before = history.index;
         history.index = (history.index as i64 + delta).clamp(0, max) as usize;
         if history.index < history.start {
             history.start = history.index;
@@ -754,7 +755,14 @@ impl Shell {
             history.start = history.index + 1 - viewport;
         }
         self.dirty |= Dirty::DETAILS;
-        self.show_history_diff(app);
+        if self
+            .details
+            .file_history
+            .as_ref()
+            .is_some_and(|h| h.index != before)
+        {
+            self.show_history_diff(app);
+        }
         true
     }
 

@@ -501,7 +501,7 @@ impl Shell {
                 app.quit()
             }
             Command::MoveCommit(delta) if self.files.focus == Focus::Changes => {
-                self.move_file(delta)
+                self.move_file(app, delta)
             }
             // The diff covers the history pane, and `moveCommit` ignores keys while it is visible.
             Command::MoveCommit(_) if self.diff.is_open() => {}
@@ -513,7 +513,7 @@ impl Shell {
             // With no graph to pan, the arrows step through the files, as in TS.
             Command::ScrollGraph(delta) => {
                 if self.files.focus == Focus::Changes || !self.scroll_graph(delta) {
-                    self.move_file(delta);
+                    self.move_file(app, delta);
                 }
             }
             Command::SwitchPane => self.switch_pane(),
