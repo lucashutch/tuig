@@ -114,6 +114,10 @@ class Cell:
 
 
 class Session:
+    # The Rust app draws a blank row between hunks. The TS goldens have none, so the app gets TUIG_DIFF_HUNK_GAP=0
+    # unless this is True. The TS app ignores the variable. `run.py --hunk-gap` sets this.
+    hunk_gap = False
+
     def __init__(self, argv: list[str], cols: int, rows: int, cwd: Path, stubs: tuple | dict = (), seeds: dict | None = None):
         """`stubs` are names from STUBS, or a dict from binary name to script text. `seeds` maps a path under HOME to its text, written before the app starts."""
         self.cols, self.rows = cols, rows
@@ -157,6 +161,8 @@ class Session:
             "HTTP_PROXY": DEAD_PROXY, "HTTPS_PROXY": DEAD_PROXY,
             "ALL_PROXY": DEAD_PROXY, "NO_PROXY": "",
         }
+        if not Session.hunk_gap:
+            env["TUIG_DIFF_HUNK_GAP"] = "0"
         self.screen = pyte.Screen(cols, rows)
         self.stream = pyte.ByteStream(self.screen)
         self.raw = bytearray()

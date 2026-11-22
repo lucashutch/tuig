@@ -128,8 +128,9 @@ The Rust app shows one blank row between consecutive hunks of a diff. The TS app
 
 Snapshots that differ for this reason, all in the diff pane of the `demo` fixture's `src/server.py` (3 hunks, 2 gaps): `changed-files/server-diff`, `diff-click/*` (2), `diff-menu/*` (3), `line-selection/*` (3), `line-staging/*` (3). The single-hunk diffs of `diff-scroll` and `syntax-highlight` are unchanged.
 
-- `TUIG_DIFF_HUNK_GAP=0` turns the blank row off, so `compare` matches the goldens again. The harness passes no caller environment to the app, so set it in the command: `--app "env TUIG_DIFF_HUNK_GAP=0 ./target/release/tuig --clean {repo}" --cwd rust`.
-- `python3 tools/parity/hunk_gap_check.py [scenario...]` plays each scenario with and without the row. Outside the diff pane the screens must be equal. Inside it, the screen with the row, minus the blank rows, must equal the screen without it, cell by cell and style by style. `line-selection` and `line-staging` click and drag on fixed screen rows below the first gap, so the check moves those gestures down one row in the run with the row.
+- The harness sets `TUIG_DIFF_HUNK_GAP=0` in the environment of every app it starts, so `compare` and `side-by-side --golden` match the goldens without extra setup. The TS app ignores the variable. The harness passes no other caller environment to the app.
+- `--hunk-gap` (on `record`, `show`, `compare`, `ab`, `side-by-side` and `stability`) keeps the blank row on, to look at the separators: `python3 tools/parity/run.py show --hunk-gap --app ./target/release/tuig --cwd rust diff-click`.
+- `python3 tools/parity/hunk_gap_check.py [scenario...]` plays each scenario with and without the row (it sets `Session.hunk_gap` itself). Outside the diff pane the screens must be equal. Inside it, the screen with the row, minus the blank rows, must equal the screen without it, cell by cell and style by style. `line-selection` and `line-staging` click and drag on fixed screen rows below the first gap, so the check moves those gestures down one row in the run with the row.
 
 ## Known gesture to avoid
 

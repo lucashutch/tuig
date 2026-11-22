@@ -50,6 +50,24 @@ class EmulatorTest(unittest.TestCase):
         self.assertEqual((cell.char, cell.attrs), ("k", ""))
 
 
+class HunkGapEnvTest(unittest.TestCase):
+    """The Rust app gets TUIG_DIFF_HUNK_GAP=0 unless a run asks for the separators."""
+
+    def gap_value(self):
+        s = Session(FAKE_APP, 40, 10, HERE)
+        self.addCleanup(s.close)
+        s.wait_text("gap=", 5)
+        return s.screen.display[6].strip()
+
+    def test_the_app_gets_zero_by_default(self):
+        self.assertEqual(self.gap_value(), "gap=0")
+
+    def test_the_hunk_gap_flag_leaves_the_variable_unset(self):
+        Session.hunk_gap = True
+        self.addCleanup(setattr, Session, "hunk_gap", False)
+        self.assertEqual(self.gap_value(), "gap=unset")
+
+
 class FixtureTest(unittest.TestCase):
     def build(self):
         d = Path(tempfile.mkdtemp())

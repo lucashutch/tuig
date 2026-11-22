@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Checks that the Rust hunk separators are the only change in the diff pane. See README.md, "Hunk separators".
 
-For every scenario it plays the Rust app twice: with the blank row between hunks (the default) and without it
+For every scenario it plays the Rust app twice: with the blank row between hunks (`Session.hunk_gap`) and without it
 (`TUIG_DIFF_HUNK_GAP=0`). Then, for each snapshot:
 
 - Outside the diff pane, both screens must be equal, cell by cell.
@@ -29,6 +29,7 @@ from parity import scenario as sc_mod  # noqa: E402
 from parity import sidebyside  # noqa: E402
 from parity import snapshot as snap_mod  # noqa: E402
 from parity.snapshot import Snapshot, style_key  # noqa: E402
+from parity.session import Session  # noqa: E402
 
 ROOT = HERE.parent.parent
 GOLDEN = HERE / "golden"
@@ -138,13 +139,14 @@ def main() -> int:
     p.add_argument("--binary", default=str(ROOT / "rust/target/release/tuig"))
     args = p.parse_args()
     cwd = ROOT / "rust"
-    on_app = f"{args.binary} --clean {{repo}}"
-    off_app = f"env TUIG_DIFF_HUNK_GAP=0 {args.binary} --clean {{repo}}"
+    app = f"{args.binary} --clean {{repo}}"
     ok = True
     for sc in sc_mod.load_all(HERE / "scenarios", args.scenarios):
-        off = sc_mod.play(sc, off_app, cwd)
+        Session.hunk_gap = False
+        off = sc_mod.play(sc, app, cwd)
         shift_gestures(sc)
-        on = sc_mod.play(sc, on_app, cwd)
+        Session.hunk_gap = True
+        on = sc_mod.play(sc, app, cwd)
         for snap_name in on:
             verdict, detail = check(on[snap_name], off[snap_name])
             ok &= verdict != "UNEXPLAINED"

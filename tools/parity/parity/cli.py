@@ -9,6 +9,7 @@ from pathlib import Path
 from . import scenario as sc_mod
 from . import sidebyside
 from . import snapshot as snap_mod
+from .session import Session
 
 HERE = Path(__file__).resolve().parent.parent
 REPO_ROOT = HERE.parent.parent
@@ -179,6 +180,9 @@ def main() -> int:
     p = argparse.ArgumentParser(prog="run.py", description=__doc__)
     sub = p.add_subparsers(dest="cmd", required=True)
 
+    def hunk_gap_flag(sp):
+        sp.add_argument("--hunk-gap", action="store_true", help="keep the Rust blank row between hunks. By default the app gets TUIG_DIFF_HUNK_GAP=0, so the diff pane matches the goldens")
+
     def common(sp, ab=False):
         if ab:
             sp.add_argument("--a", help="app A command (default: ts)")
@@ -189,6 +193,7 @@ def main() -> int:
             sp.add_argument("--app", help="command line, or 'ts' (default). {repo} is replaced by the fixture path; if absent the path is appended")
             sp.add_argument("--cwd", help="working directory for the app")
         sp.add_argument("scenarios", nargs="*", help="scenario names (default: all)")
+        hunk_gap_flag(sp)
 
     common(sub.add_parser("record", help="run an app and save golden snapshots"))
     common(sub.add_parser("show", help="print snapshots with a coordinate ruler"))
@@ -205,9 +210,11 @@ def main() -> int:
     sb.add_argument("--golden", action="store_true", help="use the recorded goldens instead of running the TS app")
     sb.add_argument("-v", "--verbose", action="store_true", help="print the differing rows of each region")
     sb.add_argument("scenarios", nargs="*", help="scenario names (default: all)")
+    hunk_gap_flag(sb)
     st = sub.add_parser("stability", help="run one app repeatedly and require identical snapshots")
     common(st)
     st.add_argument("--runs", type=int, default=3)
 
     args = p.parse_args()
+    Session.hunk_gap = args.hunk_gap
     return {"record": cmd_record, "compare": cmd_compare, "show": cmd_show, "ab": cmd_ab, "side-by-side": cmd_side_by_side, "stability": cmd_stability}[args.cmd](args)
