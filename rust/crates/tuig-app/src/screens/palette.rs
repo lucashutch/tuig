@@ -432,10 +432,6 @@ impl Shell {
         if self.overlay.palette.is_none() {
             return;
         }
-        self.widgets
-            .overlay
-            .layer
-            .update(|layer| layer.refresh_footer_theme());
         let query = self.widgets.overlay.palette_input.value();
         let commands = self.palette_commands();
         let terminal_width = i64::from(self.layout.width).max(1);

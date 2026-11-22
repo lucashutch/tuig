@@ -55,7 +55,7 @@ fn appearance(mode: opentui::prelude::ThemeMode) -> ThemeMode {
 }
 
 /// The colors OpenTUI gives new widgets and the screen background, from a tuig theme. `renderer.setBackgroundColor`.
-fn app_theme(theme: &tuig_ui_model::theme::Theme) -> opentui::prelude::Theme {
+pub(crate) fn app_theme(theme: &tuig_ui_model::theme::Theme) -> opentui::prelude::Theme {
     let color = |c: tuig_ui_model::color::Rgba| Color::rgba(c.r, c.g, c.b, c.a);
     let base = match opentui::prelude::ThemeMode::from_background(color(theme.bg)) {
         opentui::prelude::ThemeMode::Light => opentui::prelude::Theme::light(),

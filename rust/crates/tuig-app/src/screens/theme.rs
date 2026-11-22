@@ -112,7 +112,7 @@ impl ThemeState {
                 (
                     ThemeSelection {
                         name: "one-dark".to_owned(),
-                        mode: ThemeModeSelection::Dark,
+                        mode: ThemeModeSelection::System,
                     },
                     one_dark_theme(),
                 )
@@ -345,6 +345,7 @@ impl Shell {
     /// `repaint`: gives every widget the new colors, rebuilds the graph colors, and marks everything dirty.
     pub(crate) fn apply_theme(&mut self, app: &App, theme: Theme) {
         self.themes.theme = theme.clone();
+        app.set_theme(crate::shell::app_theme(&theme));
         self.sidebar.set_theme(&theme);
         self.widgets.set_theme(app, &theme);
         let history = &mut self.history;

@@ -215,3 +215,12 @@ fn a_broken_theme_file_falls_back_to_one_dark_and_says_why() {
     assert_eq!(initial.state.theme, one_dark_theme());
     assert!(initial.warning.unwrap().contains("Unknown theme: gone"));
 }
+
+#[test]
+fn a_theme_change_also_sets_the_opentui_theme() {
+    let config = config_with_theme("mine", "#123456");
+    let h = start(&config);
+    assert_ne!(h.app.app().theme().background, Color::rgb(0x12, 0x34, 0x56));
+    choose(&h, PalettePage::Themes, "theme.mine");
+    assert_eq!(h.app.app().theme().background, Color::rgb(0x12, 0x34, 0x56));
+}
