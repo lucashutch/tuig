@@ -5,18 +5,18 @@ parity-snapshot 1 160x48 cursor=hidden
  second  main  no upstream  clean                   Fetch    Pull    Push    Undo    Stash    Pop    Refresh                                          ■ Avatars |
                                                       󰇚       ↓       ↑       ↶        󰆓       󰄼        󰑓                                                       |
  ▼ LOCAL BRANCHES 2         │  Branch / tag         │ Graph │ Message (2 commits)        │ Committer   │ SHA     │ │  ✖  Discard all             ✚  Stage all   |
-○ 󰌢 dev                     │ ▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒ │  ▼ Unstaged files (0)                      |
-◉ 󰌢 main                    │ ▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒ │   Nothing to stage                         |
-                            │ ▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒ │                                            |
-                            │ ▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒ │                                            |
-                            │ ▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒ │                                            |
-                            │ ▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒ │                                            |
-                            │ ▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒ │                                            |
-                            │ ▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒ │                                            |
-───────────━━━━━────────────│ ▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒ │                                            |
- ▼ REMOTES 0                │ ▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒ │                                            |
-  (none)                    │ ▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒ │                                            |
-                            │ ▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒ │                                            |
+○ 󰌢 dev                     │  󰌢 dev                  ●       docs: extend notes           Ada Tester    ce409b68▐ │  ▼ Unstaged files (0)                      |
+◉ 󰌢 main                    │  ◉ main               ▶ ◉       chore: start second          Ada Tester    0a8031ec▐ │   Nothing to stage                         |
+                            │                                                                                      │                                            |
+                            │                                                                                      │                                            |
+                            │                                                                                      │                                            |
+                            │                                                                                      │                                            |
+                            │                                                                                      │                                            |
+                            │                                                                                      │                                            |
+───────────━━━━━────────────│ ▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒                                                               │                                            |
+ ▼ REMOTES 0                │ ▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒                                                               │                                            |
+  (none)                    │                                                                                      │                                            |
+                            │                                                                                      │                                            |
                             │                                                                                      │                                            |
                             │                                                                                      │───────────────────━━━━━────────────────────|
                             │                                                                                      │                                            |
@@ -64,36 +64,41 @@ j fg=61afef bg=282c34 attrs=-
 k fg=e06c75 bg=2c313a attrs=-
 l fg=98c379 bg=2c313a attrs=-
 m fg=abb2bf bg=21252b attrs=-
-n fg=default bg=default attrs=-
-o fg=2b5b61 bg=21252b attrs=-
-p fg=61afef bg=21252b attrs=-
-q fg=ffffff bg=2c313a attrs=-
-r fg=e5c07b bg=21252b attrs=-
-s fg=5c6370 bg=282c34 attrs=-
+n fg=5c6370 bg=282c34 attrs=-
+o fg=abb2bf bg=282c34 attrs=-
+p fg=c678dd bg=282c34 attrs=-
+q fg=e5c07b bg=3e4451 attrs=-
+r fg=5c6370 bg=3e4451 attrs=-
+s fg=c678dd bg=3e4451 attrs=-
+t fg=2b5b61 bg=21252b attrs=-
+u fg=default bg=default attrs=-
+v fg=61afef bg=21252b attrs=-
+w fg=ffffff bg=2c313a attrs=-
+x fg=e5c07b bg=21252b attrs=-
 
 [grid]
 aaaaaaaaaaaaaaaabccccccccccccccccbdddbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb|
 dddddddeeeeeeffffffffffffffffffffffffffffffffffffbbbbbbbbbbffffffffffffffffbbbbbbbbffffffffffffffffbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbfffffffffb|
 bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbdddddddddffffffffffffffffddddddddffffffffffffffffdddddddddddbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb|
 gaaaaaaaaaaaaaaaaaaggggggggghijjjjjjjjjjjjjjjjjjjjjjhhjjjjjhhhjjjjjjjjjjjjjjjjjjjjjjjjjjhhhjjjjjjjjjjjhhhjjjjjjjjhihgkkkkkkkkkkkkkkkkgggggggggggllllllllllllllgg|
-mmmmmmmmmmmmmmmmmmmmmmmmmmmmhinnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnihgaaaaaaaaaaaaaaaaaaaaagggggggggggggggggggggg|
-mmmmmmmmmmmmmmmmmmmmmmmmmmmmhinnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnihgaaaaaaaaaaaaaaaaaaggggggggggggggggggggggggg|
-mmmmmmmmmmmmmmmmmmmmmmmmmmmmhinnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnihgggggggggggggggggggggggggggggggggggggggggggg|
-mmmmmmmmmmmmmmmmmmmmmmmmmmmmhinnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnihgggggggggggggggggggggggggggggggggggggggggggg|
-mmmmmmmmmmmmmmmmmmmmmmmmmmmmhinnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnihgggggggggggggggggggggggggggggggggggggggggggg|
-mmmmmmmmmmmmmmmmmmmmmmmmmmmmhinnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnihgggggggggggggggggggggggggggggggggggggggggggg|
-mmmmmmmmmmmmmmmmmmmmmmmmmmmmhinnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnihgggggggggggggggggggggggggggggggggggggggggggg|
-mmmmmmmmmmmmmmmmmmmmmmmmmmmmhinnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnihgggggggggggggggggggggggggggggggggggggggggggg|
-oooooooooooooooooooooooooooohinnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnihgggggggggggggggggggggggggggggggggggggggggggg|
-gaaaaaaaaaaagggggggggggggggghinnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnihgggggggggggggggggggggggggggggggggggggggggggg|
-mmmmmmmmmmmmmmmmmmmmmmmmmmmmhinnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnihgggggggggggggggggggggggggggggggggggggggggggg|
-mmmmmmmmmmmmmmmmmmmmmmmmmmmmhinnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnihgggggggggggggggggggggggggggggggggggggggggggg|
+mmmmmmmmmmmmmmmmmmmmmmmmmmmmhijjjjjjjjjjjjjjjjjjjjjjjjjjnnnnnnoooooooooooooooooooooooooonnnpppppppppppnnnjjjjjjjjjihgaaaaaaaaaaaaaaaaaaaaagggggggggggggggggggggg|
+mmmmmmmmmmmmmmmmmmmmmmmmmmmmhiccccccccccccccccccccccqqccrrrrrrqqqqqqqqqqqqqqqqqqqqqqqqqqrrrsssssssssssrrrcccccccccihgaaaaaaaaaaaaaaaaaaggggggggggggggggggggggggg|
 mmmmmmmmmmmmmmmmmmmmmmmmmmmmhiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiihgggggggggggggggggggggggggggggggggggggggggggg|
-mmmmmmmmmmmmmmmmmmmmmmmmmmmmhiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiihoooooooooooooooooooooooooooooooooooooooooooo|
+mmmmmmmmmmmmmmmmmmmmmmmmmmmmhiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiihgggggggggggggggggggggggggggggggggggggggggggg|
+mmmmmmmmmmmmmmmmmmmmmmmmmmmmhiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiihgggggggggggggggggggggggggggggggggggggggggggg|
+mmmmmmmmmmmmmmmmmmmmmmmmmmmmhiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiihgggggggggggggggggggggggggggggggggggggggggggg|
+mmmmmmmmmmmmmmmmmmmmmmmmmmmmhiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiihgggggggggggggggggggggggggggggggggggggggggggg|
+mmmmmmmmmmmmmmmmmmmmmmmmmmmmhiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiihgggggggggggggggggggggggggggggggggggggggggggg|
+tttttttttttttttttttttttttttthiuuuuuuuuuuuuuuuuuuuuuuiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiihgggggggggggggggggggggggggggggggggggggggggggg|
+gaaaaaaaaaaagggggggggggggggghiuuuuuuuuuuuuuuuuuuuuuuiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiihgggggggggggggggggggggggggggggggggggggggggggg|
+mmmmmmmmmmmmmmmmmmmmmmmmmmmmhiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiihgggggggggggggggggggggggggggggggggggggggggggg|
+mmmmmmmmmmmmmmmmmmmmmmmmmmmmhiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiihgggggggggggggggggggggggggggggggggggggggggggg|
+mmmmmmmmmmmmmmmmmmmmmmmmmmmmhiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiihgggggggggggggggggggggggggggggggggggggggggggg|
+mmmmmmmmmmmmmmmmmmmmmmmmmmmmhiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiihtttttttttttttttttttttttttttttttttttttttttttt|
 mmmmmmmmmmmmmmmmmmmmmmmmmmmmhiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiihgggggggggggggggggggggggggggggggggggggggggggg|
 mmmmmmmmmmmmmmmmmmmmmmmmmmmmhiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiihgaaaaaaaaaaaaaaaaaaagggggggggggggggggggggggg|
 mmmmmmmmmmmmmmmmmmmmmmmmmmmmhiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiihgaaaaaaaaaaaaaaaaggggggggggggggggggggggggggg|
-oooooooooooooooooooooooooooohiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiihgggggggggggggggggggggggggggggggggggggggggggg|
+tttttttttttttttttttttttttttthiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiihgggggggggggggggggggggggggggggggggggggggggggg|
 gaaaaaaaaaaaaaaggggggggggggghiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiihgggggggggggggggggggggggggggggggggggggggggggg|
 mmmmmmmmmmmmmmmmmmmmmmmmmmmmhiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiihgggggggggggggggggggggggggggggggggggggggggggg|
 mmmmmmmmmmmmmmmmmmmmmmmmmmmmhiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiihgggggggggggggggggggggggggggggggggggggggggggg|
@@ -102,21 +107,21 @@ mmmmmmmmmmmmmmmmmmmmmmmmmmmmhiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiii
 mmmmmmmmmmmmmmmmmmmmmmmmmmmmhiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiihgggggggggggggggggggggggggggggggggggggggggggg|
 mmmmmmmmmmmmmmmmmmmmmmmmmmmmhiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiihgggggggggggggggggggggggggggggggggggggggggggg|
 mmmmmmmmmmmmmmmmmmmmmmmmmmmmhiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiihgggggggggggggggggggggggggggggggggggggggggggg|
-oooooooooooooooooooooooooooohiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiihgggggggggggggggggggggggggggggggggggggggggggg|
+tttttttttttttttttttttttttttthiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiihgggggggggggggggggggggggggggggggggggggggggggg|
 gaaaaaaaaaaagggggggggggggggghiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiihgggggggggggggggggggggggggggggggggggggggggggg|
 mmmmmmmmmmmmmmmmmmmmmmmmmmmmhiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiihgggggggggggggggggggggggggggggggggggggggggggg|
-mmmmmmmmmmmmmmmmmmmmmmmmmmmmhiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiihoooooooooooooooooooooooooooooooooooooooooooo|
+mmmmmmmmmmmmmmmmmmmmmmmmmmmmhiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiihtttttttttttttttttttttttttttttttttttttttttttt|
 mmmmmmmmmmmmmmmmmmmmmmmmmmmmhiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiihgggggggggggggggggggggggggggggggggggggggggggg|
-mmmmmmmmmmmmmmmmmmmmmmmmmmmmhiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiihgpppppppppppppppgggggggggggggggggggggggggggg|
-mmmmmmmmmmmmmmmmmmmmmmmmmmmmhiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiihggfffffffqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqg|
-mmmmmmmmmmmmmmmmmmmmmmmmmmmmhiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiihggfffffffffffqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqg|
-mmmmmmmmmmmmmmmmmmmmmmmmmmmmhiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiihggqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqg|
-oooooooooooooooooooooooooooohiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiihggqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqg|
-gaaaaaaaaaaaaagggggggggggggghiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiihggqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqg|
-rrrrrrrrrrrrrrrrrrrrrrrrrrrmhiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiihggqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqg|
-aaaaaaaaaaaaaaaaaaaaaaaaaaamhiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiihggqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqg|
+mmmmmmmmmmmmmmmmmmmmmmmmmmmmhiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiihgvvvvvvvvvvvvvvvgggggggggggggggggggggggggggg|
+mmmmmmmmmmmmmmmmmmmmmmmmmmmmhiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiihggfffffffwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwg|
+mmmmmmmmmmmmmmmmmmmmmmmmmmmmhiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiihggfffffffffffwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwg|
+mmmmmmmmmmmmmmmmmmmmmmmmmmmmhiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiihggwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwg|
+tttttttttttttttttttttttttttthiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiihggwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwg|
+gaaaaaaaaaaaaagggggggggggggghiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiihggwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwg|
+xxxxxxxxxxxxxxxxxxxxxxxxxxxmhiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiihggwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwg|
+aaaaaaaaaaaaaaaaaaaaaaaaaaamhiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiihggwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwg|
 mmmmmmmmmmmmmmmmmmmmmmmmmmmmhiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiihgggggggggggggggggggggggggggggggggggggggggggg|
 aaaaaaaaaaaaaaaaaaaaaaaaaaamhiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiihggaaaaaaaaaaaaaaaaaaaaaaaaaggggggggggggggggg|
 mmmmmmmmmmmmmmmmmmmmmmmmmmmmhiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiihggffffffffffffffffffffffffffffffffffffffffgg|
 aaaaaaaaaaaaaaaaaaaaaaaaaaamhiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiihgggggggggggggggggggggggggggggggggggggggggggg|
-maaaaaaaaaaaaaaaaaaaaaaaaaaassssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssaaaagggggggggggggggggggggggggggggggggggggggg|
+maaaaaaaaaaaaaaaaaaaaaaaaaaannnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnaaaagggggggggggggggggggggggggggggggggggggggg|

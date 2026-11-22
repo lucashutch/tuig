@@ -8,8 +8,11 @@ wait text "docs: extend notes"
 move 140 40
 snapshot restored
 key ctrl+tab
-# The selected history row differs between the apps when a tab is switched to (checklist section 8).
-mask 30 4 84 12
+# After a tab switch the selected row differs between the apps (checklist: tab history position). TS selects the
+# Working Changes row (row 4), Rust selects the row below it. Only these two rows are masked.
+mask 30 4 84 2
+# The "Unstage all" button appears a moment after the tab shows, so wait for it.
 wait text "Working Changes"
+wait text "Unstage all"
 move 140 40
 snapshot other-tab

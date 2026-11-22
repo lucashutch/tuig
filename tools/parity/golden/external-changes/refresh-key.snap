@@ -5,18 +5,18 @@ parity-snapshot 1 160x48 cursor=hidden
  linked  main  no upstream  clean                   Fetch    Pull    Push    Undo    Stash    Pop    Refresh                                          ■ Avatars |
                                                       󰇚       ↓       ↑       ↶        󰆓       󰄼        󰑓                                                       |
  ▼ LOCAL BRANCHES 4         │  Branch / tag         │ Graph      │ Message (15 commits)  │ Committer   │ SHA     │ │  ✖  Discard all             ✚  Stage all   |
-◆ 󰌢 feature/login           │ ▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒ │  ▼ Unstaged files (0)                      |
-◆ 󰌢 fix/typo                │ ▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒ │   Nothing to stage                         |
-◉ 󰌢 main                    │ ▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒ │                                            |
-○ 󰌢 release/1.0             │ ▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒ │                                            |
-                            │ ▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒ │                                            |
-                            │ ▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒ │                                            |
-                            │ ▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒ │                                            |
-                            │ ▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒ │                                            |
-───────────━━━━━────────────│ ▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒ │                                            |
- ▼ REMOTES 4                │ ▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒ │                                            |
-◌ 󰖟 HEAD                    │ ▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒ │                                            |
-◆ 󰖟 feature/login           │ ▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒ │                                            |
+◆ 󰌢 feature/login           │  ◉ 󰖟 main             ▶ ◉            chore: second extern…   Ada Tester    0865e79f▐ │  ▼ Unstaged files (0)                      |
+◆ 󰌢 fix/typo                │                         ●            chore: external comm…   Ada Tester    37243b2f▐ │   Nothing to stage                         |
+◉ 󰌢 main                    │  󰌢 󰖟 main +1            │ ●          docs: describe insta…   Ada Tester    2d6de209▐ │                                            |
+○ 󰌢 release/1.0             │  󰌢 release/1.0 +1       │ ● │        merge: fix/typo into…   Ada Tester    3522bedb▐ │                                            |
+                            │                         │ ● │        refactor: rename old…   Ada Tester    1c131e9c▐ │                                            |
+                            │                         │ ● │ │      merge: feature/login…   Ada Tester    988a3fa7▐ │                                            |
+                            │                         │ ● │ │      feat: add clamp help…   Ada Tester    b0168a57▐ │                                            |
+                            │  󰌢 󰖟 fix/typo           │ │ │ ●      docs: link the guide…   Ada Tester    bb48f3e7▐ │                                            |
+───────────━━━━━────────────│ ▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒  │ │ ● │      feat: normalise user…   Ada Tester    27e4e3f5▐ │                                            |
+ ▼ REMOTES 4                │ ▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒› ● │ │ │      chore: add libsub su…   Ada Tester    27e5a084▐ │                                            |
+◌ 󰖟 HEAD                    │                         │ │ ● │      feat: add login         Ada Tester    223ceb6d▐ │                                            |
+◆ 󰖟 feature/login           │  stash                  │ │ │ │ ●    On main: wip: scratch   Ada Tester    f6bb8d92▐ │                                            |
 ◆ 󰖟 fix/typo                │   v0.1                  │ ●─┴─╯ │    docs: add guide         Ada Tester    34d2f7d2▐ │                                            |
 ◆ 󰖟 main                    │                         │ │ │ ●      On main: wip: sideba…   Ada Tester    92214330▐ │───────────────────━━━━━────────────────────|
                             │                         │ ● │ │      chore: initial commit   Ada Tester    51bd7f1b▐ │                                            |
@@ -64,68 +64,74 @@ j fg=61afef bg=282c34 attrs=-
 k fg=e06c75 bg=2c313a attrs=-
 l fg=98c379 bg=2c313a attrs=-
 m fg=abb2bf bg=21252b attrs=-
-n fg=default bg=default attrs=-
-o fg=2b5b61 bg=21252b attrs=-
+n fg=e5c07b bg=282c34 attrs=-
+o fg=5c6370 bg=282c34 attrs=-
 p fg=c678dd bg=282c34 attrs=-
-q fg=98c379 bg=282c34 attrs=-
-r fg=e5c07b bg=282c34 attrs=-
-s fg=e06c75 bg=282c34 attrs=-
-t fg=5c6370 bg=282c34 attrs=-
-u fg=abb2bf bg=282c34 attrs=-
-v fg=c678dd bg=2c313a attrs=-
-w fg=56b6c2 bg=2c313a attrs=-
-x fg=56b6c2 bg=282c34 attrs=-
-y fg=98c379 bg=21252b attrs=-
-z fg=61afef bg=21252b attrs=-
-A fg=ffffff bg=2c313a attrs=-
-B fg=e5c07b bg=21252b attrs=-
+q fg=c678dd bg=2c313a attrs=-
+r fg=abb2bf bg=282c34 attrs=-
+s fg=888888 bg=2c313a attrs=-
+t fg=98c379 bg=282c34 attrs=-
+u fg=2b5b61 bg=21252b attrs=-
+v fg=default bg=default attrs=-
+w fg=c678dd bg=3e4451 attrs=-
+x fg=98c379 bg=3e4451 attrs=-
+y fg=e5c07b bg=3e4451 attrs=-
+z fg=5c6370 bg=3e4451 attrs=-
+A fg=abb2bf bg=3e4451 attrs=-
+B fg=e06c75 bg=282c34 attrs=-
+C fg=56b6c2 bg=2c313a attrs=-
+D fg=56b6c2 bg=282c34 attrs=-
+E fg=98c379 bg=21252b attrs=-
+F fg=61afef bg=21252b attrs=-
+G fg=ffffff bg=2c313a attrs=-
+H fg=e5c07b bg=21252b attrs=-
 
 [grid]
 aaaaaaaaaaaaaaaabcccbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb|
 cccccccddddddeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeebbbbbbbbbbeeeeeeeeeeeeeeeebbbbbbbbeeeeeeeeebbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbeeeeeeeeeb|
 bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbccccccccceeeeeeeeeeeeeeeecccccccceeeeeeeeeccccccccccccccccccbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb|
 fggggggggggggggggggfffffffffhijjjjjjjjjjjjjjjjjjjjjjhhjjjjjjjjjjhhhjjjjjjjjjjjjjjjjjjjjjhhhjjjjjjjjjjjhhhjjjjjjjjhihfkkkkkkkkkkkkkkkkfffffffffffllllllllllllllff|
-mmmmmmmmmmmmmmmmmmmmmmmmmmmmhinnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnihfgggggggggggggggggggggffffffffffffffffffffff|
-mmmmmmmmmmmmmmmmmmmmmmmmmmmmhinnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnihfggggggggggggggggggfffffffffffffffffffffffff|
-mmmmmmmmmmmmmmmmmmmmmmmmmmmmhinnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnihffffffffffffffffffffffffffffffffffffffffffff|
-mmmmmmmmmmmmmmmmmmmmmmmmmmmmhinnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnihffffffffffffffffffffffffffffffffffffffffffff|
-mmmmmmmmmmmmmmmmmmmmmmmmmmmmhinnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnihffffffffffffffffffffffffffffffffffffffffffff|
-mmmmmmmmmmmmmmmmmmmmmmmmmmmmhinnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnihffffffffffffffffffffffffffffffffffffffffffff|
-mmmmmmmmmmmmmmmmmmmmmmmmmmmmhinnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnihffffffffffffffffffffffffffffffffffffffffffff|
-mmmmmmmmmmmmmmmmmmmmmmmmmmmmhinnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnihffffffffffffffffffffffffffffffffffffffffffff|
-oooooooooooooooooooooooooooohinnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnihffffffffffffffffffffffffffffffffffffffffffff|
-fgggggggggggffffffffffffffffhinnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnihffffffffffffffffffffffffffffffffffffffffffff|
-mmmmmmmmmmmmmmmmmmmmmmmmmmmmhinnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnihffffffffffffffffffffffffffffffffffffffffffff|
-mmmmmmmmmmmmmmmmmmmmmmmmmmmmhinnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnihffffffffffffffffffffffffffffffffffffffffffff|
-mmmmmmmmmmmmmmmmmmmmmmmmmmmmhippppppppppppppppppppppjjjjppqqrrsstttuuuuuuuuuuuuuuuuuuuuutttppppppppppptttjjjjjjjjjihffffffffffffffffffffffffffffffffffffffffffff|
-mmmmmmmmmmmmmmmmmmmmmmmmmmmmhieeeeeeeeeeeeeeeeeeeeeeccccvvkkwweeeeebbbbbbbbbbbbbbbbbbbbbeeevvvvvvvvvvveeecccccccccihoooooooooooooooooooooooooooooooooooooooooooo|
-mmmmmmmmmmmmmmmmmmmmmmmmmmmmhittttttttttttttttttttttjjjjppssxxtttttuuuuuuuuuuuuuuuuuuuuutttppppppppppptttjjjjjjjjjihffffffffffffffffffffffffffffffffffffffffffff|
+mmmmmmmmmmmmmmmmmmmmmmmmmmmmhijjjjjjjjjjjjjjjjjjjjjjnnjjooooooooooonnnnnnnnnnnnnnnnnnnnnooopppppppppppooojjjjjjjjjihfgggggggggggggggggggggffffffffffffffffffffff|
+mmmmmmmmmmmmmmmmmmmmmmmmmmmmhieeeeeeeeeeeeeeeeeeeeeecccceeeeeeeeeeebbbbbbbbbbbbbbbbbbbbbeeeqqqqqqqqqqqeeecccccccccihfggggggggggggggggggfffffffffffffffffffffffff|
+mmmmmmmmmmmmmmmmmmmmmmmmmmmmhippppppppppppppppppppppjjjjppooooooooorrrrrrrrrrrrrrrrrrrrrooopppppppppppooojjjjjjjjjihffffffffffffffffffffffffffffffffffffffffffff|
+mmmmmmmmmmmmmmmmmmmmmmmmmmmmhiqqqqqqqqqqqqqqqqqqqqqqccccqqsseeeeeeebbbbbbbbbbbbbbbbbbbbbeeeqqqqqqqqqqqeeecccccccccihffffffffffffffffffffffffffffffffffffffffffff|
+mmmmmmmmmmmmmmmmmmmmmmmmmmmmhioooooooooooooooooooooojjjjppnnooooooorrrrrrrrrrrrrrrrrrrrrooopppppppppppooojjjjjjjjjihffffffffffffffffffffffffffffffffffffffffffff|
+mmmmmmmmmmmmmmmmmmmmmmmmmmmmhieeeeeeeeeeeeeeeeeeeeeeccccqqddsseeeeebbbbbbbbbbbbbbbbbbbbbeeeqqqqqqqqqqqeeecccccccccihffffffffffffffffffffffffffffffffffffffffffff|
+mmmmmmmmmmmmmmmmmmmmmmmmmmmmhioooooooooooooooooooooojjjjppttnnooooorrrrrrrrrrrrrrrrrrrrrooopppppppppppooojjjjjjjjjihffffffffffffffffffffffffffffffffffffffffffff|
+mmmmmmmmmmmmmmmmmmmmmmmmmmmmhiddddddddddddddddddddddccccqqllddeeeeebbbbbbbbbbbbbbbbbbbbbeeeqqqqqqqqqqqeeecccccccccihffffffffffffffffffffffffffffffffffffffffffff|
+uuuuuuuuuuuuuuuuuuuuuuuuuuuuhivvvvvvvvvvvvvvvvvvvvvvjjjjppttnnooooorrrrrrrrrrrrrrrrrrrrrooopppppppppppooojjjjjjjjjihffffffffffffffffffffffffffffffffffffffffffff|
+fgggggggggggffffffffffffffffhivvvvvvvvvvvvvvvvvvvvvvaaaawwxxyyzzzzzAAAAAAAAAAAAAAAAAAAAAzzzwwwwwwwwwwwzzzaaaaaaaaaihffffffffffffffffffffffffffffffffffffffffffff|
+mmmmmmmmmmmmmmmmmmmmmmmmmmmmhioooooooooooooooooooooojjjjppttnnooooorrrrrrrrrrrrrrrrrrrrrooopppppppppppooojjjjjjjjjihffffffffffffffffffffffffffffffffffffffffffff|
+mmmmmmmmmmmmmmmmmmmmmmmmmmmmhieeeeeeeeeeeeeeeeeeeeeeccccqqllddkkeeebbbbbbbbbbbbbbbbbbbbbeeeqqqqqqqqqqqeeecccccccccihffffffffffffffffffffffffffffffffffffffffffff|
+mmmmmmmmmmmmmmmmmmmmmmmmmmmmhippppppppppppppppppppppjjjjppttnnBBooorrrrrrrrrrrrrrrrrrrrrooopppppppppppooojjjjjjjjjihffffffffffffffffffffffffffffffffffffffffffff|
+mmmmmmmmmmmmmmmmmmmmmmmmmmmmhieeeeeeeeeeeeeeeeeeeeeeccccqqkkCCeeeeebbbbbbbbbbbbbbbbbbbbbeeeqqqqqqqqqqqeeecccccccccihuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuu|
+mmmmmmmmmmmmmmmmmmmmmmmmmmmmhioooooooooooooooooooooojjjjppBBDDooooorrrrrrrrrrrrrrrrrrrrrooopppppppppppooojjjjjjjjjihffffffffffffffffffffffffffffffffffffffffffff|
 mmmmmmmmmmmmmmmmmmmmmmmmmmmmhiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiihfgggggggggggggggggggffffffffffffffffffffffff|
 mmmmmmmmmmmmmmmmmmmmmmmmmmmmhiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiihfggggggggggggggggfffffffffffffffffffffffffff|
-oooooooooooooooooooooooooooohiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiihffffffffffffffffffffffffffffffffffffffffffff|
+uuuuuuuuuuuuuuuuuuuuuuuuuuuuhiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiihffffffffffffffffffffffffffffffffffffffffffff|
 fggggggggggggggfffffffffffffhiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiihffffffffffffffffffffffffffffffffffffffffffff|
-yyyyyyyyyyyyyyyyyyyyyyyyyyymhiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiihffffffffffffffffffffffffffffffffffffffffffff|
+EEEEEEEEEEEEEEEEEEEEEEEEEEEmhiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiihffffffffffffffffffffffffffffffffffffffffffff|
 gggggggggggggggggggggggggggmhiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiihffffffffffffffffffffffffffffffffffffffffffff|
 gggggggggggggggggggggggggggmhiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiihffffffffffffffffffffffffffffffffffffffffffff|
 gggggggggggggggggggggggggggmhiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiihffffffffffffffffffffffffffffffffffffffffffff|
 gggggggggggggggggggggggggggmhiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiihffffffffffffffffffffffffffffffffffffffffffff|
 gggggggggggggggggggggggggggmhiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiihffffffffffffffffffffffffffffffffffffffffffff|
 gggggggggggggggggggggggggggmhiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiihffffffffffffffffffffffffffffffffffffffffffff|
-oooooooooooooooooooooooooooohiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiihffffffffffffffffffffffffffffffffffffffffffff|
+uuuuuuuuuuuuuuuuuuuuuuuuuuuuhiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiihffffffffffffffffffffffffffffffffffffffffffff|
 fgggggggggggffffffffffffffffhiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiihffffffffffffffffffffffffffffffffffffffffffff|
 mmmmmmmmmmmmmmmmmmmmmmmmmmmmhiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiihffffffffffffffffffffffffffffffffffffffffffff|
-gggnnnnnnnnnnnnnnnnnnnnnnnnnhiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiihoooooooooooooooooooooooooooooooooooooooooooo|
+gggvvvvvvvvvvvvvvvvvvvvvvvvvhiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiihuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuu|
 mmmmmmmmmmmmmmmmmmmmmmmmmmmmhiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiihffffffffffffffffffffffffffffffffffffffffffff|
-gggnnnnnnnnnnnnnnnnnnnnnnnnnhiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiihfzzzzzzzzzzzzzzzffffffffffffffffffffffffffff|
-mmmmmmmmmmmmmmmmmmmmmmmmmmmmhiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiihffeeeeeeeAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAf|
-gggggggggggggggggggggggggggmhiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiihffeeeeeeeeeeeAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAf|
-mmmmmmmmmmmmmmmmmmmmmmmmmmmmhiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiihffAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAf|
-oooooooooooooooooooooooooooohiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiihffAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAf|
-fgggggggggggggffffffffffffffhiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiihffAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAf|
-BBBBBBBBBBBBBBBBBBBBBBBBBBBmhiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiihffAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAf|
-gggggggggggggggggggggggggggmhiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiihffAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAf|
+gggvvvvvvvvvvvvvvvvvvvvvvvvvhiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiihfFFFFFFFFFFFFFFFffffffffffffffffffffffffffff|
+mmmmmmmmmmmmmmmmmmmmmmmmmmmmhiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiihffeeeeeeeGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGf|
+gggggggggggggggggggggggggggmhiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiihffeeeeeeeeeeeGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGf|
+mmmmmmmmmmmmmmmmmmmmmmmmmmmmhiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiihffGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGf|
+uuuuuuuuuuuuuuuuuuuuuuuuuuuuhiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiihffGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGf|
+fgggggggggggggffffffffffffffhiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiihffGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGf|
+HHHHHHHHHHHHHHHHHHHHHHHHHHHmhiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiihffGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGf|
+gggggggggggggggggggggggggggmhiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiihffGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGf|
 mmmmmmmmmmmmmmmmmmmmmmmmmmmmhiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiihffffffffffffffffffffffffffffffffffffffffffff|
 gggggggggggggggggggggggggggmhiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiihffgggggggggggggggggggggggggfffffffffffffffff|
 mmmmmmmmmmmmmmmmmmmmmmmmmmmmhiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiihffeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeff|
 gggggggggggggggggggggggggggmhiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiihffffffffffffffffffffffffffffffffffffffffffff|
-mgggggggggggggggggggggggggggttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttggggffffffffffffffffffffffffffffffffffffffff|
+mgggggggggggggggggggggggggggooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooggggffffffffffffffffffffffffffffffffffffffff|

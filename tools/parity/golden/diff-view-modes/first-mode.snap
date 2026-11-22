@@ -48,7 +48,7 @@ parity-snapshot 1 160x48 cursor=hidden
                             │                                                                                      │                                            |
                             │                                                                                      │                                            |
                             │                                                                                      │                                            |
- esc back to graph  ·  ←/→ file  ·  s stage  ·  u unstage  ·  ⇥ pane  ·  [ ] collapse  ·  r refresh  ·  q…  Commit selected · click a changed file for its diff |
+ esc back to graph  ·  ←/→ file  ·  s stage  ·  u unstage  ·  ⇥ pane  ·  [ ] collapse  ·  r refresh  ·  q…  Commit selec▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒|
 
 [styles]
 a fg=61afef bg=3e4451 attrs=-
@@ -75,6 +75,7 @@ u fg=abb2bf bg=3e4451 attrs=-
 v fg=5c6370 bg=3e4451 attrs=-
 w fg=98c379 bg=3e4451 attrs=-
 x fg=5c6370 bg=282c34 attrs=-
+y fg=default bg=default attrs=-
 
 [grid]
 aaaaaaaaaaaaaaaabcccbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb|
@@ -124,4 +125,4 @@ kkkkkkkkkkkkkkkkkkkkkkkkkkkkhiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiii
 gggggggggggggggggggggggggggkhiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiihffffffffffffffffffffffffffffffffffffffffffff|
 kkkkkkkkkkkkkkkkkkkkkkkkkkkkhiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiihffffffffffffffffffffffffffffffffffffffffffff|
 gggggggggggggggggggggggggggkhiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiihffffffffffffffffffffffffffffffffffffffffffff|
-kgggggggggggggggggggggggggggxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxiixxxxxxxxgggggggggggggggggggggggggggggggggggggggggggf|
+kgggggggggggggggggggggggggggxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxiixxxxxxxxggggyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy|

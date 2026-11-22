@@ -4,17 +4,18 @@ fixture linked
 extra second
 wait text "chore: add libsub"
 mask-text "on main • [^│┃]*"
-# The history rows are masked: the selected row differs between the apps (checklist section 4, rows
-# on the hover hint and on the tab history position). The "Message (N commits)" header shows the refresh.
-mask 30 4 84 12
 git commit -q --allow-empty -m "chore: external commit"
 wait text "external comm"
 move 140 40
+# The new commit shows in row 4, unmasked. Only the label cells of the old selected row are masked: TS shows a
+# "↳ main" hint there and Rust does not (checklist: hover highlight of a history row).
+mask 30 12 22 1
 snapshot watched
 git commit -q --allow-empty -m "chore: second external commit"
 key r
 wait text "second exter"
 move 140 40
+mask 30 13 22 1
 snapshot refresh-key
 key ctrl+t
 text "{second}"
@@ -26,4 +27,8 @@ git commit -q --allow-empty -m "chore: while on another tab"
 key ctrl+tab
 wait text "while on"
 move 140 40
+# Rows 4 and 14 are masked in full: the selected row and its highlight differ after a tab switch (checklist: tab
+# history position). The other rows, with the new commit's neighbors, stay visible.
+mask 30 4 84 1
+mask 30 14 84 1
 snapshot back-to-first

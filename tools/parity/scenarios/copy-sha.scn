@@ -4,5 +4,7 @@ wait text "Working Changes"
 click 60 13
 wait text "COMMIT FILES"
 click 150 11
+# This SHA is the commit that the click at 60 13 selects in the demo fixture. It stays the same only while the fixture builder
+# (parity/fixtures.py) keeps the same commits, authors and dates. Change it when the fixture changes.
 expect-clipboard 34d2f7d2d15eabdca2b3a2d36666e47da50e7fa1
 snapshot copied

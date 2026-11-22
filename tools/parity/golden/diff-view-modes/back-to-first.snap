@@ -48,7 +48,7 @@ parity-snapshot 1 160x48 cursor=hidden
                             │                                                                                      │                                            |
                             │                                                                                      │                                            |
                             │                                                                                      │                                            |
- esc back to graph  ·  ←/→ file  ·  s stage  ·  u unstage  ·  ⇥ pane  ·  [ ] collapse  ·  r refresh  ·  q…  Commit selected · click a changed file for its diff |
+ esc back to graph  ·  ←/→ file  ·  s stage  ·  u unstage  ·  ⇥ pane  ·  [ ] collapse  ·  r refresh  ·  q…  Commit selec▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒|
 
 [styles]
 a fg=61afef bg=3e4451 attrs=-
@@ -125,4 +125,4 @@ llllllllllllllllllllllllllllijjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjj
 hhhhhhhhhhhhhhhhhhhhhhhhhhhlijjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjigggggggggggggggggggggggggggggggggggggggggggg|
 llllllllllllllllllllllllllllijjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjigggggggggggggggggggggggggggggggggggggggggggg|
 hhhhhhhhhhhhhhhhhhhhhhhhhhhlijjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjigggggggggggggggggggggggggggggggggggggggggggg|
-lhhhhhhhhhhhhhhhhhhhhhhhhhhhyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyjjyyyyyyyyhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhg|
+lhhhhhhhhhhhhhhhhhhhhhhhhhhhyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyjjyyyyyyyyhhhhffffffffffffffffffffffffffffffffffffffff|
