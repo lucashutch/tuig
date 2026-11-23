@@ -393,7 +393,7 @@ impl Shell {
             (None, false) => "Committing",
         };
         if let Some(running) = &self.diff.mutation {
-            self.notify(format!("{running} is still running"));
+            self.notify_error(format!("{running} is still running"));
             return;
         }
         app.blur();

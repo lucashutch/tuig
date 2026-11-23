@@ -62,7 +62,7 @@ impl Shell {
         Fut: Future<Output = GitResult<()>> + Send + 'static,
     {
         if let Some(running) = &self.diff.mutation {
-            self.notify(format!("{running} is still running"));
+            self.notify_error(format!("{running} is still running"));
             return;
         }
         let token = CancelToken::new();
