@@ -175,6 +175,7 @@ impl Shell {
             working_files: snapshot.files.len(),
             commits_complete: history.complete,
             pull_requests: self.pr.index.as_ref(),
+            comparison_start: self.commands.comparison_start.as_deref(),
         };
         Some(history_window(
             &mut history.index,

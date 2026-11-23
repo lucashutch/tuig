@@ -93,6 +93,16 @@ fn window_with(
     lines: usize,
     pull_requests: Option<&PullRequestCommitIndex>,
 ) -> Rc<HistoryWindow> {
+    window_comparing(data, start, lines, pull_requests, None)
+}
+
+fn window_comparing(
+    data: &HistoryData,
+    start: usize,
+    lines: usize,
+    pull_requests: Option<&PullRequestCommitIndex>,
+    comparison_start: Option<&str>,
+) -> Rc<HistoryWindow> {
     let theme = one_dark_theme();
     let colors: Vec<String> = theme.graph.iter().map(|color| color.to_hex()).collect();
     let head = resolve_head_sha(&data.branches, &data.commits);
@@ -113,6 +123,7 @@ fn window_with(
         working_files: data.working_files,
         commits_complete: data.commits_complete,
         pull_requests,
+        comparison_start,
     };
     Rc::new(history_window(&mut index, &source, start, lines))
 }
@@ -245,6 +256,56 @@ fn row_of(data: &HistoryData, subject: &str) -> usize {
         .unwrap();
     // The header is line 0 and the working row is the first body line.
     commit + 2
+}
+
+#[test]
+fn the_comparison_start_shows_a_marker_that_replaces_the_head_and_selection_markers() {
+    let data = demo();
+    let head = row_of(&data, "docs: describe installation");
+    let start = row_of(&data, "feat: add login");
+    let sha = data
+        .commits
+        .iter()
+        .find(|commit| commit.subject == "feat: add login")
+        .unwrap()
+        .sha
+        .clone();
+    let paint_with = |selected: usize, comparison: Option<&str>| {
+        let mut list = HistoryList::new(one_dark_theme());
+        list.set_window(window_comparing(
+            &data,
+            0,
+            usize::from(HEIGHT) - 1,
+            None,
+            comparison,
+        ));
+        list.set_selected(Some(selected - 1));
+        let (app, _widget) = paint(list);
+        app.render()
+    };
+    let marked = paint_with(head, Some(&sha));
+    assert!(
+        marked.row(start as u32).contains("A "),
+        "{}",
+        marked.row(start as u32)
+    );
+    let marker_rows: Vec<u32> = (0..u32::from(HEIGHT))
+        .filter(|&row| marked.row(row).contains("  A "))
+        .collect();
+    assert_eq!(marker_rows, [start as u32], "{marked}");
+    assert!(marked.row(head as u32).contains('›') || marked.row(head as u32).contains('▶'));
+
+    // The selection arrow gives way to the marker on the same row.
+    let selected = paint_with(start, Some(&sha));
+    assert!(
+        !selected.row(start as u32).contains('›'),
+        "{}",
+        selected.row(start as u32)
+    );
+    assert!(selected.row(start as u32).contains("A "));
+
+    // Without a comparison start the row shows no marker.
+    assert!(!paint_with(head, None).text().contains("A ●"));
 }
 
 #[test]

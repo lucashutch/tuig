@@ -12,7 +12,6 @@
 //!
 //! Known parity gaps with `paintHistory` and its mouse handling in the TypeScript app:
 //!
-//! - The `A ` comparison marker.
 //! - The PR number is not a terminal hyperlink: `Painter` has no hyperlink support.
 
 use crate::branch_hints::BranchHintIndex;
@@ -59,6 +58,8 @@ pub struct HistoryRow {
     pub extra: usize,
     /// Open pull requests that match the commit, newest first. Empty without pull request data.
     pub pull_requests: Vec<PullRequest>,
+    /// The commit picked with "Select for comparison". It shows `A ` in place of the head or selection marker.
+    pub comparison_start: bool,
 }
 
 /// The part of the history the widget paints, built by [`history_window`].
@@ -114,6 +115,8 @@ pub struct HistorySource<'a> {
     pub hints: &'a BranchHintIndex,
     /// Pull request matcher. `None` hides the PR column.
     pub pull_requests: Option<&'a PullRequestCommitIndex>,
+    /// The SHA of the comparison start, if one is picked.
+    pub comparison_start: Option<&'a str>,
 }
 
 /// Builds the rows for `lines` body lines from display row `start`. The graph rows come from `index`, which keeps
@@ -147,6 +150,7 @@ pub fn history_window(
                     .pull_requests
                     .map(|index| index.for_commit(commit).into_iter().cloned().collect())
                     .unwrap_or_default(),
+                comparison_start: source.comparison_start == Some(commit.sha.as_str()),
             }
         })
         .collect();
@@ -784,7 +788,9 @@ impl HistoryList {
                 },
                 if stash { Some(theme.panel_raised) } else { bg },
             )];
-            line.push(if row.head {
+            line.push(if entry.comparison_start {
+                span("A ".to_string(), theme.warning, bg)
+            } else if row.head {
                 span("▶ ".to_string(), theme.warning, bg)
             } else {
                 span(
