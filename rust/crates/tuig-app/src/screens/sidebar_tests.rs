@@ -195,7 +195,7 @@ fn escape_clears_the_filter() {
 }
 
 #[test]
-fn the_wheel_scrolls_only_the_section_under_the_pointer() {
+fn one_wheel_notch_scrolls_two_rows_of_the_section_under_the_pointer() {
     let repo = repository(2);
     for i in 0..12 {
         git(&repo.0, &["branch", &format!("b{i:02}")]);
@@ -206,7 +206,8 @@ fn the_wheel_scrolls_only_the_section_under_the_pointer() {
     h.app.scroll(5, 5, true);
     h.app.advance(SIDEBAR_SCROLL_INTERVAL);
     h.wait("the scroll", |shell| {
-        shell.sidebar.start[Section::Local] == 1
+        // The content text and the sidebar box both handle the notch in TS.
+        shell.sidebar.start[Section::Local] == 2
     });
     assert_eq!(h.read(|shell| shell.sidebar.start[Section::Remote]), 0);
 }

@@ -506,7 +506,10 @@ impl Sidebar {
     /// sidebar box both scroll by `WHEEL_ROWS` and the event bubbles, so a content row scrolls twice.
     /// Header and divider rows reach only the box.
     fn wheel_handlers(&self, y: i64) -> i32 {
-        if Section::ALL.into_iter().any(|s| self.view.rects[s].holds(y)) {
+        if Section::ALL
+            .into_iter()
+            .any(|s| self.view.rects[s].holds(y))
+        {
             2
         } else {
             1
