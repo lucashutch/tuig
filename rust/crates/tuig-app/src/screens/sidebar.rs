@@ -275,6 +275,9 @@ impl Shell {
                 }
             }
         }
+        if let Some(columns) = &preferences.history_columns {
+            self.history.columns = self.history.columns.with_saved(columns);
+        }
         self.layout.recompute();
     }
 
@@ -401,6 +404,7 @@ impl Shell {
                 worktrees: self.sidebar.preferred[Section::Worktrees].map(|v| v as f64),
             }),
             sidebar_collapsed: Some(from_sections(&self.sidebar.collapsed, |flag| flag)),
+            history_columns: Some(self.history.columns.to_preferences()),
             ..LayoutPreferences::default()
         }
     }

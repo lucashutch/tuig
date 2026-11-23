@@ -248,9 +248,11 @@ impl Shell {
             self.sync_overlay(app);
         }
         let spinner = self.pr.spinner_frame;
-        self.widgets
-            .history
-            .update(|list| list.set_spinner_frame(spinner));
+        let columns = self.history.columns;
+        self.widgets.history.update(|list| {
+            list.set_spinner_frame(spinner);
+            list.set_columns(columns);
+        });
         if self
             .dirty
             .intersects(Dirty::HISTORY | Dirty::LAYOUT | Dirty::DIFF | Dirty::AVATARS)
