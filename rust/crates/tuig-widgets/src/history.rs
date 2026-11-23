@@ -332,10 +332,11 @@ impl HistoryList {
     /// The separator the shell is dragging, or `None` when no header drag runs. It stays lit while the pointer is
     /// away from it.
     pub fn set_divider_drag(&mut self, key: Option<HistoryDividerKey>) {
-        self.divider_drag = key;
-        if key.is_none() {
+        // TS clears the hover only on hover, hoverEnd and dragEnd, so only the end of a drag clears it here.
+        if key.is_none() && self.divider_drag.is_some() {
             self.divider_hover = None;
         }
+        self.divider_drag = key;
     }
 
     /// Whether widget cell (`line`, `column`) is on the scrollbar of a list that has more rows than lines.
