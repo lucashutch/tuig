@@ -906,7 +906,9 @@ impl Shell {
             panes.divider_height,
         );
         let theme = &self.sidebar.theme;
-        let left_cells = panes.left_divider_width as usize;
+        // The collapsed hit box is three cells wide. Its third cell lies over the history content, which
+        // keeps its own colors, so the backdrop stops at two cells.
+        let left_cells = (panes.left_divider_width as usize).min(2);
         widgets.left_divider.update(|divider| {
             divider.set_bar_column(panes.left_divider_bar_left - panes.left_divider_left);
             divider.set_backdrop(vec![theme.bg; left_cells]);
