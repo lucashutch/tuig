@@ -7,6 +7,13 @@ on:
 permissions:
   contents: write
 
+env:
+  # Keep equal to .zig-version of the OpenTUI version pinned in rust/Cargo.toml. build-opentui-native.sh stops on a mismatch.
+  # Change it here and in rust.yml.
+  ZIG_VERSION: 0.17.1
+  # cargo-zigbuild links the Linux binaries against glibc 2.17. Change it here and in rust.yml.
+  CARGO_ZIGBUILD_VERSION: 0.24.1
+
 jobs:
   release:
     runs-on: ubuntu-latest
@@ -28,4 +35,72 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ github.ref_name }}
-        run: gh release create "$TAG" --verify-tag --generate-notes --title "$TAG"
+        # A draft stays out of /releases/latest until the publish job finds every asset uploaded.
+        run: gh release create "$TAG" --verify-tag --generate-notes --title "$TAG" --draft
+
+  rust-package:
+    # Builds the Rust package for each platform and attaches it, with its SHA-256 file, to the release.
+    # `tuig update` downloads these assets, so the names come from rust/scripts/package.sh.
+    name: rust-package (${{ matrix.platform }})
+    needs: release
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Linux binaries link against glibc 2.17 through cargo-zigbuild, so the runner image sets no glibc floor.
+          - platform: x86_64-linux
+            runner: ubuntu-24.04
+          - platform: aarch64-linux
+            runner: ubuntu-24.04-arm
+          - platform: aarch64-macos
+            runner: macos-15
+          - platform: x86_64-macos
+            runner: macos-15-intel
+    defaults:
+      run:
+        working-directory: rust
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.100.0
+      - uses: mlugg/setup-zig@v2
+        with:
+          version: ${{ env.ZIG_VERSION }}
+      - name: Install cargo-zigbuild
+        if: runner.os == 'Linux'
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-zigbuild@${{ env.CARGO_ZIGBUILD_VERSION }}
+      - name: Read the pinned OpenTUI version
+        id: opentui
+        run: echo "version=$(sed -n 's|^opentui = {.*version = "=\([0-9][0-9.]*\)".*|\1|p' Cargo.toml)" >> "$GITHUB_OUTPUT"
+      - name: Cache the OpenTUI native library
+        uses: actions/cache@v5
+        with:
+          path: rust/.opentui-native
+          key: opentui-native-${{ matrix.platform }}-${{ steps.opentui.outputs.version }}-${{ hashFiles('rust/scripts/build-opentui-native.sh') }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: rust
+          key: ${{ matrix.platform }}
+      - name: Build the package
+        run: sh scripts/package.sh
+      - name: Upload to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: gh release upload "$TAG" dist/*-${{ matrix.platform }}.tar.gz dist/*-${{ matrix.platform }}.tar.gz.sha256 --clobber
+
+  publish:
+    # Makes the release public after every package is uploaded. If a platform fails, the release stays a draft.
+    needs: [release, rust-package]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ github.ref_name }}
+        run: gh release edit "$TAG" --draft=false

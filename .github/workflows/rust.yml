@@ -1,0 +1,63 @@
+name: Rust
+
+on:
+  push:
+    branches: [main]
+    paths: ["rust/**", "package.json", ".github/workflows/rust.yml"]
+  pull_request:
+    paths: ["rust/**", "package.json", ".github/workflows/rust.yml"]
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  # Keep equal to .zig-version of the OpenTUI version pinned in rust/Cargo.toml. build-opentui-native.sh stops on a mismatch.
+  # Change it here and in release.yml.
+  ZIG_VERSION: 0.17.1
+  CARGO_ZIGBUILD_VERSION: 0.24.1
+
+jobs:
+  rust:
+    # The package built here is a CI artifact. It uses the same Linux build as the release job (glibc 2.17 floor).
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: rust
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # The tuig-spike test reads more than 100 commits of this repository's history.
+          fetch-depth: 0
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: mlugg/setup-zig@v2
+        with:
+          version: ${{ env.ZIG_VERSION }}
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-zigbuild@${{ env.CARGO_ZIGBUILD_VERSION }}
+      - name: Read the pinned OpenTUI version
+        id: opentui
+        run: echo "version=$(sed -n 's|^opentui = {.*version = "=\([0-9][0-9.]*\)".*|\1|p' Cargo.toml)" >> "$GITHUB_OUTPUT"
+      - name: Cache the OpenTUI native library
+        uses: actions/cache@v5
+        with:
+          path: rust/.opentui-native
+          key: opentui-native-x86_64-linux-${{ steps.opentui.outputs.version }}-${{ hashFiles('rust/scripts/build-opentui-native.sh') }}
+      - run: sh scripts/build-opentui-native.sh
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: rust
+      - run: cargo fmt --check
+      - run: cargo clippy --all-targets --locked -- -D warnings
+      - run: cargo test --locked
+      - name: Build the release package
+        run: sh scripts/package.sh
+      - uses: actions/upload-artifact@v6
+        with:
+          name: tuig-x86_64-linux
+          path: |
+            rust/dist/*.tar.gz
+            rust/dist/*.sha256

@@ -2,7 +2,11 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { selectPatchLines } from "../../src/git/hunks.js";
+import {
+  hunkAtRow,
+  selectPatchLines,
+  splitPatchHunks,
+} from "../../src/git/hunks.js";
 import { GitRepositoryService, runGit } from "../../src/git/repository.js";
 
 const cleanup: string[] = [];
@@ -135,5 +139,64 @@ describe("partial line patches", () => {
       "one\ntwo\nTHREE\n",
     );
     expect(await readFile(path, "utf8")).toBe("ONE\ntwo\nTHREE\n");
+  });
+
+  test("stages, unstages, and reverts one hunk of a two-hunk file", async () => {
+    const root = await mkdtemp(join(tmpdir(), "tuig-hunks-"));
+    cleanup.push(root);
+    await runGit(["init", "-b", "main"], root);
+    const path = join(root, "a.txt");
+    const base = Array.from({ length: 30 }, (_, i) => `line ${i + 1}`);
+    await Bun.write(path, `${base.join("\n")}\n`);
+    await runGit(["add", "a.txt"], root);
+    await runGit(
+      [
+        "-c",
+        "user.name=Test",
+        "-c",
+        "user.email=test@example.com",
+        "commit",
+        "-m",
+        "base",
+      ],
+      root,
+    );
+    const edited = [...base];
+    edited[1] = "TOP";
+    edited[27] = "BOTTOM";
+    await Bun.write(path, `${edited.join("\n")}\n`);
+    const repo = await GitRepositoryService.open(root);
+    const diff = await repo.diff({ path: "a.txt", context: 3 });
+    const rows = diff.split("\n");
+    const hunks = splitPatchHunks(diff);
+    expect(hunks).toHaveLength(2);
+    const bottomRow = rows.indexOf("+BOTTOM");
+    expect(hunkAtRow(diff, bottomRow)?.index).toBe(1);
+
+    await repo.applyPatch(hunkAtRow(diff, bottomRow)!.patch);
+    const staged = (await runGit(["show", ":a.txt"], root)).stdout.split("\n");
+    expect(staged[27]).toBe("BOTTOM");
+    expect(staged[1]).toBe("line 2");
+
+    const stagedDiff = await repo.diff({
+      path: "a.txt",
+      staged: true,
+      context: 3,
+    });
+    await repo.applyPatch(splitPatchHunks(stagedDiff)[0]!.patch, true);
+    expect((await runGit(["show", ":a.txt"], root)).stdout).toBe(
+      `${base.join("\n")}\n`,
+    );
+
+    const topRow = rows.indexOf("+TOP");
+    await repo.discardPatch(hunkAtRow(diff, topRow)!.patch);
+    const worktree = (await readFile(path, "utf8")).split("\n");
+    expect(worktree[1]).toBe("line 2");
+    expect(worktree[27]).toBe("BOTTOM");
+  });
+
+  test("finds no hunk for header rows", () => {
+    expect(hunkAtRow(patch, 1)).toBeUndefined();
+    expect(hunkAtRow(patch, 5)?.index).toBe(0);
   });
 });

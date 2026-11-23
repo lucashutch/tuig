@@ -1,0 +1,19 @@
+# Toolbar: hover, undo on a dirty tree, stash, pop, refresh, and the avatars toggle. The stash commit
+# SHA is stable because the harness fixes the commit date.
+fixture demo
+wait text "Working Changes"
+move 54 1
+snapshot hover-fetch
+click 79 1
+snapshot undo-refused
+mask 0 47 160 1
+click 87 1
+wait text "WIP on main"
+snapshot stashed
+click 96 1
+wait text "Working Changes (6"
+snapshot popped
+click 103 1
+snapshot refreshed
+click 154 1
+snapshot avatars-toggled

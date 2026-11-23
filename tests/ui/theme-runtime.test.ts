@@ -29,8 +29,9 @@ import { tmpdir } from "node:os";
 import themeDocument from "../../src/ui/themes/opencode.json";
 import { themeFromDocument } from "../../src/ui/theme-resolver.js";
 
-test("V2 syntax aliases and Markdown captures use their own semantic colors", () => {
+test("V2 syntax aliases and Markdown captures use their own semantic colors", async () => {
   const previous = { ...activeTheme };
+  const { renderer } = await createTestRenderer({ width: 20, height: 5 });
   const custom = structuredClone(themeDocument);
   custom.base.syntax.function = "#123456";
   custom.base.syntax.number = "#234567";
@@ -38,7 +39,7 @@ test("V2 syntax aliases and Markdown captures use their own semantic colors", ()
   custom.base.markdown.heading = "#456789";
   custom.base.markdown.code = "#56789a";
   setActiveTheme(themeFromDocument(custom, "dark"));
-  const style = createDiffSyntaxStyle();
+  const style = createDiffSyntaxStyle(renderer);
   try {
     for (const [capture, color] of [
       ["method", "#123456"],
@@ -53,6 +54,7 @@ test("V2 syntax aliases and Markdown captures use their own semantic colors", ()
     expect(style.getStyle("markup.heading")?.bold).toBe(true);
   } finally {
     style.destroy();
+    renderer.destroy();
     setActiveTheme(previous);
   }
 });
@@ -191,7 +193,7 @@ test("semantic controls retain their roles across coincident palettes and hovere
     expect(button.bg?.equals(RGBA.fromHex("#223344"))).toBe(true);
     expect(field.value).toBe("draft");
     expect(field.focused).toBe(true);
-    const style = createDiffSyntaxStyle();
+    const style = createDiffSyntaxStyle(renderer);
     expect(
       style.getStyle("comment")?.fg?.equals(RGBA.fromHex(activeTheme.muted)),
     ).toBe(true);

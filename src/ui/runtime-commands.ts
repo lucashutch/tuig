@@ -345,6 +345,14 @@ export async function runMenuAction(
       "working",
     );
   }
+  if (
+    action === "stage-hunk" ||
+    action === "unstage-hunk" ||
+    action === "revert-hunk"
+  ) {
+    if (target.hunkPatch) runHunkAction(context, action, target.hunkPatch);
+    return;
+  }
   if (action === "discard-file") {
     if (!file) return;
     return runFileAction(context, "discard", [file]);
@@ -866,6 +874,40 @@ export async function runFileAction(
       destructive: true,
     },
     run,
+  );
+}
+/** Stage, unstage, or revert one hunk. Reverting asks for confirmation first. */
+export function runHunkAction(
+  context: RuntimeCommandsContext,
+  action: "stage-hunk" | "unstage-hunk" | "revert-hunk",
+  patch: string,
+) {
+  if (action !== "revert-hunk") {
+    const staging = action === "stage-hunk";
+    return perform(
+      context,
+      `${staging ? "Staging" : "Unstaging"} hunk…`,
+      () => context.repository.applyPatch(patch, !staging),
+      false,
+      "working",
+    );
+  }
+  return confirmThen(
+    context,
+    {
+      title: "Revert hunk",
+      lines: ["Discard this hunk's working-tree changes?"],
+      confirmLabel: "Revert hunk",
+      destructive: true,
+    },
+    () =>
+      perform(
+        context,
+        "Reverting hunk…",
+        () => context.repository.discardPatch(patch),
+        false,
+        "working",
+      ),
   );
 }
 export async function stageFirstHunk(context: RuntimeCommandsContext) {

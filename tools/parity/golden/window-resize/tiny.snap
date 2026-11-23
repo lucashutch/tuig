@@ -1,0 +1,72 @@
+parity-snapshot 1 60x20 cursor=hidden
+
+[text]
+     demo    ×    +                                         |
+… Fetch    Pull    Push    Undo    Stash    Pop   ■ Avatars |
+    󰇚       ↓       ↑       ↶        󰆓       󰄼        󰑓     |
+ ▼ LOCAL BRANCHES 4 │  Bra│ Gr  ▶ │ M  │ 5 file changes in w|
+○ 󰌢 feature/login  █│       ●       W  │ View Changes       |
+○ 󰌢 fix/typo       ││  ◉… ▶ ◉       d  │  C Edit Message    |
+───────━━━━━────────│   +1  ● │     m  │                    |
+ ▼ REMOTES 0        │       ● │     r  │  docs: add guide   |
+  (none)            ┃       ● │     m  ┃                    |
+                    ┃       ● │     f  ┃                    |
+───────━━━━━────────┃  󰌢…   │ │     d  ┃  (no body)         |
+ ▼ SUBMODULES 0     ┃  󰌢…   │ ●     f  ┃                    |
+  (none)            ┃       │ ●     f  ┃  DETAILS   34d2f7d2|
+                    │   … › ●─┴─    d  │  ┌────┐    Ada Test|
+───────━━━━━────────│       ●       c  │  │ AT │    ada@exam|
+ ▼ STASHES 0        │                  │  └────┘    e.invali|
+  (none)            │                  │            Mar 1,  |
+───────━━━━━────────│                  │            2024, 12|
+ ▼ WORKTREES 1      │                  │            00 PM   |
+ escebacCommit selected · click a changed file for itsrdiff |
+
+[styles]
+a fg=61afef bg=3e4451 attrs=-
+b fg=abb2bf bg=2c313a attrs=-
+c fg=61afef bg=2c313a attrs=-
+d fg=5c6370 bg=2c313a attrs=-
+e fg=ffffff bg=21252b attrs=-
+f fg=5c6370 bg=21252b attrs=-
+g fg=2b5b61 bg=282c34 attrs=-
+h fg=ffffff bg=282c34 attrs=-
+i fg=61afef bg=282c34 attrs=-
+j fg=e5c07b bg=21252b attrs=-
+k fg=abb2bf bg=21252b attrs=-
+l fg=e5c07b bg=2c313a attrs=-
+m fg=e5c07b bg=282c34 attrs=-
+n fg=5c6370 bg=282c34 attrs=-
+o fg=ffffff bg=2c313a attrs=-
+p fg=2b5b61 bg=21252b attrs=-
+q fg=888888 bg=2c313a attrs=-
+r fg=c678dd bg=282c34 attrs=-
+s fg=abb2bf bg=282c34 attrs=-
+t fg=c678dd bg=2c313a attrs=-
+u fg=61afef bg=21252b attrs=-
+v fg=e5c07b bg=3e4451 attrs=-
+w fg=5c6370 bg=3e4451 attrs=-
+x fg=abb2bf bg=3e4451 attrs=-
+y fg=c678dd bg=21252b attrs=-
+
+[grid]
+aaaaaaaaaaaaaaaabcccbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb|
+cbbbbbbbbddddddddddddddddbbbbbbbbbbbbbbbbbdddddddbdddddddddb|
+cccccccccddddddddddddddddcccccccccccccccccdddddddccccccccccc|
+effffffffffffffffffeghiiiiggiiiiigggighgejjjjjjjjjjjjjjjjjjj|
+kkkkkkkkkkkkkkkkkkkkghbbbbddllddddddldhgejjjjjjjjjjjjeeeeeee|
+kkkkkkkkkkkkkkkkkkkkghiiiimmiinnnnnnmnhgeobaaaaaaaaaaaaaaooo|
+ppppppppppppppppppppghccccccccqqddddbdhgeooooooooooooooooooo|
+efffffffffffeeeeeeeeghnnnniiiirrnnnnsnhgeodddddddddddddddooo|
+kkkkkkkkkkkkkkkkkkkkghddddccccttddddbdhgeooooooooooooooooooo|
+kkkkkkkkkkkkkkkkkkkkghnnnniiiimmnnnnsnhgeooooooooooooooooooo|
+ppppppppppppppppppppghttttccccllddddbdhgeobbbbbbbbbooooooooo|
+effffffffffffffeeeeeghmmmmiiiimmnnnnsnhgeeeeeeeeeeeeeeeeeeee|
+kkkkkkkkkkkkkkkkkkkkghddddccccllddddbdhgeeuuuuuuuuuuuuuuuuuu|
+kkkkkkkkkkkkkkkkkkkkghaaaaaaaavvwwwwxwhgeeyyyyyyeeeekkkkkkkk|
+ppppppppppppppppppppghddddccccddddddbdhgeeyyyyyyeeeeffffffff|
+efffffffffffeeeeeeeeghhhhhhhhhhhhhhhhhhgeeyyyyyyeeeeffffffff|
+kkkkkkkkkkkkkkkkkkkkghhhhhhhhhhhhhhhhhhgeeeeeeeeeeeefffffffe|
+ppppppppppppppppppppghhhhhhhhhhhhhhhhhhgeeeeeeeeeeeeffffffff|
+efffffffffffffeeeeeeghhhhhhhhhhhhhhhhhhgeeeeeeeeeeeefffffeee|
+jfffjfffffffffffffffnnnnnnnnnnnnnnnnnnnnffffffffffffffffffff|

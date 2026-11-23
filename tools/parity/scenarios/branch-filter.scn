@@ -1,0 +1,16 @@
+# Branch filter: open it, type, move through the matches, cancel, then filter and check out.
+fixture demo
+wait text "Working Changes"
+key /
+snapshot open
+text "f"
+snapshot matches
+key down
+snapshot moved
+key esc
+snapshot cancelled
+key /
+text "release"
+key enter
+wait text "demo  release/1.0"
+snapshot checked-out

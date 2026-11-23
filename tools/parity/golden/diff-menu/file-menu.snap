@@ -1,0 +1,139 @@
+parity-snapshot 1 160x48 cursor=hidden
+
+[text]
+     demo    ×    +                                                                                                                                             |
+ demo  main  no upstream  5 changed                 Fetch    Pull    Push    Undo    Stash    Pop    Refresh                         ■ Split (narrow) ■ Avatars |
+                                                      󰇚       ↓       ↑       ↶        󰆓       󰄼        󰑓                                                       |
+ ▼ LOCAL BRANCHES 4         │                                                                                      │  ✖  Discard all             ✚  Stage all   |
+○ 󰌢 feature/login           │   1   def handler_00(request):┌─ src/server.py ─────────┐                            │  ▼ Unstaged files (2)                      |
+○ 󰌢 fix/typo                │   2 -     return 0            │ Stage hunk              │                            │   ▼ 󰝰 src                                  |
+◉ 󰌢 main                    │   2 +     return 'first'      │ Revert hunk             │                            │ ▸ │   󰌠 server.py                          |
+○ 󰌢 release/1.0             │   3   def handler_01(request):│─────────────────────────│                            │     󰧮 notes.txt                            |
+                            │   4       return 1            │─────────────────────────│                            │                                            |
+                            │   5   def handler_02(request):│ Show file history       │                            │                                            |
+                            │   6       return 2            │ Blame line 1            │                            │                                            |
+                            │   7   def handler_03(request):│ Show history for line 1 │                            │                                            |
+───────────━━━━━────────────│   8       return 3            │ Copy path               │                            │                                            |
+ ▼ REMOTES 0                │  26       return 12           └─────────────────────────┘                            │                                            |
+  (none)                    │  27   def handler_13(request):                                                       │                                            |
+                            │  28       return 13                                                                  │                                            |
+                            │  29   def handler_14(request):                                                       │                                            |
+                            │  30       return 14                                                                  │───────────────────━━━━━────────────────────|
+                            │  31   def handler_15(request):                                                       │                                            |
+                            │  32 -     return 15                                                                  │  ▼ Staged files (3)       −  Unstage all   |
+                            │  32 +     return 'middle'                                                            │   ▼ 󰝰 src                                  |
+───────────━━━━━────────────│  33   def handler_16(request):                                                       │   │   󰌠 auth.py                            |
+ ▼ SUBMODULES 0             ┃  34       return 16                                                                  ┃   │   󰌠 staged_new.py                      |
+  (none)                    ┃  35   def handler_17(request):                                                       ┃   │   󰌠 util.py                            |
+                            ┃  36       return 17                                                                  ┃                                            |
+                            ┃  37   def handler_18(request):                                                       ┃                                            |
+                            ┃  38       return 18                                                                  ┃                                            |
+                            │  52       return 25                                                                  │                                            |
+                            │  53   def handler_26(request):                                                       │                                            |
+                            │  54       return 26                                                                  │                                            |
+───────────━━━━━────────────│  55   def handler_27(request):                                                       │                                            |
+ ▼ STASHES 0                │  56       return 27                                                                  │                                            |
+  (none)                    │  57   def handler_28(request):                                                       │                                            |
+                            │  58 -     return 28                                                                  │───────────────────━━━━━────────────────────|
+                            │  58 +     return 'last'                                                              │                                            |
+                            │  59   def handler_29(request):                                                       │  COMMIT MESSAGE                            |
+                            │  60       return 29                                                                  │  Summary                                   |
+                            │                                                                                      │  Description                               |
+                            │                                                                                      │                                            |
+───────────━━━━━────────────│                                                                                      │                                            |
+ ▼ WORKTREES 1              │                                                                                      │                                            |
+ ◉ demo                     │                                                                                      │                                            |
+  on main                   │                                                                                      │                                            |
+                            │                                                                                      │                                            |
+                            │                                                                                      │  [ ] Amend previous commit                 |
+                            │                                                                                      │         Write a summary to commit          |
+                            │                                                                                      │                                            |
+ click select  ·  ctrl/alt-click add  ·  alt-drag range  ·  esc back  ·  ⇥ pane  ·  [ ] collapse  ·  r refresh  ·  q quit                Line selection cleared |
+
+[styles]
+a fg=61afef bg=3e4451 attrs=-
+b fg=abb2bf bg=2c313a attrs=-
+c fg=61afef bg=2c313a attrs=-
+d fg=e5c07b bg=2c313a attrs=-
+e fg=5c6370 bg=2c313a attrs=-
+f fg=ffffff bg=21252b attrs=-
+g fg=5c6370 bg=21252b attrs=-
+h fg=2b5b61 bg=282c34 attrs=-
+i fg=ffffff bg=282c34 attrs=-
+j fg=e06c75 bg=2c313a attrs=-
+k fg=98c379 bg=2c313a attrs=-
+l fg=abb2bf bg=21252b attrs=-
+m fg=5c6370 bg=282c34 attrs=-
+n fg=c678dd bg=282c34 attrs=-
+o fg=abb2bf bg=282c34 attrs=-
+p fg=61afef bg=282c34 attrs=-
+q fg=61afef bg=21252b attrs=-
+r fg=ffffff bg=462c31 attrs=-
+s fg=5c6370 bg=462c31 attrs=-
+t fg=e06c75 bg=462c31 attrs=-
+u fg=abb2bf bg=462c31 attrs=-
+v fg=c678dd bg=462c31 attrs=-
+w fg=d19a66 bg=462c31 attrs=-
+x fg=e5c07b bg=21252b attrs=-
+y fg=ffffff bg=30402f attrs=-
+z fg=5c6370 bg=30402f attrs=-
+A fg=98c379 bg=30402f attrs=-
+B fg=abb2bf bg=30402f attrs=-
+C fg=c678dd bg=30402f attrs=-
+D fg=abb2bf bg=3e4451 attrs=-
+E fg=5c6370 bg=3e4451 attrs=-
+F fg=e5c07b bg=3e4451 attrs=-
+G fg=98c379 bg=21252b attrs=-
+H fg=d19a66 bg=282c34 attrs=-
+I fg=2b5b61 bg=21252b attrs=-
+J fg=ffffff bg=2c313a attrs=-
+
+[grid]
+aaaaaaaaaaaaaaaabcccbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb|
+cccccddddddeeeeeeeeeeeeedddddddddddeeeeeeeeeeeeeebbbbbbbbbbeeeeeeeeeeeeeeeebbbbbbbbbbbbbbbbbeeeeeeebbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbeeeeeeeeeb|
+bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbccccccccceeeeeeeeeeeeeeeeccccccccccccccccceeeeeeecccccccccccbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb|
+fggggggggggggggggggfffffffffhiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiihfjjjjjjjjjjjjjjjjfffffffffffkkkkkkkkkkkkkkff|
+llllllllllllllllllllllllllllhiiimiiinnnoppppppppppooooooooooeeeeeeeeeeeeeeeeeeeeeeeeeeeiiiiiiiiiiiiiiiiiiiiiiiiiiiihfqqqqqqqqqqqqqqqqqqqqqffffffffffffffffffffff|
+llllllllllllllllllllllllllllhirrsttruuuuvvvvvvuwrrrrrrrrrrrrebbbbbbbbbbbbbbbbbbbbbbbbberrrrrrrrrrrrrrrrrrrrrrrrrrrihfggqqxxqqqgggggggggggggggggggggggggggggggggg|
+llllllllllllllllllllllllllllhiyyzAAyBBBBCCCCCCBAAAAAAAyyyyyyejjjjjjjjjjjjjjjjjjjjjjjjjeyyyyyyyyyyyyyyyyyyyyyyyyyyyihfDDEEEEFFDDDDDDDDDEEEEEEEEEEEEEEEEEEEEEEEEEE|
+llllllllllllllllllllllllllllhiiimiiinnnoppppppppppooooooooooeeeeeeeeeeeeeeeeeeeeeeeeeeeiiiiiiiiiiiiiiiiiiiiiiiiiiiihfggggGGlllllllllgggggggggggggggggggggggggggg|
+llllllllllllllllllllllllllllhiiimiiioooonnnnnnoHiiiiiiiiiiiieeeeeeeeeeeeeeeeeeeeeeeeeeeiiiiiiiiiiiiiiiiiiiiiiiiiiiihffffffffffffffffffffffffffffffffffffffffffff|
+llllllllllllllllllllllllllllhiiimiiinnnoppppppppppooooooooooebbbbbbbbbbbbbbbbbbbbbbbbbeiiiiiiiiiiiiiiiiiiiiiiiiiiiihffffffffffffffffffffffffffffffffffffffffffff|
+llllllllllllllllllllllllllllhiiimiiioooonnnnnnoHiiiiiiiiiiiiebbbbbbbbbbbbbbbbbbbbbbbbbeiiiiiiiiiiiiiiiiiiiiiiiiiiiihffffffffffffffffffffffffffffffffffffffffffff|
+llllllllllllllllllllllllllllhiiimiiinnnoppppppppppooooooooooebbbbbbbbbbbbbbbbbbbbbbbbbeiiiiiiiiiiiiiiiiiiiiiiiiiiiihffffffffffffffffffffffffffffffffffffffffffff|
+IIIIIIIIIIIIIIIIIIIIIIIIIIIIhiiimiiioooonnnnnnoHiiiiiiiiiiiiebbbbbbbbbbbbbbbbbbbbbbbbbeiiiiiiiiiiiiiiiiiiiiiiiiiiiihffffffffffffffffffffffffffffffffffffffffffff|
+fgggggggggggffffffffffffffffhiimmiiioooonnnnnnoHHiiiiiiiiiiieeeeeeeeeeeeeeeeeeeeeeeeeeeiiiiiiiiiiiiiiiiiiiiiiiiiiiihffffffffffffffffffffffffffffffffffffffffffff|
+llllllllllllllllllllllllllllhiimmiiinnnoppppppppppooooooooooiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiihffffffffffffffffffffffffffffffffffffffffffff|
+llllllllllllllllllllllllllllhiimmiiioooonnnnnnoHHiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiihffffffffffffffffffffffffffffffffffffffffffff|
+llllllllllllllllllllllllllllhiimmiiinnnoppppppppppooooooooooiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiihffffffffffffffffffffffffffffffffffffffffffff|
+llllllllllllllllllllllllllllhiimmiiioooonnnnnnoHHiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiihIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIII|
+llllllllllllllllllllllllllllhiimmiiinnnoppppppppppooooooooooiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiihffffffffffffffffffffffffffffffffffffffffffff|
+llllllllllllllllllllllllllllhirssttruuuuvvvvvvuwwrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrihfgggggggggggggggggggffffffddddddddddddddddff|
+llllllllllllllllllllllllllllhiyzzAAyBBBBCCCCCCBAAAAAAAAyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyihfggqqqqqqqgggggggggggggggggggggggggggggggggg|
+IIIIIIIIIIIIIIIIIIIIIIIIIIIIhiimmiiinnnoppppppppppooooooooooiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiihfggggggqqlllllllgggggggggggggggggggggggggggg|
+fggggggggggggggfffffffffffffhiimmiiioooonnnnnnoHHiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiihfggggggGGlllllllllllllgggggggggggggggggggggg|
+llllllllllllllllllllllllllllhiimmiiinnnoppppppppppooooooooooiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiihfggggggxxlllllllgggggggggggggggggggggggggggg|
+llllllllllllllllllllllllllllhiimmiiioooonnnnnnoHHiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiihffffffffffffffffffffffffffffffffffffffffffff|
+llllllllllllllllllllllllllllhiimmiiinnnoppppppppppooooooooooiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiihffffffffffffffffffffffffffffffffffffffffffff|
+llllllllllllllllllllllllllllhiimmiiioooonnnnnnoHHiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiihffffffffffffffffffffffffffffffffffffffffffff|
+llllllllllllllllllllllllllllhiimmiiioooonnnnnnoHHiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiihffffffffffffffffffffffffffffffffffffffffffff|
+llllllllllllllllllllllllllllhiimmiiinnnoppppppppppooooooooooiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiihffffffffffffffffffffffffffffffffffffffffffff|
+llllllllllllllllllllllllllllhiimmiiioooonnnnnnoHHiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiihffffffffffffffffffffffffffffffffffffffffffff|
+IIIIIIIIIIIIIIIIIIIIIIIIIIIIhiimmiiinnnoppppppppppooooooooooiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiihffffffffffffffffffffffffffffffffffffffffffff|
+fgggggggggggffffffffffffffffhiimmiiioooonnnnnnoHHiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiihffffffffffffffffffffffffffffffffffffffffffff|
+llllllllllllllllllllllllllllhiimmiiinnnoppppppppppooooooooooiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiihffffffffffffffffffffffffffffffffffffffffffff|
+llllllllllllllllllllllllllllhirssttruuuuvvvvvvuwwrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrihIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIII|
+llllllllllllllllllllllllllllhiyzzAAyBBBBCCCCCCBAAAAAAyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyihffffffffffffffffffffffffffffffffffffffffffff|
+llllllllllllllllllllllllllllhiimmiiinnnoppppppppppooooooooooiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiihfqqqqqqqqqqqqqqqffffffffffffffffffffffffffff|
+llllllllllllllllllllllllllllhiimmiiioooonnnnnnoHHiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiihffeeeeeeeJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJf|
+llllllllllllllllllllllllllllhiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiihffeeeeeeeeeeeJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJf|
+llllllllllllllllllllllllllllhiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiihffJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJf|
+IIIIIIIIIIIIIIIIIIIIIIIIIIIIhiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiihffJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJf|
+fgggggggggggggffffffffffffffhiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiihffJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJf|
+xxxxxxxxxxxxxxxxxxxxxxxxxxxlhiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiihffJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJf|
+ggggggggggggggggggggggggggglhiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiihffJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJf|
+llllllllllllllllllllllllllllhiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiihffffffffffffffffffffffffffffffffffffffffffff|
+ggggggggggggggggggggggggggglhiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiihffgggggggggggggggggggggggggfffffffffffffffff|
+llllllllllllllllllllllllllllhiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiihffeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeff|
+ggggggggggggggggggggggggggglhiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiihffffffffffffffffffffffffffffffffffffffffffff|
+lgggggggggggggggggggggggggggmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmgggggffffffffffffffffggggggggggggggggggggggf|

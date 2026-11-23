@@ -1,0 +1,14 @@
+# History header: a divider drag is saved to layout.json, a double click on the divider restores the default width,
+# and hiding a column is saved too.
+fixture demo
+wait text "Working Changes"
+drag 52 3 46 3
+expect-file config/tuig/layout.json "branchWidth"
+click 46 3
+click 46 3
+move 100 30
+snapshot reset
+click 100 3 right
+click 102 4
+expect-file config/tuig/layout.json "showCommitter\": false"
+snapshot committer-hidden

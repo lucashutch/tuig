@@ -135,6 +135,7 @@ import {
   perform as performRuntime,
   runToolbarAction as runRuntimeToolbarAction,
   stageAll as stageAllRuntime,
+  runHunkAction,
   stageFirstHunk as stageFirstRuntimeHunk,
   submitNamePrompt as submitRuntimeNamePrompt,
   unstageAll as unstageAllRuntime,
@@ -1294,6 +1295,12 @@ export class Runtime {
   }
   discardAll() {
     return discardAllRuntime(this);
+  }
+  hunkAction(
+    action: "stage-hunk" | "unstage-hunk" | "revert-hunk",
+    patch: string,
+  ) {
+    return runHunkAction(this, action, patch);
   }
   stageFirstHunk() {
     return stageFirstRuntimeHunk(this);

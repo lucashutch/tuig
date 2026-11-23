@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { createTestRenderer } from "@opentui/core/testing";
 import {
   loadDiff,
   type RuntimeDataContext,
@@ -24,8 +25,9 @@ function diffWidget(value = "", filetype?: string) {
 }
 
 describe("diff syntax highlighting", () => {
-  test("uses distinct token colors without hiding diff backgrounds", () => {
-    const style = createDiffSyntaxStyle();
+  test("uses distinct token colors without hiding diff backgrounds", async () => {
+    const { renderer } = await createTestRenderer({ width: 20, height: 5 });
+    const style = createDiffSyntaxStyle(renderer);
     try {
       expect(style.resolveStyleId("keyword")).not.toBeNull();
       expect(diffSyntaxStyles.keyword!.fg).not.toBe(
@@ -36,6 +38,7 @@ describe("diff syntax highlighting", () => {
       }
     } finally {
       style.destroy();
+      renderer.destroy();
     }
   });
 

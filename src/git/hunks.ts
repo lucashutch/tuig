@@ -22,6 +22,15 @@ export function splitPatchHunks(patch: string): DiffHunk[] {
   });
 }
 
+/** The hunk that contains a zero-based raw patch row, if the row is inside one. */
+export function hunkAtRow(patch: string, row: number): DiffHunk | undefined {
+  const lines = patch.split("\n");
+  let index = -1;
+  for (let at = 0; at <= row && at < lines.length; at++)
+    if (lines[at]!.startsWith("@@ ")) index++;
+  return index < 0 ? undefined : splitPatchHunks(patch)[index];
+}
+
 /** Build an applicable patch containing only the selected changed rows. */
 export function selectPatchLines(
   patch: string,

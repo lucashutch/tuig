@@ -1,0 +1,5 @@
+# Startup: history graph, sidebar, working changes, no pull request section.
+fixture demo
+size 160 48
+wait text "Working Changes"
+snapshot loaded

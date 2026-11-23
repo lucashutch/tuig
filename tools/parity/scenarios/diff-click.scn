@@ -1,0 +1,10 @@
+# Mouse in the diff: click one line, then drag across several lines.
+fixture demo
+wait text "Working Changes"
+click 60 4
+click 118 6
+wait text "handler_00"
+click 30 6
+snapshot line-clicked
+drag 36 9 62 12
+snapshot drag-selected

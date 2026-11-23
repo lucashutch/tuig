@@ -1,0 +1,127 @@
+parity-snapshot 1 160x48 cursor=hidden
+
+[text]
+     demo    ×       second   ×    +                                                                                                                            |
+ second  main  no upstream  clean                   Fetch    Pull    Push    Undo    Stash    Pop    Refresh                                          ■ Avatars |
+                                                      󰇚       ↓       ↑       ↶        󰆓       󰄼        󰑓                                                       |
+ ▼ LOCAL BRANCHES 2         │  Branch / tag         │ Graph │ Message (2 commits)        │ Committer   │ SHA     │ │  ✖  Discard all             ✚  Stage all   |
+○ 󰌢 dev                     │  󰌢 dev                  ●       docs: extend notes           Ada Tester    ce409b68▐ │  ▼ Unstaged files (0)                      |
+◉ 󰌢 main                    │  ◉ main               ▶ ◉       chore: start second          Ada Tester    0a8031ec▐ │   Nothing to stage                         |
+                            │                                                                                      │                                            |
+                            │                                                                                      │                                            |
+                            │                                                                                      │                                            |
+                            │                                                                                      │                                            |
+                            │                                                                                      │                                            |
+                            │                                                                                      │                                            |
+───────────━━━━━────────────│                                                                                      │                                            |
+ ▼ REMOTES 0                │                                                                                      │                                            |
+  (none)                    │                                                                                      │                                            |
+                            │                                                                                      │                                            |
+                            │                                                                                      │                                            |
+                            │                                                                                      │───────────────────━━━━━────────────────────|
+                            │                                                                                      │                                            |
+                            │                                                                                      │  ▼ Staged files (0)                        |
+                            │                                                                                      │   Nothing staged                           |
+───────────━━━━━────────────│                                                                                      │                                            |
+ ▼ SUBMODULES 0             ┃                                                                                      ┃                                            |
+  (none)                    ┃                                                                                      ┃                                            |
+                            ┃                                                                                      ┃                                            |
+                            ┃                                                                                      ┃                                            |
+                            ┃                                                                                      ┃                                            |
+                            │                                                                                      │                                            |
+                            │                                                                                      │                                            |
+                            │                                                                                      │                                            |
+───────────━━━━━────────────│                                                                                      │                                            |
+ ▼ STASHES 0                │                                                                                      │                                            |
+  (none)                    │                                                                                      │                                            |
+                            │                                                                                      │───────────────────━━━━━────────────────────|
+                            │                                                                                      │                                            |
+                            │                                                                                      │  COMMIT MESSAGE                            |
+                            │                                                                                      │  Summary                                   |
+                            │                                                                                      │  Description                               |
+                            │                                                                                      │                                            |
+───────────━━━━━────────────│                                                                                      │                                            |
+ ▼ WORKTREES 1              │                                                                                      │                                            |
+ ◉ second                   │                                                                                      │                                            |
+  on main                   │                                                                                      │                                            |
+                            │                                                                                      │                                            |
+                            │                                                                                      │  [ ] Amend previous commit                 |
+                            │                                                                                      │           Stage files to commit            |
+                            │                                                                                      │                                            |
+ j/k move  ·  ←/→ pan graph  ·  ↵ open commit  ·  / filter branches  ·  ⇥ pane  ·  [ ] collapse  ·  r refresh  ·  q quit                                        |
+
+[styles]
+a fg=5c6370 bg=21252b attrs=-
+b fg=abb2bf bg=2c313a attrs=-
+c fg=61afef bg=3e4451 attrs=-
+d fg=61afef bg=353b45 attrs=-
+e fg=61afef bg=2c313a attrs=-
+f fg=e5c07b bg=2c313a attrs=-
+g fg=5c6370 bg=2c313a attrs=-
+h fg=ffffff bg=21252b attrs=-
+i fg=2b5b61 bg=282c34 attrs=-
+j fg=ffffff bg=282c34 attrs=-
+k fg=61afef bg=282c34 attrs=-
+l fg=e06c75 bg=2c313a attrs=-
+m fg=98c379 bg=2c313a attrs=-
+n fg=abb2bf bg=21252b attrs=-
+o fg=5c6370 bg=282c34 attrs=-
+p fg=abb2bf bg=282c34 attrs=-
+q fg=c678dd bg=282c34 attrs=-
+r fg=e5c07b bg=3e4451 attrs=-
+s fg=5c6370 bg=3e4451 attrs=-
+t fg=c678dd bg=3e4451 attrs=-
+u fg=2b5b61 bg=21252b attrs=-
+v fg=61afef bg=21252b attrs=-
+w fg=ffffff bg=2c313a attrs=-
+x fg=e5c07b bg=21252b attrs=-
+
+[grid]
+aaaaaaaaaaaaaaaabccccccccccccccccbdddbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb|
+eeeeeeeffffffggggggggggggggggggggggggggggggggggggbbbbbbbbbbggggggggggggggggbbbbbbbbggggggggggggggggbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbgggggggggb|
+bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbeeeeeeeeeggggggggggggggggeeeeeeeeggggggggggggggggeeeeeeeeeeebbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb|
+haaaaaaaaaaaaaaaaaahhhhhhhhhijkkkkkkkkkkkkkkkkkkkkkkiikkkkkiiikkkkkkkkkkkkkkkkkkkkkkkkkkiiikkkkkkkkkkkiiikkkkkkkkijihllllllllllllllllhhhhhhhhhhhmmmmmmmmmmmmmmhh|
+nnnnnnnnnnnnnnnnnnnnnnnnnnnnijkkkkkkkkkkkkkkkkkkkkkkkkkkooooooppppppppppppppppppppppppppoooqqqqqqqqqqqoookkkkkkkkkjihaaaaaaaaaaaaaaaaaaaaahhhhhhhhhhhhhhhhhhhhhh|
+nnnnnnnnnnnnnnnnnnnnnnnnnnnnijccccccccccccccccccccccrrccssssssrrrrrrrrrrrrrrrrrrrrrrrrrrssstttttttttttssscccccccccjihaaaaaaaaaaaaaaaaaahhhhhhhhhhhhhhhhhhhhhhhhh|
+nnnnnnnnnnnnnnnnnnnnnnnnnnnnijjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjihhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh|
+nnnnnnnnnnnnnnnnnnnnnnnnnnnnijjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjihhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh|
+nnnnnnnnnnnnnnnnnnnnnnnnnnnnijjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjihhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh|
+nnnnnnnnnnnnnnnnnnnnnnnnnnnnijjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjihhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh|
+nnnnnnnnnnnnnnnnnnnnnnnnnnnnijjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjihhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh|
+nnnnnnnnnnnnnnnnnnnnnnnnnnnnijjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjihhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh|
+uuuuuuuuuuuuuuuuuuuuuuuuuuuuijjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjihhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh|
+haaaaaaaaaaahhhhhhhhhhhhhhhhijjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjihhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh|
+nnnnnnnnnnnnnnnnnnnnnnnnnnnnijjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjihhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh|
+nnnnnnnnnnnnnnnnnnnnnnnnnnnnijjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjihhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh|
+nnnnnnnnnnnnnnnnnnnnnnnnnnnnijjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjihhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh|
+nnnnnnnnnnnnnnnnnnnnnnnnnnnnijjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjiuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuu|
+nnnnnnnnnnnnnnnnnnnnnnnnnnnnijjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjihhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh|
+nnnnnnnnnnnnnnnnnnnnnnnnnnnnijjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjihaaaaaaaaaaaaaaaaaaahhhhhhhhhhhhhhhhhhhhhhhh|
+nnnnnnnnnnnnnnnnnnnnnnnnnnnnijjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjihaaaaaaaaaaaaaaaahhhhhhhhhhhhhhhhhhhhhhhhhhh|
+uuuuuuuuuuuuuuuuuuuuuuuuuuuuijjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjihhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh|
+haaaaaaaaaaaaaahhhhhhhhhhhhhijjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjihhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh|
+nnnnnnnnnnnnnnnnnnnnnnnnnnnnijjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjihhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh|
+nnnnnnnnnnnnnnnnnnnnnnnnnnnnijjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjihhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh|
+nnnnnnnnnnnnnnnnnnnnnnnnnnnnijjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjihhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh|
+nnnnnnnnnnnnnnnnnnnnnnnnnnnnijjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjihhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh|
+nnnnnnnnnnnnnnnnnnnnnnnnnnnnijjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjihhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh|
+nnnnnnnnnnnnnnnnnnnnnnnnnnnnijjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjihhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh|
+nnnnnnnnnnnnnnnnnnnnnnnnnnnnijjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjihhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh|
+uuuuuuuuuuuuuuuuuuuuuuuuuuuuijjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjihhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh|
+haaaaaaaaaaahhhhhhhhhhhhhhhhijjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjihhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh|
+nnnnnnnnnnnnnnnnnnnnnnnnnnnnijjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjihhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh|
+nnnnnnnnnnnnnnnnnnnnnnnnnnnnijjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjiuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuu|
+nnnnnnnnnnnnnnnnnnnnnnnnnnnnijjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjihhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh|
+nnnnnnnnnnnnnnnnnnnnnnnnnnnnijjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjihvvvvvvvvvvvvvvvhhhhhhhhhhhhhhhhhhhhhhhhhhhh|
+nnnnnnnnnnnnnnnnnnnnnnnnnnnnijjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjihhgggggggwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwh|
+nnnnnnnnnnnnnnnnnnnnnnnnnnnnijjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjihhgggggggggggwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwh|
+nnnnnnnnnnnnnnnnnnnnnnnnnnnnijjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjihhwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwh|
+uuuuuuuuuuuuuuuuuuuuuuuuuuuuijjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjihhwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwh|
+haaaaaaaaaaaaahhhhhhhhhhhhhhijjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjihhwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwh|
+xxxxxxxxxxxxxxxxxxxxxxxxxxxnijjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjihhwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwh|
+aaaaaaaaaaaaaaaaaaaaaaaaaaanijjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjihhwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwh|
+nnnnnnnnnnnnnnnnnnnnnnnnnnnnijjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjihhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh|
+aaaaaaaaaaaaaaaaaaaaaaaaaaanijjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjihhaaaaaaaaaaaaaaaaaaaaaaaaahhhhhhhhhhhhhhhhh|
+nnnnnnnnnnnnnnnnnnnnnnnnnnnnijjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjihhgggggggggggggggggggggggggggggggggggggggghh|
+aaaaaaaaaaaaaaaaaaaaaaaaaaanijjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjihhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh|
+naaaaaaaaaaaaaaaaaaaaaaaaaaaooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooaaaahhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh|

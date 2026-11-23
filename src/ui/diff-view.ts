@@ -166,7 +166,7 @@ export class DiffView extends BoxRenderable {
 
   updateTheme() {
     const previousStyle = this.ownedSyntaxStyle;
-    this.ownedSyntaxStyle = createDiffSyntaxStyle();
+    this.ownedSyntaxStyle = createDiffSyntaxStyle(this.ctx);
     const colors = {
       fg: diffColor("text.context", oneDarkTheme.text),
       contextBg: diffColor("background.context", oneDarkTheme.bg),

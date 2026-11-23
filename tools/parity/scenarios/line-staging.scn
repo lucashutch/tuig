@@ -1,0 +1,14 @@
+# Diff line staging: select a line, add a second with ctrl+click, and stage both with Enter.
+fixture demo
+wait text "Working Changes"
+click 60 4
+wait text "Unstaged files"
+click 118 6
+wait text "handler_00"
+click 33 6
+snapshot one-line
+click 33 20 left ctrl
+snapshot two-lines
+key enter
+wait stable
+snapshot staged-lines

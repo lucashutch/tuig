@@ -1,0 +1,32 @@
+[package]
+name = "tuig-app"
+description = "The tuig terminal Git UI: app shell, message loop and screens"
+edition.workspace = true
+version.workspace = true
+publish = false
+license.workspace = true
+
+[[bin]]
+name = "tuig"
+path = "src/main.rs"
+
+[dependencies]
+tuig-cli = { path = "../tuig-cli" }
+tuig-git = { path = "../tuig-git" }
+tuig-ui-model = { path = "../tuig-ui-model" }
+tuig-widgets = { path = "../tuig-widgets" }
+opentui.workspace = true
+bitflags = "2"
+# The watcher forwarder: channel receive and a short sleep when the app queue is full.
+# Avatar downloads run `curl` and `gh` as child processes.
+tokio = { version = "1.54.1", default-features = false, features = ["rt", "time", "sync", "process", "io-util", "macros"] }
+serde_json = "1"
+async-trait = "0.1.92"
+regex = "1"
+# Avatar cache keys: the Gravatar address hash and the file name of each cached source.
+sha2 = "0.10"
+# Avatar decoding and resizing. The masked circle is built from the decoded pixels.
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "gif", "webp"] }
+
+[lints]
+workspace = true

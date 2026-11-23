@@ -1,0 +1,12 @@
+# History header column dividers: drag the Message divider, then the Branch / tag divider.
+# The pointer moves away after each drag, because the divider color right after a release depends on timing.
+fixture demo
+wait text "Working Changes"
+drag 89 3 80 3
+move 100 30
+snapshot message-narrow
+drag 52 3 46 3
+move 100 30
+# The color of the header cell under the divider is pressed or hovered, depending on timing.
+mask 46 3 2 1
+snapshot branch-narrow

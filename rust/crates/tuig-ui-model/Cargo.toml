@@ -1,0 +1,19 @@
+[package]
+name = "tuig-ui-model"
+description = "Pure UI state, layout, theme and preference logic for tuig, with no rendering"
+edition.workspace = true
+version.workspace = true
+publish = false
+license.workspace = true
+
+[dependencies]
+tuig-git = { path = "../tuig-git" }
+# Theme documents and preference files are dynamic JSON. `preserve_order` keeps key order the
+# same as the TypeScript objects, so error choice and builtin theme order match.
+serde_json = { version = "1", features = ["preserve_order"] }
+unicode-width = "0.2.3"
+unicode-segmentation = "1.13.3"
+icu_collator = "2.4.0"
+
+[lints]
+workspace = true

@@ -31,7 +31,7 @@
     "lint": "eslint ."
   },
   "dependencies": {
-    "@opentui/core": "0.5.7",
+    "@opentui/core": "0.8.4",
     "tree-sitter-wasm": "1.1.7"
   },
   "devDependencies": {

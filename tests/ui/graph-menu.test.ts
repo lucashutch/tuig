@@ -245,6 +245,22 @@ describe("graph context menu", () => {
     expect(menu.items.map((item) => item.action)).toContain("line-history");
   });
 
+  test("offers hunk actions for a hit working-tree hunk", () => {
+    const file = { path: "src/app.ts", state: "modified" } as never;
+    const actions = (staged: boolean) =>
+      buildGraphMenu(
+        { sha: "head", file, fileStaged: staged, line: 3, hunkPatch: "@@" },
+        snapshot,
+      ).items.map((item) => item.action);
+    expect(actions(false).slice(0, 2)).toEqual(["stage-hunk", "revert-hunk"]);
+    expect(actions(true)[0]).toBe("unstage-hunk");
+    expect(
+      buildGraphMenu({ sha: "head", file, line: 3 }, snapshot).items.map(
+        (item) => item.action,
+      ),
+    ).not.toContain("stage-hunk");
+  });
+
   test("does not offer working-tree mutations for a committed file", () => {
     const file = { path: "src/app.ts", state: "modified" } as never;
     const menu = buildGraphMenu({ sha: "abc", file }, snapshot);

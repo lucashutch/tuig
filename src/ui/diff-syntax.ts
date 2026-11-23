@@ -1,4 +1,8 @@
-import { SyntaxStyle, type StyleDefinitionInput } from "@opentui/core";
+import {
+  SyntaxStyle,
+  type RenderContext,
+  type StyleDefinitionInput,
+} from "@opentui/core";
 import { activeTheme as theme, semanticColor } from "./theme.js";
 
 // Foregrounds only: added/removed line backgrounds remain owned by the diff.
@@ -30,7 +34,7 @@ export const diffSyntaxStyles: Record<string, StyleDefinitionInput> = {
   "markup.italic": { fg: theme.text, italic: true },
 };
 
-export function createDiffSyntaxStyle(): SyntaxStyle {
+export function createDiffSyntaxStyle(ctx: RenderContext): SyntaxStyle {
   const styles: Record<string, StyleDefinitionInput> = {
     default: { fg: theme.text },
     comment: { fg: theme.syntax?.comment ?? theme.muted, italic: true },
@@ -90,5 +94,5 @@ export function createDiffSyntaxStyle(): SyntaxStyle {
       ),
     };
   }
-  return SyntaxStyle.fromStyles(styles);
+  return SyntaxStyle.fromStyles(styles, ctx.nativeScene);
 }

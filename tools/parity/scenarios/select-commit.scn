@@ -1,0 +1,11 @@
+# Click a commit row: details pane first, then the diff of its one file.
+fixture demo
+wait text "Working Changes"
+click 60 11
+wait text "COMMIT FILES"
+snapshot details
+click 118 20
+wait text "return user.strip()"
+snapshot diff
+key down
+snapshot next-commit

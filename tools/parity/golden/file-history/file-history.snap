@@ -1,0 +1,136 @@
+parity-snapshot 1 160x48 cursor=hidden
+
+[text]
+     demo    ×    +                                                                                                                                             |
+ demo  main  no upstream  5 changed                 Fetch    Pull    Push    Undo    Stash    Pop    Refresh                         ■ Split (narrow) ■ Avatars |
+                                                      󰇚       ↓       ↑       ↶        󰆓       󰄼        󰑓                                                       |
+ ▼ LOCAL BRANCHES 4         │                                                                                      │  COMMIT MESSAGE                            |
+○ 󰌢 feature/login           │  1   def login(user):                                                                │                                            |
+○ 󰌢 fix/typo                │  2 -     return user.strip()                                                         │  feat: normalise user names                |
+◉ 󰌢 main                    │  2 +     return user.strip().lower()                                                 │  (no body)                                 |
+○ 󰌢 release/1.0             │                                                                                      │                                            |
+                            │                                                                                      │                                            |
+                            │                                                                                      │                                            |
+                            │                                                                                      │                                            |
+                            │                                                                                      │                                            |
+───────────━━━━━────────────│                                                                                      │                                            |
+ ▼ REMOTES 0                │                                                                                      │                                            |
+  (none)                    │                                                                                      │                                            |
+                            │                                                                                      │  DETAILS                           27e4e3f5|
+                            │                                                                                      │  ┌────┐    Ada Tester                      |
+                            │                                                                                      │  │ AT │    ada@example.invalid             |
+                            │                                                                                      │  └────┘    Mar 1, 2024, 2:00 PM            |
+                            │                                                                                      │            Parent: 223ceb6d                |
+                            │                                                                                      │                                            |
+───────────━━━━━────────────│                                                                                      │                                            |
+ ▼ SUBMODULES 0             ┃                                                                                      ┃                                            |
+  (none)                    ┃                                                                                      ┃                                            |
+                            ┃                                                                                      ┃                                            |
+                            ┃                                                                                      ┃                                            |
+                            ┃                                                                                      ┃                                            |
+                            │                                                                                      │                                            |
+                            │                                                                                      │                                            |
+                            │                                                                                      │  File history · Esc to close               |
+───────────━━━━━────────────│                                                                                      │ › feat: normalise user names               |
+ ▼ STASHES 0                │                                                                                      │   [AT] Ada Tester · 27e4e3f5               |
+  (none)                    │                                                                                      │   2y ago · Mar 1, 2024, 2:00 PM            |
+                            │                                                                                      │                                            |
+                            │                                                                                      │   feat: add login                          |
+                            │                                                                                      │   [AT] Ada Tester · 223ceb6d               |
+                            │                                                                                      │   2y ago · Mar 1, 2024, 1:00 PM            |
+                            │                                                                                      │                                            |
+                            │                                                                                      │                                            |
+───────────━━━━━────────────│                                                                                      │                                            |
+ ▼ WORKTREES 1              │                                                                                      │                                            |
+ ◉ demo                     │                                                                                      │                                            |
+  on main                   │                                                                                      │                                            |
+                            │                                                                                      │                                            |
+                            │                                                                                      │                                            |
+                            │                                                                                      │                                            |
+                            │                                                                                      │                                            |
+ esc back to graph  ·  ←/→ file  ·  s stage  ·  u unstage  ·  ⇥ pane  ·  [ ] collapse  ·  r refresh  ·  q quit                                                  |
+
+[styles]
+a fg=61afef bg=3e4451 attrs=-
+b fg=abb2bf bg=2c313a attrs=-
+c fg=61afef bg=2c313a attrs=-
+d fg=e5c07b bg=2c313a attrs=-
+e fg=5c6370 bg=2c313a attrs=-
+f fg=ffffff bg=21252b attrs=-
+g fg=5c6370 bg=21252b attrs=-
+h fg=2b5b61 bg=282c34 attrs=-
+i fg=ffffff bg=282c34 attrs=-
+j fg=ffffff bg=2c313a attrs=-
+k fg=abb2bf bg=21252b attrs=-
+l fg=5c6370 bg=282c34 attrs=-
+m fg=c678dd bg=282c34 attrs=-
+n fg=abb2bf bg=282c34 attrs=-
+o fg=61afef bg=282c34 attrs=-
+p fg=ffffff bg=462c31 attrs=-
+q fg=5c6370 bg=462c31 attrs=-
+r fg=e06c75 bg=462c31 attrs=-
+s fg=abb2bf bg=462c31 attrs=-
+t fg=c678dd bg=462c31 attrs=-
+u fg=61afef bg=462c31 attrs=-
+v fg=ffffff bg=30402f attrs=-
+w fg=5c6370 bg=30402f attrs=-
+x fg=98c379 bg=30402f attrs=-
+y fg=abb2bf bg=30402f attrs=-
+z fg=c678dd bg=30402f attrs=-
+A fg=61afef bg=30402f attrs=-
+B fg=2b5b61 bg=21252b attrs=-
+C fg=61afef bg=21252b attrs=-
+D fg=c678dd bg=21252b attrs=-
+E fg=abb2bf bg=3e4451 attrs=-
+F fg=5c6370 bg=3e4451 attrs=-
+G fg=e5c07b bg=21252b attrs=-
+
+[grid]
+aaaaaaaaaaaaaaaabcccbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb|
+cccccddddddeeeeeeeeeeeeedddddddddddeeeeeeeeeeeeeebbbbbbbbbbeeeeeeeeeeeeeeeebbbbbbbbbbbbbbbbbeeeeeeebbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbeeeeeeeeeb|
+bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbccccccccceeeeeeeeeeeeeeeeccccccccccccccccceeeeeeecccccccccccbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb|
+fggggggggggggggggggfffffffffhiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiihfjbbbbbbbbbbbbbbjjjjjjjjjjjjjjjjjjjjjjjjjjjj|
+kkkkkkkkkkkkkkkkkkkkkkkkkkkkhiiliiimmmnooooonnnnnnniiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiihfjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjj|
+kkkkkkkkkkkkkkkkkkkkkkkkkkkkhipqrrpssssttttttssssssuuuuussppppppppppppppppppppppppppppppppppppppppppppppppppppppppihfjeeeeeeeeeeeeeeeeeeeeeeeeeejjjjjjjjjjjjjjjj|
+kkkkkkkkkkkkkkkkkkkkkkkkkkkkhivwxxvyyyyzzzzzzyyyyyyAAAAAyyyAAAAAyyvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvihfjbbbbbbbbbjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjj|
+kkkkkkkkkkkkkkkkkkkkkkkkkkkkhiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiihfjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjj|
+kkkkkkkkkkkkkkkkkkkkkkkkkkkkhiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiihfjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjj|
+kkkkkkkkkkkkkkkkkkkkkkkkkkkkhiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiihfjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjj|
+kkkkkkkkkkkkkkkkkkkkkkkkkkkkhiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiihfjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjj|
+kkkkkkkkkkkkkkkkkkkkkkkkkkkkhiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiihfjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjj|
+BBBBBBBBBBBBBBBBBBBBBBBBBBBBhiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiihfjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjj|
+fgggggggggggffffffffffffffffhiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiihfjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjj|
+kkkkkkkkkkkkkkkkkkkkkkkkkkkkhiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiihffffffffffffffffffffffffffffffffffffffffffff|
+kkkkkkkkkkkkkkkkkkkkkkkkkkkkhiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiihffCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC|
+kkkkkkkkkkkkkkkkkkkkkkkkkkkkhiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiihffDDDDDDffffkkkkkkkkkkffffffffffffffffffffff|
+kkkkkkkkkkkkkkkkkkkkkkkkkkkkhiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiihffDDDDDDffffgggggggggggggggggggfffffffffffff|
+kkkkkkkkkkkkkkkkkkkkkkkkkkkkhiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiihffDDDDDDffffggggggggggggggggggggffffffffffff|
+kkkkkkkkkkkkkkkkkkkkkkkkkkkkhiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiihffffffffffffggggggggggggggggffffffffffffffff|
+kkkkkkkkkkkkkkkkkkkkkkkkkkkkhiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiihffffffffffffffffffffffffffffffffffffffffffff|
+BBBBBBBBBBBBBBBBBBBBBBBBBBBBhiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiihffffffffffffffffffffffffffffffffffffffffffff|
+fggggggggggggggfffffffffffffhiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiihffffffffffffffffffffffffffffffffffffffffffff|
+kkkkkkkkkkkkkkkkkkkkkkkkkkkkhiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiihffffffffffffffffffffffffffffffffffffffffffff|
+kkkkkkkkkkkkkkkkkkkkkkkkkkkkhiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiihffffffffffffffffffffffffffffffffffffffffffff|
+kkkkkkkkkkkkkkkkkkkkkkkkkkkkhiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiihffffffffffffffffffffffffffffffffffffffffffff|
+kkkkkkkkkkkkkkkkkkkkkkkkkkkkhiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiihffffffffffffffffffffffffffffffffffffffffffff|
+kkkkkkkkkkkkkkkkkkkkkkkkkkkkhiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiihffffffffffffffffffffffffffffffffffffffffffff|
+kkkkkkkkkkkkkkkkkkkkkkkkkkkkhiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiihffffffffffffffffffffffffffffffffffffffffffff|
+kkkkkkkkkkkkkkkkkkkkkkkkkkkkhiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiihfgggggggggggggggggggggggggggggffffffffffffff|
+BBBBBBBBBBBBBBBBBBBBBBBBBBBBhiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiihfEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEff|
+fgggggggggggffffffffffffffffhiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiihfaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaff|
+kkkkkkkkkkkkkkkkkkkkkkkkkkkkhiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiihfFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFff|
+kkkkkkkkkkkkkkkkkkkkkkkkkkkkhiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiihfkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkff|
+kkkkkkkkkkkkkkkkkkkkkkkkkkkkhiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiihfkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkff|
+kkkkkkkkkkkkkkkkkkkkkkkkkkkkhiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiihfDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDff|
+kkkkkkkkkkkkkkkkkkkkkkkkkkkkhiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiihfgggggggggggggggggggggggggggggggggggggggggff|
+kkkkkkkkkkkkkkkkkkkkkkkkkkkkhiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiihfkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkff|
+kkkkkkkkkkkkkkkkkkkkkkkkkkkkhiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiihffffffffffffffffffffffffffffffffffffffffffff|
+BBBBBBBBBBBBBBBBBBBBBBBBBBBBhiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiihffffffffffffffffffffffffffffffffffffffffffff|
+fgggggggggggggffffffffffffffhiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiihffffffffffffffffffffffffffffffffffffffffffff|
+GGGGGGGGGGGGGGGGGGGGGGGGGGGkhiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiihffffffffffffffffffffffffffffffffffffffffffff|
+gggggggggggggggggggggggggggkhiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiihffffffffffffffffffffffffffffffffffffffffffff|
+kkkkkkkkkkkkkkkkkkkkkkkkkkkkhiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiihffffffffffffffffffffffffffffffffffffffffffff|
+gggggggggggggggggggggggggggkhiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiihffffffffffffffffffffffffffffffffffffffffffff|
+kkkkkkkkkkkkkkkkkkkkkkkkkkkkhiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiihffffffffffffffffffffffffffffffffffffffffffff|
+gggggggggggggggggggggggggggkhiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiihffffffffffffffffffffffffffffffffffffffffffff|
+kggggggggggggggggggggggggggglllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllliiiiiiffffffffffffffffffffffffffffffffffffffffffff|
