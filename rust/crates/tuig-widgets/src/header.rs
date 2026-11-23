@@ -490,7 +490,9 @@ impl HeaderBar {
             ),
         };
         painter.fill(range.0 as i32, 1, (range.1 - range.0) as u32, 1, bg);
-        painter.text(range.0 as i32, 1, text, Style::new().bg(bg).fg(fg));
+        // The padding carries the text color too, as in TS where the label fills the whole widget.
+        let padded = format!("{text:<width$}", width = range.1 - range.0);
+        painter.text(range.0 as i32, 1, &padded, Style::new().bg(bg).fg(fg));
     }
 }
 
