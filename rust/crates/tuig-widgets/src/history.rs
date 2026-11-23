@@ -12,14 +12,21 @@
 //!
 //! Known parity gaps with `paintHistory` and its mouse handling in the TypeScript app:
 //!
-//! - The PR number is not a terminal hyperlink: `Painter` has no hyperlink support.
+//!
+//! The PR number is a terminal hyperlink (OSC 8). `Painter::text` cannot write one, so a linked span is drawn as a
+//! one-line native `TextView` through `Painter::text_view`. That path stores the link in the cell buffer, so the
+//! renderer writes the escape sequence itself and the diff of cells stays correct. It needs a native context from
+//! [`HistoryList::set_link_context`]. Without one, the number is drawn as plain text.
 
 use crate::branch_hints::BranchHintIndex;
 use crate::decorations::{RefIndex, summarise_decorations};
 use crate::pointer::{PointerTracker, origin_of};
 use crate::pull_requests::{PullRequestCommitIndex, SPINNER_FRAMES, pull_request_history_cell};
+use opentui::native::{Context, TextBuffer, TextView, Viewport, WidthMethod};
 use opentui::prelude::*;
 use std::cell::Cell;
+use std::cell::RefCell;
+use std::collections::HashMap;
 use std::rc::Rc;
 use std::time::{Duration, Instant};
 use tuig_git::pull_request_types::{CheckRollup, PullRequest};
@@ -171,6 +178,8 @@ pub struct Span {
     pub text: String,
     pub fg: Rgba,
     pub bg: Option<Rgba>,
+    /// The URL the text opens as a terminal hyperlink. A linked span is underlined.
+    pub link: Option<String>,
 }
 
 /// One commit graph dot that an avatar image can cover. See [`HistoryList::avatar_slots`].
@@ -269,7 +278,17 @@ pub struct HistoryList {
     /// The list's top left cell on the terminal, from the last pointer event.
     origin: Option<(i32, i32)>,
     on_event: Option<EventHandler>,
+    /// What draws hyperlinks. `None` draws the text without a link.
+    links: Option<(Context, WidthMethod)>,
+    /// One-line views for linked spans, by text, URL and colors. Cleared when it grows past [`LINK_VIEWS_MAX`].
+    link_views: RefCell<HashMap<LinkKey, TextView>>,
 }
+
+/// The text, URL, foreground and background of a linked span.
+type LinkKey = (String, String, Rgba, Option<Rgba>);
+
+/// Linked spans on screen are one per row, so a few hundred views cover any window. A clear then costs one repaint.
+const LINK_VIEWS_MAX: usize = 256;
 
 impl HistoryList {
     pub fn new(theme: Theme) -> Self {
@@ -294,7 +313,46 @@ impl HistoryList {
             pointer: PointerTracker::default(),
             origin: None,
             on_event: None,
+            links: None,
+            link_views: RefCell::default(),
         }
+    }
+
+    /// Lets the list draw hyperlinks. `width_method` is the app's, so the views measure text as the renderer does.
+    pub fn set_link_context(&mut self, context: Context, width_method: WidthMethod) {
+        self.links = Some((context, width_method));
+        self.link_views.borrow_mut().clear();
+    }
+
+    /// The one-line view that draws `span` as a hyperlink. `None` without a context, or when native code refuses.
+    fn link_view(&self, span: &Span, url: &str, style: Style) -> Option<TextView> {
+        let (context, width_method) = self.links.as_ref()?;
+        let key = (span.text.clone(), url.to_owned(), span.fg, span.bg);
+        let mut views = self.link_views.borrow_mut();
+        if let Some(view) = views.get(&key) {
+            return Some(view.clone());
+        }
+        let width = u32::try_from(string_width(&span.text)).ok()?.max(1);
+        let build = || -> opentui::Result<TextView> {
+            let buffer = TextBuffer::new(context, *width_method)?;
+            buffer
+                .set_spans(&[opentui::style::Span::styled(span.text.as_str(), style).link(url)])?;
+            let view = TextView::new(&buffer)?;
+            view.set_wrap(WrapMode::None)?;
+            view.set_viewport(Viewport {
+                x: 0,
+                y: 0,
+                width,
+                height: 1,
+            })?;
+            Ok(view)
+        };
+        let view = build().ok()?;
+        if views.len() >= LINK_VIEWS_MAX {
+            views.clear();
+        }
+        views.insert(key, view.clone());
+        Some(view)
     }
 
     /// Shares the pointer position, so the row under a still pointer is highlighted again after a popup closes.
@@ -558,7 +616,12 @@ impl HistoryList {
         let graph_pad =
             " ".repeat((geometry.graph_width - visible_graph as i64 * 2).max(0) as usize);
 
-        let span = |text: String, fg: Rgba, bg: Option<Rgba>| Span { text, fg, bg };
+        let span = |text: String, fg: Rgba, bg: Option<Rgba>| Span {
+            text,
+            fg,
+            bg,
+            link: None,
+        };
         let mut out = Vec::with_capacity(lines + 1);
 
         // Header.
@@ -826,8 +889,14 @@ impl HistoryList {
                     theme,
                     frame,
                 );
-                for part in cell {
-                    line.push(span(part.text, part.color, bg));
+                // The first part is the `#N` of the newest pull request. It opens that pull request.
+                let url = entry.pull_requests.first().map(|pr| pr.url.clone());
+                for (at, part) in cell.into_iter().enumerate() {
+                    let mut part = span(part.text, part.color, bg);
+                    if at == 0 && part.text.starts_with('#') {
+                        part.link = url.clone().filter(|url| !url.is_empty());
+                    }
+                    line.push(part);
                 }
             }
             if columns.show_sha {
@@ -860,7 +929,16 @@ impl Component for HistoryList {
                 if let Some(bg) = span.bg {
                     style = style.bg(to_color(bg));
                 }
-                painter.text(x, y as i32, &span.text, style);
+                match span.link.as_deref() {
+                    Some(url) => {
+                        let style = style.underline();
+                        match self.link_view(&span, url, style) {
+                            Some(view) => painter.text_view(&view, x, y as i32),
+                            None => painter.text(x, y as i32, &span.text, style),
+                        }
+                    }
+                    None => painter.text(x, y as i32, &span.text, style),
+                }
                 // Advance by the width OpenTUI draws with, so a span never overlaps the next one.
                 x += painter.text_width(&span.text) as i32;
             }

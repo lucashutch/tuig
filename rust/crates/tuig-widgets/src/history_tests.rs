@@ -612,6 +612,65 @@ fn the_pr_column_shows_matches_beside_their_branch_commits_and_keeps_columns_ali
 }
 
 #[test]
+fn the_pr_number_is_a_hyperlink_to_the_pull_request_and_nothing_around_it_is() {
+    let data = demo();
+    let mut open = pull_request(42, "feature/login", CheckRollup::Failed);
+    open.url = "https://example.invalid/pull/42".into();
+    let index = pull_request_commit_index(&[open], &data.branches);
+    let paint_with_links = |linked: bool| {
+        let app = TestApp::with_hyperlinks(WIDTH, HEIGHT);
+        let mut list = HistoryList::new(one_dark_theme());
+        if linked {
+            list.set_link_context(
+                app.app().session().context().clone(),
+                app.app().width_method(),
+            );
+        }
+        list.set_window(window_with(&data, 0, usize::from(HEIGHT) - 1, Some(&index)));
+        let widget = Custom::new(&app, list)
+            .width(u32::from(WIDTH))
+            .height(u32::from(HEIGHT));
+        app.root().add(&widget);
+        // `render` checks the terminal output against the cell buffer, so a link that corrupts it fails here.
+        let text = app.render().text();
+        (app, widget, text)
+    };
+    let (app, _widget, text) = paint_with_links(true);
+    let (line, row) = text
+        .lines()
+        .enumerate()
+        .find(|(_, line)| line.contains("#42"))
+        .map(|(row, line)| (line.to_owned(), row as i32))
+        .unwrap();
+    let column = line[..line.find("#42").unwrap()].chars().count() as i32;
+    let session = app.app().session();
+    let url_at = |x: i32| {
+        session
+            .link_id(x, row)
+            .unwrap()
+            .map(|id| session.context().link_url(id).unwrap())
+    };
+    for offset in 0..3 {
+        assert_eq!(
+            url_at(column + offset).as_deref(),
+            Some("https://example.invalid/pull/42"),
+            "column {offset} of `#42` in {line}"
+        );
+    }
+    assert_eq!(url_at(column - 1), None, "the gap before the number");
+    assert_eq!(
+        url_at(column + 3),
+        None,
+        "the checks icon is not part of the link"
+    );
+
+    // Without a link context the same row paints as plain text.
+    let (plain, _widget, plain_text) = paint_with_links(false);
+    assert_eq!(plain_text, text);
+    assert_eq!(plain.app().session().link_id(column, row).unwrap(), None);
+}
+
+#[test]
 fn running_checks_count_only_on_visible_rows() {
     let data = demo();
     let list = [pull_request(7, "feature/login", CheckRollup::Running)];

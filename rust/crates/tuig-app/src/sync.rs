@@ -72,6 +72,7 @@ impl Widgets {
         }
         let mut list = HistoryList::new(theme.clone());
         list.set_pointer_tracker(pointer.clone());
+        list.set_link_context(app.session().context().clone(), app.width_method());
         list.set_focused(true);
         {
             let inbox = inbox.clone();
