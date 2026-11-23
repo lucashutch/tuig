@@ -1,6 +1,9 @@
-// Writes name pairs with the sign of `a.localeCompare(b)` from Bun, for the
+// Writes name pairs with the sign of `a.localeCompare(b, LOCALE)` from Bun, for the
 // name_sort cross-check test. Run: bun rust/scripts/gen-name-sort-fixture.ts
 import { writeFileSync } from "node:fs";
+
+// The root collator has no locale tailoring. Fix the locale so the fixture does not depend on the process locale.
+const LOCALE = "en-US";
 
 let seed = 0x5eed1234;
 const random = () => {
@@ -54,9 +57,9 @@ for (let count = 0; count < 8000; count++) {
   const mix = pick(mixes);
   const a = word(mix) + (random() < 0.3 ? `.${pick(["ts", "rs", "TS", "md"])}` : "");
   const b = random() < 0.5 ? mutate(a, mix) : word(mix);
-  pairs.push([a, b, Math.sign(a.localeCompare(b))]);
+  pairs.push([a, b, Math.sign(a.localeCompare(b, LOCALE))]);
 }
 writeFileSync(
   new URL("../crates/tuig-ui-model/tests/fixtures/name_sort.json", import.meta.url),
-  JSON.stringify({ bun: Bun.version, icu: process.versions.icu, pairs }),
+  JSON.stringify({ bun: Bun.version, icu: process.versions.icu, locale: LOCALE, pairs }),
 );
