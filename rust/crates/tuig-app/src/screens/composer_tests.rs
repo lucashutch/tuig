@@ -39,6 +39,9 @@ fn repository(subjects: &[&str], stage: bool) -> TempRepo {
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).unwrap();
     git(&dir, &["init", "-q", "-b", "main"]);
+    // The app commits through plain `git`, so the identity must be in the repository config, not only in `-c`.
+    git(&dir, &["config", "user.name", "T"]);
+    git(&dir, &["config", "user.email", "t@example.com"]);
     for (index, subject) in subjects.iter().enumerate() {
         std::fs::write(dir.join("a.txt"), format!("{index}\n")).unwrap();
         git(&dir, &["add", "."]);
