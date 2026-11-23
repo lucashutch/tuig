@@ -502,6 +502,17 @@ impl Sidebar {
         1..end
     }
 
+    /// How many TS handlers see a wheel event at pane-local row `y`. The section content text and the
+    /// sidebar box both scroll by `WHEEL_ROWS` and the event bubbles, so a content row scrolls twice.
+    /// Header and divider rows reach only the box.
+    fn wheel_handlers(&self, y: i64) -> i32 {
+        if Section::ALL.into_iter().any(|s| self.view.rects[s].holds(y)) {
+            2
+        } else {
+            1
+        }
+    }
+
     fn header_at(&self, x: i64, y: i64) -> Option<Section> {
         if !self.header_hit().contains(&x) {
             return None;
@@ -589,23 +600,13 @@ impl Component for Sidebar {
         let (x, y) = (i64::from(local.0), i64::from(local.1));
         let kind = match event.kind {
             MouseEventKind::ScrollUp => {
-                self.emit(
-                    cx,
-                    SidebarEvent::Wheel {
-                        y,
-                        delta: -WHEEL_ROWS,
-                    },
-                );
+                let delta = -WHEEL_ROWS * self.wheel_handlers(y);
+                self.emit(cx, SidebarEvent::Wheel { y, delta });
                 return true;
             }
             MouseEventKind::ScrollDown => {
-                self.emit(
-                    cx,
-                    SidebarEvent::Wheel {
-                        y,
-                        delta: WHEEL_ROWS,
-                    },
-                );
+                let delta = WHEEL_ROWS * self.wheel_handlers(y);
+                self.emit(cx, SidebarEvent::Wheel { y, delta });
                 return true;
             }
             kind => kind,
