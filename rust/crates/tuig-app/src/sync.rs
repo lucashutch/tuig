@@ -235,6 +235,8 @@ impl Shell {
         if self.dirty.contains(Dirty::HISTORY) && self.commit_open() {
             self.dirty |= Dirty::FILES;
         }
+        // The badge decides the width of the co-author line, so it comes before the card is laid out.
+        self.sync_provider_badge(app);
         // Details first: the files pane reads where the commit card ends from the same layout.
         if self
             .dirty

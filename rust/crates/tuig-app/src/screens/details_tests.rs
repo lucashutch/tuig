@@ -442,3 +442,25 @@ fn a_refresh_keeps_the_comparison_open() {
         "{screen}"
     );
 }
+
+#[test]
+fn the_co_author_line_drops_initials_for_provider_names_only_with_graphics() {
+    let authors = vec![
+        CoAuthor {
+            name: "Claude".into(),
+            email: "noreply@anthropic.com".into(),
+        },
+        CoAuthor {
+            name: "Grace Hopper".into(),
+            email: "grace@example.com".into(),
+        },
+    ];
+    assert_eq!(
+        co_authors_plain(&authors, true),
+        "Co-authors: Claude  [GH] Grace Hopper"
+    );
+    assert_eq!(
+        co_authors_plain(&authors, false),
+        "Co-authors: [CL] Claude  [GH] Grace Hopper"
+    );
+}

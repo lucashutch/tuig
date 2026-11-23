@@ -10,12 +10,19 @@ use tuig_widgets::history::ClickPart;
 struct FakeFetcher {
     png: Vec<u8>,
     image_calls: AtomicUsize,
+    /// A URL containing this text fails to load.
+    reject: Option<&'static str>,
+    requested: std::sync::Mutex<Vec<String>>,
 }
 
 #[async_trait::async_trait]
 impl AvatarFetcher for FakeFetcher {
-    async fn image(&self, _url: &str) -> Result<Vec<u8>, String> {
+    async fn image(&self, url: &str) -> Result<Vec<u8>, String> {
         self.image_calls.fetch_add(1, Ordering::SeqCst);
+        self.requested.lock().unwrap().push(url.to_string());
+        if self.reject.is_some_and(|text| url.contains(text)) {
+            return Err("offline".to_string());
+        }
         Ok(self.png.clone())
     }
     async fn gh_commit_avatar(&self, _api_path: &str) -> Option<String> {
@@ -43,14 +50,20 @@ fn visible_slots(shell: &Shell) -> usize {
 }
 
 fn start(commits: usize) -> (Harness, Arc<FakeFetcher>, TempDir) {
+    start_with(repository(commits), None)
+}
+
+fn start_with(repo: TempDir, reject: Option<&'static str>) -> (Harness, Arc<FakeFetcher>, TempDir) {
     let fetcher = Arc::new(FakeFetcher {
         png: png(),
         image_calls: AtomicUsize::new(0),
+        reject,
+        requested: Default::default(),
     });
     let cache = TempDir::new("avatar-cache");
     let service = AvatarService::with_cache_dir(fetcher.clone(), cache.0.clone());
     let h = Harness::start(
-        repository(commits),
+        repo,
         Services {
             avatars: Some(Arc::new(service)),
             avatars_enabled: true,
@@ -160,4 +173,93 @@ fn the_commit_details_show_the_author_photo_in_place_of_the_initials() {
         crate::screens::details::DetailsAction::ViewWorking,
     ));
     assert!(!h.read(|shell| shell.widgets.details_view.photo_shown()));
+}
+
+/// A repository whose newest commit has `trailers` in its message.
+fn repository_with_trailers(trailers: &str) -> TempDir {
+    let repo = repository(2);
+    let message = format!("commit 1\n\n{trailers}\n");
+    let status = std::process::Command::new("git")
+        .args(["commit", "-q", "--amend", "--allow-empty", "-m", &message])
+        .current_dir(&repo.0)
+        .env("GIT_COMMITTER_NAME", "Ada")
+        .env("GIT_COMMITTER_EMAIL", "ada@example.com")
+        .status()
+        .unwrap();
+    assert!(status.success());
+    repo
+}
+
+fn open_newest(h: &Harness) {
+    h.wait("the first snapshot", |shell| shell.snapshot.is_some());
+    h.send(Msg::HistoryClick {
+        row: 0,
+        part: ClickPart::Row,
+        clicks: 1,
+    });
+}
+
+const CLAUDE_TRAILER: &str = "Co-authored-by: Claude <noreply@anthropic.com>";
+
+#[test]
+fn a_claude_co_author_gets_a_provider_badge_beside_its_name() {
+    let (h, fetcher, _cache) = start_with(repository_with_trailers(CLAUDE_TRAILER), None);
+    open_newest(&h);
+    h.wait("the provider badge", |shell| {
+        shell.widgets.details_view.provider_shown()
+    });
+    assert!(h.read(|shell| shell.avatars.provider_badge().visible));
+    let requested = fetcher.requested.lock().unwrap().clone();
+    assert!(
+        requested.iter().any(|url| url.contains("Claude-ai-icon")),
+        "{requested:?}"
+    );
+
+    h.send(Msg::HistoryClick {
+        row: 1,
+        part: ClickPart::Row,
+        clicks: 1,
+    });
+    h.wait("the badge to leave with the commit", |shell| {
+        !shell.widgets.details_view.provider_shown()
+    });
+    assert!(!h.read(|shell| shell.avatars.provider_badge().visible));
+}
+
+#[test]
+fn a_provider_badge_that_fails_to_load_gives_its_room_back() {
+    let (h, _fetcher, _cache) = start_with(
+        repository_with_trailers(CLAUDE_TRAILER),
+        Some("Claude-ai-icon"),
+    );
+    open_newest(&h);
+    h.wait("the failed load", |shell| {
+        shell.avatars.provider.task.is_none() && shell.avatars.provider.sha.is_some()
+    });
+    assert!(!h.read(|shell| shell.widgets.details_view.provider_shown()));
+    let badge = h.read(|shell| shell.avatars.provider_badge());
+    assert!(badge.graphics && !badge.visible, "{badge:?}");
+}
+
+#[test]
+fn human_co_authors_and_a_terminal_without_graphics_get_no_badge() {
+    let (h, fetcher, _cache) = start_with(
+        repository_with_trailers("Co-authored-by: Grace <grace@example.com>"),
+        None,
+    );
+    open_newest(&h);
+    h.wait("the details", |shell| shell.details_commit().is_some());
+    assert!(!h.read(|shell| shell.avatars.provider_badge().visible));
+    assert!(h.read(|shell| shell.avatars.provider_badge().graphics));
+    assert!(!h.read(|shell| shell.widgets.details_view.provider_shown()));
+    let _ = &fetcher;
+
+    let (h, _fetcher, _cache) = start_with(repository_with_trailers(CLAUDE_TRAILER), None);
+    h.shell.borrow_mut().avatars.graphics_override = Some(false);
+    open_newest(&h);
+    h.wait("the details", |shell| shell.details_commit().is_some());
+    assert_eq!(
+        h.read(|shell| shell.avatars.provider_badge()),
+        ProviderBadge::default()
+    );
 }

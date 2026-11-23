@@ -12,9 +12,10 @@
 //! unhovered color. Avatars do not appear in the commit details pane yet.
 
 use crate::avatars::{
-    AvatarService, CircleOptions, PixelProtocol, Pixels, circular_avatar,
+    AvatarService, CircleOptions, PixelProtocol, Pixels, circular_avatar, provider_avatar_url,
     terminal_graphics_supported,
 };
+use crate::screens::details::ProviderBadge;
 use crate::shell::{Dirty, Msg, PANE_TOP, Shell};
 use opentui::app::TaskHandle;
 use opentui::input::MouseEventKind;
@@ -22,7 +23,9 @@ use opentui::native::{Image, ImageFit, ImageProtocol};
 use opentui::prelude::*;
 use opentui::widget::{Component, ImageView};
 use std::sync::Arc;
+use tuig_git::debug_log::debug_log;
 use tuig_git::repository::GitRepository;
+use tuig_widgets::commit_text::parse_co_authors;
 use tuig_widgets::history::{AvatarSlot, HistoryList};
 
 /// Pooled image widgets. `GRAPH_AVATAR_SLOT_LIMIT`.
@@ -61,6 +64,7 @@ pub struct AvatarState {
     /// Least recently used first.
     rendered: Vec<(String, Image)>,
     photo: PhotoState,
+    provider: ProviderState,
 }
 
 /// The author photo in the commit details pane. `loadAuthorPhoto`.
@@ -73,6 +77,23 @@ struct PhotoState {
     task: Option<TaskHandle>,
 }
 
+/// The provider badge beside the co-author line. `loadProviderAvatar`.
+#[derive(Default)]
+struct ProviderState {
+    /// The commit the badge is for.
+    sha: Option<String>,
+    badge: ProviderBadge,
+    token: u64,
+    task: Option<TaskHandle>,
+}
+
+/// What a finished provider badge load hands the UI thread.
+pub struct ProviderLoaded {
+    pub token: u64,
+    pub url: &'static str,
+    pub pixels: Option<Arc<Pixels>>,
+}
+
 /// What a finished author photo load hands the UI thread.
 pub struct PhotoLoaded {
     pub token: u64,
@@ -80,6 +101,10 @@ pub struct PhotoLoaded {
 }
 
 impl AvatarState {
+    pub fn provider_badge(&self) -> ProviderBadge {
+        self.provider.badge
+    }
+
     pub fn new(service: Option<Arc<AvatarService>>, enabled: bool) -> Self {
         Self {
             service,
@@ -407,5 +432,81 @@ impl Shell {
             self.clear_graph_avatars();
         }
         self.dirty |= Dirty::AVATARS | Dirty::HISTORY | Dirty::DETAILS;
+    }
+}
+
+impl Shell {
+    /// Starts or drops the provider badge load so it follows the commit in the details pane. It marks the card
+    /// dirty when the line must make room for the image or give it back. `showCommitMeta`.
+    pub(crate) fn sync_provider_badge(&mut self, app: &App) {
+        let wanted = if self.avatars_supported(app) {
+            self.details_commit().map(|commit| {
+                let url = parse_co_authors(commit.body.as_deref().unwrap_or(""))
+                    .iter()
+                    .find_map(|author| provider_avatar_url(&author.name, &author.email));
+                (commit.sha.clone(), url)
+            })
+        } else {
+            None
+        };
+        let provider = &mut self.avatars.provider;
+        if provider.sha.as_deref() == wanted.as_ref().map(|(sha, _)| sha.as_str()) {
+            return;
+        }
+        provider.sha = wanted.as_ref().map(|(sha, _)| sha.clone());
+        provider.token += 1;
+        if let Some(task) = provider.task.take() {
+            task.abort();
+        }
+        let url = wanted.as_ref().and_then(|(_, url)| *url);
+        let badge = ProviderBadge {
+            graphics: wanted.is_some(),
+            visible: url.is_some(),
+        };
+        if provider.badge != badge {
+            provider.badge = badge;
+            // The files pane starts below the card, and the card height depends on the line.
+            self.dirty |= Dirty::DETAILS | Dirty::FILES;
+        }
+        self.widgets.details_view.set_provider(None);
+        let (Some(url), Some(service)) = (url, self.avatars.service.clone()) else {
+            return;
+        };
+        let token = self.avatars.provider.token;
+        let inbox = self.inbox.clone();
+        let task = app.spawn(
+            async move {
+                ProviderLoaded {
+                    token,
+                    url,
+                    pixels: service.load_image(url).await.ok(),
+                }
+            },
+            move |cx, loaded| inbox.post(cx.app(), Msg::ProviderBadge(loaded)),
+        );
+        self.avatars.provider.task = Some(task);
+    }
+
+    pub(crate) fn provider_badge_loaded(&mut self, app: &App, loaded: ProviderLoaded) {
+        if loaded.token != self.avatars.provider.token {
+            return;
+        }
+        self.avatars.provider.task = None;
+        let context = app.session().context().clone();
+        let image = loaded.pixels.as_ref().and_then(|pixels| {
+            Image::from_rgba(&context, pixels.width, pixels.height, &pixels.rgba).ok()
+        });
+        match image {
+            Some(image) => self.widgets.details_view.set_provider(Some(&image)),
+            None => {
+                debug_log(
+                    "avatar",
+                    &format!("co-author provider avatar failed for {}", loaded.url),
+                );
+                // The line gives the space back to the names.
+                self.avatars.provider.badge.visible = false;
+                self.dirty |= Dirty::DETAILS | Dirty::FILES;
+            }
+        }
     }
 }

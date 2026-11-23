@@ -12,13 +12,14 @@
 //!
 //! Gaps against the TS app:
 //!
-//! - The provider badge for co-authors. The author photo is in `graph_avatars.rs`. Its initials badge shows while the
-//!   photo loads and when graphics are off, as in TS.
+//! - The author photo and the co-author provider badge are in `graph_avatars.rs`. The photo's initials badge shows
+//!   while the photo loads and when graphics are off, as in TS.
 //! - The message card scrolls with the wheel, but the scrollbar of its `ScrollBox` is not checked against TS.
 //! - "Edit Message" opens the composer (`screens/composer.rs`).
 //! - TS drops an in-flight file history when a refresh replaces the snapshot. Here a result applies unless a newer
 //!   request or a close replaced it.
 
+use crate::avatars::provider_avatar_url;
 use crate::screens::composer::ComposerAction;
 use crate::screens::files::{Comparison, Contents, Focus};
 use crate::screens::footer::NoticeTone;
@@ -94,6 +95,17 @@ pub struct DetailsInput<'a> {
     pub history: Option<&'a FileHistory>,
     /// The comparison the commit view shows, with the subject of its older commit. It replaces the commit message.
     pub comparison: Option<ComparisonText<'a>>,
+    pub provider: ProviderBadge,
+}
+
+/// How the co-author line treats provider co-authors (Claude, OpenAI). `showCommitMeta`.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct ProviderBadge {
+    /// Terminal graphics work. A provider co-author then loses its initials and the space before its name.
+    pub graphics: bool,
+    /// The line makes room for the badge image: graphics work, a co-author has a provider, and the image did not
+    /// fail to load.
+    pub visible: bool,
 }
 
 /// The card text of a comparison. `openComparison` writes it over the commit message.
@@ -149,6 +161,7 @@ pub struct DetailsView {
     info: Text,
     photo: ImageView,
     badge: Text,
+    provider: ImageView,
     co_authors: Text,
     history_label: Text,
     history_list: Custom<FileHistoryList>,
@@ -245,6 +258,13 @@ impl DetailsView {
             .height(cells(photo_height))
             .fit(ImageFit::Cover)
             .visible(false);
+        let provider = ImageView::new(app)
+            .absolute()
+            .position(Edge::Left, cells(details::CO_AUTHOR_PROVIDER_LEFT))
+            .width(cells(details::CO_AUTHOR_PROVIDER_WIDTH))
+            .height(cells(details::CO_AUTHOR_PROVIDER_HEIGHT))
+            .fit(ImageFit::Cover)
+            .visible(false);
         let co_authors = text("", theme.muted)
             .absolute()
             .height(1u32)
@@ -253,6 +273,7 @@ impl DetailsView {
             .add(&info_label)
             .add(&photo)
             .add(&badge)
+            .add(&provider)
             .add(&co_authors)
             .add(&info);
 
@@ -292,6 +313,7 @@ impl DetailsView {
             info,
             photo,
             badge,
+            provider,
             co_authors,
             history_label,
             history_list,
@@ -344,7 +366,18 @@ impl DetailsView {
         self.badge.visible(image.is_none());
     }
 
+    #[cfg(test)]
+    pub fn provider_shown(&self) -> bool {
+        self.provider.is_visible()
+    }
+
+    /// Shows the provider badge beside the co-author line, or hides it for `None`.
+    pub fn set_provider(&self, image: Option<&Image>) {
+        self.provider.image(image.cloned()).visible(image.is_some());
+    }
+
     pub fn hide(&self) {
+        self.provider.visible(false);
         self.banner.visible(false);
         self.message_box.visible(false);
         self.info_box.visible(false);
@@ -367,8 +400,9 @@ impl DetailsView {
             width,
             input.history.is_some(),
             input.comparison,
+            input.provider,
         );
-        let co_author_text = co_author_content(theme, &co_authors);
+        let co_author_text = co_author_content(theme, &co_authors, input.provider.graphics);
         let split = input
             .history
             .map(|_| file_history_split(input.content_height));
@@ -415,6 +449,11 @@ impl DetailsView {
             &input.commit.author,
             &input.commit.author_email,
         ));
+        self.provider
+            .position(Edge::Top, cells(layout.co_authors_top));
+        if !input.provider.visible {
+            self.provider.visible(false);
+        }
         self.co_authors
             .visible(!co_authors.is_empty())
             .position(Edge::Left, cells(layout.co_authors_left))
@@ -472,6 +511,7 @@ fn commit_layout(
     width: i64,
     with_history: bool,
     comparison: Option<ComparisonText<'_>>,
+    provider: ProviderBadge,
 ) -> CommitLayout {
     let mut text = present_commit_text(commit);
     if let Some(comparison) = comparison {
@@ -490,9 +530,13 @@ fn commit_layout(
         header_lines: wrapped_line_count(&text.header, text_width),
         body_lines: wrapped_line_count(&text.body, text_width),
         info_lines: wrapped_line_count(&text.info(), details_info_width(width)),
-        co_authors_lines: (!co_authors.is_empty())
-            .then(|| wrapped_line_count(&co_authors_plain(&co_authors), text_width)),
-        co_authors_provider_visible: false,
+        co_authors_lines: (!co_authors.is_empty()).then(|| {
+            wrapped_line_count(
+                &co_authors_plain(&co_authors, provider.graphics),
+                text_width,
+            )
+        }),
+        co_authors_provider_visible: provider.visible,
         banner_rows,
     });
     CommitLayout {
@@ -512,15 +556,24 @@ fn info_content(theme: &Theme, text: &CommitText) -> Vec<Span<'static>> {
     spans
 }
 
-/// `Co-authors: [AB] Name  [CD] Other`. `presentCommitCoAuthors` without provider avatars.
-fn co_author_content(theme: &Theme, authors: &[CoAuthor]) -> Vec<Span<'static>> {
+/// Whether the line shows a provider co-author as a bare name, for the badge image. `providerEmails`.
+fn is_provider(author: &CoAuthor, graphics: bool) -> bool {
+    graphics && provider_avatar_url(&author.name, &author.email).is_some()
+}
+
+/// `Co-authors: [AB] Name  [CD] Other`. With `graphics`, a provider co-author is a bare name. `presentCommitCoAuthors`.
+fn co_author_content(theme: &Theme, authors: &[CoAuthor], graphics: bool) -> Vec<Span<'static>> {
     if authors.is_empty() {
         return Vec::new();
     }
     let mut spans = vec!["Co-authors: ".to_string().fg(color(theme.muted))];
     for (index, author) in authors.iter().enumerate() {
-        spans.push(author_avatar(&author.name, &author.email).fg(color(theme.author)));
-        spans.push(format!(" {}", author.name).fg(color(theme.text)));
+        let bare = is_provider(author, graphics);
+        if !bare {
+            spans.push(author_avatar(&author.name, &author.email).fg(color(theme.author)));
+        }
+        let gap = if bare { "" } else { " " };
+        spans.push(format!("{gap}{}", author.name).fg(color(theme.text)));
         if index + 1 < authors.len() {
             spans.push("  ".to_string().fg(color(theme.muted)));
         }
@@ -528,13 +581,16 @@ fn co_author_content(theme: &Theme, authors: &[CoAuthor]) -> Vec<Span<'static>> 
     spans
 }
 
-fn co_authors_plain(authors: &[CoAuthor]) -> String {
+fn co_authors_plain(authors: &[CoAuthor], graphics: bool) -> String {
     if authors.is_empty() {
         return String::new();
     }
     let names: Vec<String> = authors
         .iter()
         .map(|author| {
+            if is_provider(author, graphics) {
+                return author.name.clone();
+            }
             format!(
                 "{} {}",
                 author_avatar(&author.name, &author.email),
@@ -597,6 +653,7 @@ impl Shell {
             self.layout.panes.details_width.max(1),
             self.details.file_history.is_some(),
             self.comparison_text(),
+            self.avatars.provider_badge(),
         )
         .layout
         .files_top
@@ -908,6 +965,7 @@ impl Shell {
             content_height: self.content_height(),
             history: self.details.file_history.as_ref(),
             comparison: self.comparison_text(),
+            provider: self.avatars.provider_badge(),
         });
     }
 }

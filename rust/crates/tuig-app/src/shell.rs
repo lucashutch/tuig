@@ -14,7 +14,7 @@ use crate::screens::details::{DetailsAction, DetailsState, HistoryLoaded};
 use crate::screens::diff::DiffState;
 use crate::screens::files::{ChangesAction, FilesState, Focus, Split};
 use crate::screens::footer::FooterState;
-use crate::screens::graph_avatars::{AvatarLoaded, AvatarState, PhotoLoaded};
+use crate::screens::graph_avatars::{AvatarLoaded, AvatarState, PhotoLoaded, ProviderLoaded};
 use crate::screens::header::{HeaderMsg, HeaderState};
 use crate::screens::history::HistoryState;
 use crate::screens::popup::{OverlayMsg, OverlayState};
@@ -154,6 +154,7 @@ pub enum Msg {
     /// its own task.
     GraphAvatar(AvatarLoaded),
     AuthorPhoto(PhotoLoaded),
+    ProviderBadge(ProviderLoaded),
 
     PullRequestsDue,
     SpinnerTick,
@@ -532,6 +533,7 @@ impl Shell {
             }
             Msg::GraphAvatar(loaded) => self.graph_avatar_loaded(app, loaded),
             Msg::AuthorPhoto(loaded) => self.author_photo_loaded(app, loaded),
+            Msg::ProviderBadge(loaded) => self.provider_badge_loaded(app, loaded),
             Msg::PullRequestsDue => self.pull_requests_due(app),
             Msg::SpinnerTick => self.spinner_tick(),
             Msg::NoticeExpired(generation) => self.notice_expired(generation),
