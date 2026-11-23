@@ -21,10 +21,6 @@ use tuig_widgets::files::ListKind;
 use crate::screens::files::Contents;
 use crate::screens::popup::MenuRequest;
 
-/// The hunk entries of the diff menus. They come from a change to the TypeScript app that is not committed yet.
-/// Turn them on, and re-record the `diff-menu` golden, when that change lands.
-const DIFF_HUNK_MENU: bool = false;
-
 /// The tag behind a row that has no branch label. `primaryDecorationTag`.
 fn primary_decoration_tag(decorations: &[String]) -> Option<String> {
     if decorations.iter().any(|label| !label.starts_with("tag: ")) {
@@ -124,7 +120,7 @@ impl Shell {
         };
         let working = file.source.is_working();
         let changed = target.filter(|target| target.kind != DiffLineKind::Context);
-        let hunk = if working && DIFF_HUNK_MENU {
+        let hunk = if working {
             target.and_then(|target| self.hunk_patch_at(target.raw_row))
         } else {
             None
@@ -261,9 +257,9 @@ impl Shell {
     }
 }
 
-/// The hunk patch for the file menu, when the hunk entries are on.
+/// The hunk patch for the file menu of a working-tree diff.
 fn hunk_for_menu(shell: &Shell, working: bool, target: DiffLineTarget) -> Option<String> {
-    (working && DIFF_HUNK_MENU)
+    working
         .then(|| shell.hunk_patch_at(target.raw_row))
         .flatten()
 }

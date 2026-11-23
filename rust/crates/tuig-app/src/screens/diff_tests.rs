@@ -11,6 +11,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use tuig_git::repository::GitRepositoryService;
 use tuig_widgets::history::ClickPart;
+use tuig_widgets::popup::PopupEvent;
 
 const WAIT: Duration = Duration::from_secs(20);
 
@@ -519,6 +520,156 @@ fn the_hunk_lookup_is_right_for_rows_on_both_sides_of_a_separator() {
         "{index}"
     );
     assert!(index.contains("line 2\n") && !index.contains("line 35\n"));
+}
+
+impl Harness {
+    /// A right press on the unified row that shows `line` of the patch, as the diff pane reports it.
+    fn right_press(&self, document: &DiffDocument, line: &str) {
+        let raw = document
+            .patch
+            .split('\n')
+            .position(|own| own == line)
+            .unwrap();
+        let target = document
+            .unified
+            .rows
+            .iter()
+            .filter_map(|row| row.target)
+            .find(|target| target.raw_row == raw);
+        self.update(Msg::DiffInput(DiffEvent::Press {
+            target,
+            button: MouseButton::Right,
+            ctrl: false,
+            alt: false,
+            x: 30,
+            y: 10,
+        }));
+    }
+
+    fn menu_labels(&self) -> Vec<String> {
+        let shell = self.shell.borrow();
+        let menu = shell.overlay.menu.as_ref().expect("a menu is open");
+        menu.view
+            .pane
+            .items
+            .iter()
+            .filter(|item| !item.separator)
+            .map(|item| item.label.clone())
+            .collect()
+    }
+
+    fn click_menu_item(&self, label: &str) {
+        let (x, y) = {
+            let shell = self.shell.borrow();
+            let pane = &shell
+                .overlay
+                .menu
+                .as_ref()
+                .expect("a menu is open")
+                .view
+                .pane;
+            let row = pane
+                .items
+                .iter()
+                .position(|item| item.label == label)
+                .unwrap_or_else(|| panic!("no menu item {label:?}"));
+            (pane.left + 2, pane.top + 1 + row as i64)
+        };
+        self.shell.borrow_mut().popup_event(
+            self.app.app(),
+            PopupEvent::MenuClick {
+                x: x as u16,
+                y: y as u16,
+                submenu: false,
+            },
+        );
+    }
+}
+
+#[test]
+fn the_diff_menu_stages_only_the_hunk_under_the_pointer() {
+    let (h, document) = two_hunk_harness();
+    h.right_press(&document, "+LINE 35");
+    assert_eq!(
+        h.menu_labels(),
+        [
+            "Stage selected",
+            "Discard selected",
+            "Clear selection",
+            "Stage hunk",
+            "Revert hunk"
+        ]
+    );
+    h.click_menu_item("Stage hunk");
+    h.wait_for_mutation();
+    let index = git(&h.repo.0, &["show", ":c.txt"]);
+    assert!(index.contains("\nLINE 35\n") && !index.contains("line 35\n"));
+    assert!(index.contains("line 2\n") && !index.contains("LINE 2\n"));
+}
+
+#[test]
+fn reverting_a_hunk_from_the_menu_asks_first_and_keeps_the_other_hunk() {
+    let (h, document) = two_hunk_harness();
+    h.right_press(&document, "+LINE 2");
+    h.click_menu_item("Revert hunk");
+    assert_eq!(h.menu_labels().last().map(String::as_str), Some("Cancel"));
+    let before = std::fs::read_to_string(h.repo.0.join("c.txt")).unwrap();
+    assert!(
+        before.contains("LINE 2\n"),
+        "nothing changes before the confirmation"
+    );
+    h.click_menu_item("Revert hunk");
+    h.wait_for_mutation();
+    let after = std::fs::read_to_string(h.repo.0.join("c.txt")).unwrap();
+    assert!(after.contains("line 2\n") && !after.contains("LINE 2\n"));
+    assert!(after.contains("LINE 35\n"), "the other hunk stays");
+    assert_eq!(git(&h.repo.0, &["diff", "--cached", "--name-only"]), "");
+}
+
+#[test]
+fn cancelling_the_hunk_revert_changes_nothing() {
+    let (h, document) = two_hunk_harness();
+    h.right_press(&document, "+LINE 2");
+    h.click_menu_item("Revert hunk");
+    h.click_menu_item("Cancel");
+    h.wait_idle();
+    let text = std::fs::read_to_string(h.repo.0.join("c.txt")).unwrap();
+    assert!(text.contains("LINE 2\n") && text.contains("LINE 35\n"));
+}
+
+#[test]
+fn the_file_menu_of_a_context_line_offers_the_hunk_and_a_staged_diff_offers_unstage() {
+    let (h, document) = two_hunk_harness();
+    h.right_press(&document, " line 3");
+    let labels = h.menu_labels();
+    assert!(labels.contains(&"Stage hunk".to_owned()), "{labels:?}");
+    h.update(Msg::Key(KeyEvent::from(opentui::input::KeyCode::Escape)));
+
+    git(&h.repo.0, &["add", "c.txt"]);
+    h.show("c.txt", FileSource::WorkingStaged);
+    let document = h.wait_for_document("c.txt");
+    h.right_press(&document, "+LINE 35");
+    let labels = h.menu_labels();
+    assert!(labels.contains(&"Unstage hunk".to_owned()), "{labels:?}");
+    assert!(!labels.contains(&"Stage hunk".to_owned()));
+    assert!(!labels.contains(&"Revert hunk".to_owned()));
+}
+
+#[test]
+fn a_commit_diff_has_no_hunk_actions() {
+    let repo = two_hunk_repository();
+    git(&repo.0, &["commit", "-q", "-am", "edit c"]);
+    let sha = git(&repo.0, &["rev-parse", "HEAD"]).trim().to_owned();
+    let h = Harness::with_repo(repo);
+    h.shell.borrow_mut().diff.side_by_side = false;
+    h.show("c.txt", FileSource::Commit(sha));
+    let document = h.wait_for_document("c.txt");
+    h.right_press(&document, "+LINE 35");
+    let labels = h.menu_labels();
+    assert!(
+        !labels.iter().any(|label| label.ends_with("hunk")),
+        "{labels:?}"
+    );
 }
 
 #[test]
