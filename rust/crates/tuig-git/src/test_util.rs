@@ -10,7 +10,12 @@ static COUNTER: AtomicUsize = AtomicUsize::new(0);
 
 impl TempDir {
     pub fn new(prefix: &str) -> Self {
-        let path = std::env::temp_dir().join(format!(
+        Self::new_in(&std::env::temp_dir(), prefix)
+    }
+
+    /// A directory below `parent`, for tests that must not share the system temp directory with other processes.
+    pub fn new_in(parent: &Path, prefix: &str) -> Self {
+        let path = parent.join(format!(
             "{prefix}-{}-{}",
             std::process::id(),
             COUNTER.fetch_add(1, Ordering::SeqCst)

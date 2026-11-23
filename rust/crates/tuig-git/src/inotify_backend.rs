@@ -355,13 +355,22 @@ mod tests {
     }
 
     fn next_paths(rx: &mpsc::Receiver<BackendEvent>, wanted: &Path) -> bool {
+        next_paths_logged(rx, wanted, &mut Vec::new())
+    }
+
+    /// Like `next_paths`, and records every event received on the way in `seen` for assertion messages.
+    fn next_paths_logged(
+        rx: &mpsc::Receiver<BackendEvent>,
+        wanted: &Path,
+        seen: &mut Vec<String>,
+    ) -> bool {
         let deadline = std::time::Instant::now() + Duration::from_secs(5);
         while let Some(left) = deadline.checked_duration_since(std::time::Instant::now()) {
             match rx.recv_timeout(left) {
                 Ok(BackendEvent::Paths(paths)) if paths.iter().any(|path| path == wanted) => {
                     return true;
                 }
-                Ok(_) => {}
+                Ok(event) => seen.push(format!("{event:?}")),
                 Err(_) => return false,
             }
         }
@@ -370,7 +379,14 @@ mod tests {
 
     #[test]
     fn reading_files_wakes_nothing_and_writing_one_does() {
-        let dir = TempDir::new("inotify-reads");
+        // Not the system temp directory: other processes there can add events that this test would count.
+        let scratch = Path::new(
+            option_env!("CARGO_TARGET_TMPDIR")
+                .unwrap_or(concat!(env!("CARGO_MANIFEST_DIR"), "/../../target/tmp")),
+        )
+        .to_owned();
+        std::fs::create_dir_all(&scratch).unwrap();
+        let dir = TempDir::new_in(&scratch, "inotify-reads");
         let root = dir.path();
         std::fs::create_dir_all(root.join("a/b")).unwrap();
         std::fs::write(root.join("a/b/file.txt"), "one").unwrap();
@@ -382,11 +398,20 @@ mod tests {
             let _ = std::fs::read(root.join("a/b/file.txt")).unwrap();
         }
         std::thread::sleep(Duration::from_millis(300));
-        assert_eq!(watcher.raw_events(), 0, "a read reached the watcher");
-        assert!(rx.try_recv().is_err());
+        let received: Vec<String> = rx.try_iter().map(|event| format!("{event:?}")).collect();
+        assert_eq!(
+            watcher.raw_events(),
+            0,
+            "a read reached the watcher, events: {received:?}"
+        );
+        assert!(received.is_empty(), "a read sent events: {received:?}");
 
         std::fs::write(root.join("a/b/file.txt"), "two").unwrap();
-        assert!(next_paths(&rx, &root.join("a/b/file.txt")));
+        let mut seen = Vec::new();
+        assert!(
+            next_paths_logged(&rx, &root.join("a/b/file.txt"), &mut seen),
+            "the write was not reported, events: {seen:?}"
+        );
         assert!(watcher.raw_events() > 0);
     }
 
