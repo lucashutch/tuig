@@ -1,0 +1,12 @@
+# A diff between 1 MiB and 5 MiB opens without syntax highlight and without a "too large" notice.
+# Shift+L has no diff to load there, so it runs the pull key. The repository has no upstream, so the pull fails.
+fixture middiff
+wait text "Working Changes"
+click 60 4
+wait text "Unstaged files"
+click 126 6
+wait text "value_000000"
+snapshot over-highlight-limit
+key L
+wait text "no tracking information"
+snapshot after-shift-l

@@ -327,6 +327,13 @@ class NewFixtureTest(unittest.TestCase):
         small = repo.git("diff", "--", "data/small.py").splitlines()
         self.assertEqual(sum(1 for line in small if line[:1] in "+-" and line[:3] not in ("+++", "---")), 120)
 
+    def test_middiff_is_between_the_highlight_limit_and_the_display_limit(self):
+        repo, _, _ = self.log("middiff")
+        patch = repo.git("diff", "--", "data/mid.py")
+        self.assertGreater(len(patch), 1024 * 1024)
+        self.assertLess(len(patch), 5 * 1024 * 1024)
+        self.assertLess(patch.count("\n"), 20000)
+
 
 if __name__ == "__main__":
     unittest.main()

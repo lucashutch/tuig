@@ -321,6 +321,21 @@ def build_bigdiff(dest: Path) -> Path:
     return dest
 
 
+def build_middiff(dest: Path) -> Path:
+    """Clean tree except one edit. `data/mid.py` gives a diff of about 1.8 MiB in 8,000 rows: above the 1 MiB
+    highlight limit, below the 20,000 row limit and the 5 MiB display limit."""
+    repo = Repo(dest)
+    dest.mkdir(parents=True)
+    repo.git("init", "-q", "-b", "main")
+    repo.git("config", "commit.gpgsign", "false")
+    repo.write("README.md", "# Mid diff\n")
+    pad = "x" * 200
+    repo.write("data/mid.py", "".join(f"value_{i:06d} = '{pad}'\n" for i in range(4000)))
+    repo.commit("chore: add data")
+    repo.write("data/mid.py", "".join(f"value_{i:06d} = '{pad.upper()}'\n" for i in range(4000)))
+    return dest
+
+
 def build_lanes(dest: Path) -> Path:
     """Sixteen branches that stay open at the same time and merge into main, so the graph is wider than
     its column and can be panned."""
@@ -346,7 +361,7 @@ def build_lanes(dest: Path) -> Path:
 
 FIXTURES = {
     "demo": build_demo, "history": build_long, "second": build_second,
-    "lanes": build_lanes, "linked": build_linked, "behind": build_behind, "slow-remote": build_slow_remote, "ssh-remote": build_ssh_remote, "bigdiff": build_bigdiff,
+    "lanes": build_lanes, "linked": build_linked, "behind": build_behind, "slow-remote": build_slow_remote, "ssh-remote": build_ssh_remote, "bigdiff": build_bigdiff, "middiff": build_middiff,
 }  # fmt: skip
 
 
