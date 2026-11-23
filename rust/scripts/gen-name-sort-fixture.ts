@@ -10,7 +10,8 @@ const random = () => {
   seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0;
   return seed / 2 ** 32;
 };
-const pick = <T>(items: readonly T[]): T => items[Math.floor(random() * items.length)]!;
+const pick = <T>(items: readonly T[]): T =>
+  items[Math.floor(random() * items.length)]!;
 
 const pools = {
   lower: [..."abcdefghijklmnopqrstuvwxyz"],
@@ -55,11 +56,20 @@ const mutate = (text: string, mix: readonly (keyof typeof pools)[]) => {
 const pairs: [string, string, number][] = [];
 for (let count = 0; count < 8000; count++) {
   const mix = pick(mixes);
-  const a = word(mix) + (random() < 0.3 ? `.${pick(["ts", "rs", "TS", "md"])}` : "");
+  const a =
+    word(mix) + (random() < 0.3 ? `.${pick(["ts", "rs", "TS", "md"])}` : "");
   const b = random() < 0.5 ? mutate(a, mix) : word(mix);
   pairs.push([a, b, Math.sign(a.localeCompare(b, LOCALE))]);
 }
 writeFileSync(
-  new URL("../crates/tuig-ui-model/tests/fixtures/name_sort.json", import.meta.url),
-  JSON.stringify({ bun: Bun.version, icu: process.versions.icu, locale: LOCALE, pairs }),
+  new URL(
+    "../crates/tuig-ui-model/tests/fixtures/name_sort.json",
+    import.meta.url,
+  ),
+  JSON.stringify({
+    bun: Bun.version,
+    icu: process.versions.icu,
+    locale: LOCALE,
+    pairs,
+  }),
 );
