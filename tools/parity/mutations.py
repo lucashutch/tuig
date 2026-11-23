@@ -96,6 +96,11 @@ CASES: dict[str, tuple[str, list[tuple]]] = {
     "stage-line": ("demo", [*OPEN_SERVER, ("click", *PLUS_LINE), ("key", "enter")]),
     "unstage-line": ("demo", [*OPEN_UTIL, ("click", 30, 6), ("key", "enter")]),
     "stage-hunk": ("demo", [*OPEN_SERVER, ("key", "h")]),
+    # Right-click a changed line: the selected-lines menu lists the hunk actions below the line actions.
+    "hunk-menu-stage": ("demo", [*OPEN_SERVER, ("rclick", *PLUS_LINE), ("wait", "Stage hunk"), ("click", 34, 11)]),
+    "hunk-menu-revert": ("demo", [*OPEN_SERVER, ("rclick", *PLUS_LINE), ("wait", "Revert hunk"), ("click", 34, 12),
+                                  ("wait", "Discard this hunk"), ("key", "enter")]),  # fmt: skip
+    "hunk-menu-unstage": ("demo", [*OPEN_UTIL, ("rclick", 30, 6), ("wait", "Unstage hunk"), ("click", 34, 10)]),
     "stage-file": ("demo", [*OPEN_SERVER, ("key", "s")]),
     "unstage-file": ("demo", [*OPEN_UTIL, ("key", "u")]),
     "stage-all": ("demo", [("key", "a")]),

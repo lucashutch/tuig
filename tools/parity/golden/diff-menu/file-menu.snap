@@ -6,15 +6,15 @@ parity-snapshot 1 160x48 cursor=hidden
                                                       󰇚       ↓       ↑       ↶        󰆓       󰄼        󰑓                                                       |
  ▼ LOCAL BRANCHES 4         │                                                                                      │  ✖  Discard all             ✚  Stage all   |
 ○ 󰌢 feature/login           │   1   def handler_00(request):┌─ src/server.py ─────────┐                            │  ▼ Unstaged files (2)                      |
-○ 󰌢 fix/typo                │   2 -     return 0            │ Show file history       │                            │   ▼ 󰝰 src                                  |
-◉ 󰌢 main                    │   2 +     return 'first'      │ Blame line 1            │                            │ ▸ │   󰌠 server.py                          |
-○ 󰌢 release/1.0             │   3   def handler_01(request):│ Show history for line 1 │                            │     󰧮 notes.txt                            |
-                            │   4       return 1            │ Copy path               │                            │                                            |
-                            │   5   def handler_02(request):└─────────────────────────┘                            │                                            |
-                            │   6       return 2                                                                   │                                            |
-                            │   7   def handler_03(request):                                                       │                                            |
-───────────━━━━━────────────│   8       return 3                                                                   │                                            |
- ▼ REMOTES 0                │  26       return 12                                                                  │                                            |
+○ 󰌢 fix/typo                │   2 -     return 0            │ Stage hunk              │                            │   ▼ 󰝰 src                                  |
+◉ 󰌢 main                    │   2 +     return 'first'      │ Revert hunk             │                            │ ▸ │   󰌠 server.py                          |
+○ 󰌢 release/1.0             │   3   def handler_01(request):│─────────────────────────│                            │     󰧮 notes.txt                            |
+                            │   4       return 1            │─────────────────────────│                            │                                            |
+                            │   5   def handler_02(request):│ Show file history       │                            │                                            |
+                            │   6       return 2            │ Blame line 1            │                            │                                            |
+                            │   7   def handler_03(request):│ Show history for line 1 │                            │                                            |
+───────────━━━━━────────────│   8       return 3            │ Copy path               │                            │                                            |
+ ▼ REMOTES 0                │  26       return 12           └─────────────────────────┘                            │                                            |
   (none)                    │  27   def handler_13(request):                                                       │                                            |
                             │  28       return 13                                                                  │                                            |
                             │  29   def handler_14(request):                                                       │                                            |
@@ -95,14 +95,14 @@ bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbccccccccceeeeeeeeeeeeeeeeccccc
 fggggggggggggggggggfffffffffhiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiihfjjjjjjjjjjjjjjjjfffffffffffkkkkkkkkkkkkkkff|
 llllllllllllllllllllllllllllhiiimiiinnnoppppppppppooooooooooeeeeeeeeeeeeeeeeeeeeeeeeeeeiiiiiiiiiiiiiiiiiiiiiiiiiiiihfqqqqqqqqqqqqqqqqqqqqqffffffffffffffffffffff|
 llllllllllllllllllllllllllllhirrsttruuuuvvvvvvuwrrrrrrrrrrrrebbbbbbbbbbbbbbbbbbbbbbbbberrrrrrrrrrrrrrrrrrrrrrrrrrrihfggqqxxqqqgggggggggggggggggggggggggggggggggg|
-llllllllllllllllllllllllllllhiyyzAAyBBBBCCCCCCBAAAAAAAyyyyyyebbbbbbbbbbbbbbbbbbbbbbbbbeyyyyyyyyyyyyyyyyyyyyyyyyyyyihfDDEEEEFFDDDDDDDDDEEEEEEEEEEEEEEEEEEEEEEEEEE|
-llllllllllllllllllllllllllllhiiimiiinnnoppppppppppooooooooooebbbbbbbbbbbbbbbbbbbbbbbbbeiiiiiiiiiiiiiiiiiiiiiiiiiiiihfggggGGlllllllllgggggggggggggggggggggggggggg|
+llllllllllllllllllllllllllllhiyyzAAyBBBBCCCCCCBAAAAAAAyyyyyyejjjjjjjjjjjjjjjjjjjjjjjjjeyyyyyyyyyyyyyyyyyyyyyyyyyyyihfDDEEEEFFDDDDDDDDDEEEEEEEEEEEEEEEEEEEEEEEEEE|
+llllllllllllllllllllllllllllhiiimiiinnnoppppppppppooooooooooeeeeeeeeeeeeeeeeeeeeeeeeeeeiiiiiiiiiiiiiiiiiiiiiiiiiiiihfggggGGlllllllllgggggggggggggggggggggggggggg|
+llllllllllllllllllllllllllllhiiimiiioooonnnnnnoHiiiiiiiiiiiieeeeeeeeeeeeeeeeeeeeeeeeeeeiiiiiiiiiiiiiiiiiiiiiiiiiiiihffffffffffffffffffffffffffffffffffffffffffff|
+llllllllllllllllllllllllllllhiiimiiinnnoppppppppppooooooooooebbbbbbbbbbbbbbbbbbbbbbbbbeiiiiiiiiiiiiiiiiiiiiiiiiiiiihffffffffffffffffffffffffffffffffffffffffffff|
 llllllllllllllllllllllllllllhiiimiiioooonnnnnnoHiiiiiiiiiiiiebbbbbbbbbbbbbbbbbbbbbbbbbeiiiiiiiiiiiiiiiiiiiiiiiiiiiihffffffffffffffffffffffffffffffffffffffffffff|
-llllllllllllllllllllllllllllhiiimiiinnnoppppppppppooooooooooeeeeeeeeeeeeeeeeeeeeeeeeeeeiiiiiiiiiiiiiiiiiiiiiiiiiiiihffffffffffffffffffffffffffffffffffffffffffff|
-llllllllllllllllllllllllllllhiiimiiioooonnnnnnoHiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiihffffffffffffffffffffffffffffffffffffffffffff|
-llllllllllllllllllllllllllllhiiimiiinnnoppppppppppooooooooooiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiihffffffffffffffffffffffffffffffffffffffffffff|
-IIIIIIIIIIIIIIIIIIIIIIIIIIIIhiiimiiioooonnnnnnoHiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiihffffffffffffffffffffffffffffffffffffffffffff|
-fgggggggggggffffffffffffffffhiimmiiioooonnnnnnoHHiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiihffffffffffffffffffffffffffffffffffffffffffff|
+llllllllllllllllllllllllllllhiiimiiinnnoppppppppppooooooooooebbbbbbbbbbbbbbbbbbbbbbbbbeiiiiiiiiiiiiiiiiiiiiiiiiiiiihffffffffffffffffffffffffffffffffffffffffffff|
+IIIIIIIIIIIIIIIIIIIIIIIIIIIIhiiimiiioooonnnnnnoHiiiiiiiiiiiiebbbbbbbbbbbbbbbbbbbbbbbbbeiiiiiiiiiiiiiiiiiiiiiiiiiiiihffffffffffffffffffffffffffffffffffffffffffff|
+fgggggggggggffffffffffffffffhiimmiiioooonnnnnnoHHiiiiiiiiiiieeeeeeeeeeeeeeeeeeeeeeeeeeeiiiiiiiiiiiiiiiiiiiiiiiiiiiihffffffffffffffffffffffffffffffffffffffffffff|
 llllllllllllllllllllllllllllhiimmiiinnnoppppppppppooooooooooiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiihffffffffffffffffffffffffffffffffffffffffffff|
 llllllllllllllllllllllllllllhiimmiiioooonnnnnnoHHiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiihffffffffffffffffffffffffffffffffffffffffffff|
 llllllllllllllllllllllllllllhiimmiiinnnoppppppppppooooooooooiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiihffffffffffffffffffffffffffffffffffffffffffff|

@@ -11,10 +11,10 @@ parity-snapshot 1 160x48 cursor=hidden
 ○ 󰌢 release/1.0             │ │ Stage selected   │(request):                                                       │     󰧮 notes.txt                            |
                             │ │ Discard selected │                                                                 │                                            |
                             │ │ Clear selection  │(request):                                                       │                                            |
-                            │ └──────────────────┘                                                                 │                                            |
-                            │   7   def handler_03(request):                                                       │                                            |
-───────────━━━━━────────────│   8       return 3                                                                   │                                            |
- ▼ REMOTES 0                │  26       return 12                                                                  │                                            |
+                            │ │──────────────────│                                                                 │                                            |
+                            │ │ Stage hunk       │(request):                                                       │                                            |
+───────────━━━━━────────────│ │ Revert hunk      │                                                                 │                                            |
+ ▼ REMOTES 0                │ └──────────────────┘                                                                 │                                            |
   (none)                    │  27   def handler_13(request):                                                       │                                            |
                             │  28       return 13                                                                  │                                            |
                             │  29   def handler_14(request):                                                       │                                            |
@@ -102,9 +102,9 @@ llllllllllllllllllllllllllllhiebbbbbbbbbbbbbbbbbbeooooooooooiiiiiiiiiiiiiiiiiiii
 llllllllllllllllllllllllllllhiejjjjjjjjjjjjjjjjjjeiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiihffffffffffffffffffffffffffffffffffffffffffff|
 llllllllllllllllllllllllllllhiebbbbbbbbbbbbbbbbbbeooooooooooiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiihffffffffffffffffffffffffffffffffffffffffffff|
 llllllllllllllllllllllllllllhieeeeeeeeeeeeeeeeeeeeiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiihffffffffffffffffffffffffffffffffffffffffffff|
-llllllllllllllllllllllllllllhiiimiiinnnoppppppppppooooooooooiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiihffffffffffffffffffffffffffffffffffffffffffff|
-EEEEEEEEEEEEEEEEEEEEEEEEEEEEhiiimiiioooonnnnnnoFiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiihffffffffffffffffffffffffffffffffffffffffffff|
-fgggggggggggffffffffffffffffhiimmiiioooonnnnnnoFFiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiihffffffffffffffffffffffffffffffffffffffffffff|
+llllllllllllllllllllllllllllhiebbbbbbbbbbbbbbbbbbeooooooooooiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiihffffffffffffffffffffffffffffffffffffffffffff|
+EEEEEEEEEEEEEEEEEEEEEEEEEEEEhiejjjjjjjjjjjjjjjjjjeiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiihffffffffffffffffffffffffffffffffffffffffffff|
+fgggggggggggffffffffffffffffhieeeeeeeeeeeeeeeeeeeeiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiihffffffffffffffffffffffffffffffffffffffffffff|
 llllllllllllllllllllllllllllhiimmiiinnnoppppppppppooooooooooiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiihffffffffffffffffffffffffffffffffffffffffffff|
 llllllllllllllllllllllllllllhiimmiiioooonnnnnnoFFiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiihffffffffffffffffffffffffffffffffffffffffffff|
 llllllllllllllllllllllllllllhiimmiiinnnoppppppppppooooooooooiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiihffffffffffffffffffffffffffffffffffffffffffff|
