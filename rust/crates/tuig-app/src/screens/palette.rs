@@ -625,11 +625,6 @@ impl Shell {
             "view.details" => self.toggle_details_panel(app),
             "settings.avatars" => {
                 self.set_avatars_enabled(app, !self.avatars.enabled);
-                self.notify(if self.avatars.enabled {
-                    "Author avatars on"
-                } else {
-                    "Author avatars off"
-                });
             }
             "theme.change" => self.show_theme_picker(app, PalettePage::Themes),
             "theme.mode" => self.show_theme_picker(app, PalettePage::ThemeMode),
