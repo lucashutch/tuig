@@ -1,14 +1,17 @@
 //! Changed-file tree. Ports `src/ui/file-tree.ts`.
 //!
 //! Differences from TypeScript:
-//! - Name order approximates ICU `localeCompare` for ASCII names. See
-//!   [`compare_names`].
+//! - Name order uses the ICU4X root collator, which matches `localeCompare`.
+//!   See [`compare_names`].
 //! - Not ported: `cachedFileTree` and `cachedFlattenVisible`, which cache by
 //!   JavaScript object identity, and `fitTreeLabel`, which needs terminal
 //!   display width.
 
+use icu_collator::options::CollatorOptions;
+use icu_collator::{Collator, CollatorBorrowed, CollatorPreferences};
 use std::cmp::Ordering;
 use std::collections::{HashMap, HashSet};
+use std::sync::LazyLock;
 
 use tuig_git::types::{ChangedFile, FileState};
 
@@ -156,35 +159,16 @@ fn directory_status(children: &[FileTreeNode]) -> Option<FileState> {
     result
 }
 
-/// Rank of one ASCII character in the ICU root collation order that
-/// `localeCompare` uses: separators, punctuation, symbols, digits, letters.
-fn primary_rank(character: char) -> u32 {
-    const PUNCTUATION: &str = " _-,;:!?.'\"()[]{}@*/\\&#%`^+<=>|~$";
-    if let Some(at) = PUNCTUATION.find(character) {
-        return at as u32;
-    }
-    match character {
-        '0'..='9' => 100 + u32::from(character) - u32::from('0'),
-        'a'..='z' | 'A'..='Z' => 200 + u32::from(character.to_ascii_lowercase()) - u32::from('a'),
-        other => 1000 + u32::from(other),
-    }
-}
-
-/// Orders names like `String.prototype.localeCompare` for ASCII input: letters
-/// compare without case first, and a lowercase letter sorts before its
-/// uppercase form only when nothing else differs. Non-ASCII characters sort by
-/// code point after all ASCII, which does not match ICU.
+/// Orders names like `String.prototype.localeCompare` with no arguments: the
+/// ICU root collation (the default `en-US` locale has no tailoring) at tertiary
+/// strength. Punctuation, digits and letters sort in that order, accents and
+/// case only break ties, and digits compare one by one, not as numbers.
 pub fn compare_names(a: &str, b: &str) -> Ordering {
-    let primary = |text: &str| text.chars().map(primary_rank).collect::<Vec<_>>();
-    primary(a).cmp(&primary(b)).then_with(|| {
-        // Tertiary level: at the first case difference, lowercase wins.
-        for (left, right) in a.chars().zip(b.chars()) {
-            if left != right {
-                return right.is_lowercase().cmp(&left.is_lowercase());
-            }
-        }
-        Ordering::Equal
-    })
+    static COLLATOR: LazyLock<CollatorBorrowed<'static>> = LazyLock::new(|| {
+        Collator::try_new(CollatorPreferences::default(), CollatorOptions::default())
+            .expect("the compiled root collation data is always available")
+    });
+    COLLATOR.compare(a, b)
 }
 
 fn sort_nodes(nodes: &mut [FileTreeNode]) {
