@@ -87,3 +87,20 @@ fn an_error_message_uses_the_deleted_color() {
         (theme.deleted.r, theme.deleted.g, theme.deleted.b)
     );
 }
+
+#[test]
+fn a_message_with_two_lines_shows_only_the_first_line() {
+    let first = "git pull: There is no tracking information for the current branch.";
+    let mut footer = Footer::new(one_dark_theme());
+    footer.set_message(
+        &format!("{first}\nPlease specify which branch you want to merge with."),
+        MessageTone::Error,
+        160,
+    );
+    let (line, _app) = row(footer, 160);
+    // The text is clipped to 80 columns and starts at column 79. The second line is not drawn.
+    let start = line.find("git pull").map(|at| line[..at].chars().count());
+    assert_eq!(start, Some(79), "{line:?}");
+    assert!(line.contains(first), "{line:?}");
+    assert!(!line.contains("Please"), "{line:?}");
+}

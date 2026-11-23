@@ -170,7 +170,9 @@ impl Component for Footer {
             painter.text(
                 i32::try_from(left).unwrap_or(1),
                 0,
-                message,
+                // The text has one row, so a second line does not show. The width and the position still come
+                // from the whole text, as in TS.
+                message.split('\n').next().unwrap_or_default(),
                 Style::new().fg(to_color(fg)),
             );
         }
