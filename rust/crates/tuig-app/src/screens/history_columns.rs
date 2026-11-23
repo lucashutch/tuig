@@ -29,7 +29,7 @@ pub struct HistoryPointerState {
     last_divider_press: Option<(HistoryDividerKey, i64)>,
     clock: Instant,
     /// Where the scrollbar thumb is held, while a scrollbar drag runs.
-    scrollbar: Option<ScrollbarGrab>,
+    pub(crate) scrollbar: Option<ScrollbarGrab>,
 }
 
 impl Default for HistoryPointerState {

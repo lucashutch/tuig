@@ -174,6 +174,44 @@ fn wheel_notches_within_one_batch_scroll_once() {
 }
 
 #[test]
+fn a_burst_of_wheel_notches_moves_the_viewport_once_and_settles_once() {
+    let h = Harness::new(100);
+    // Ten notches 1 ms apart, the last at t=9 ms.
+    for _ in 0..10 {
+        h.update(Msg::HistoryWheel(1));
+        h.app.advance(Duration::from_millis(1));
+    }
+    assert_eq!(h.read(|shell| shell.history.viewport.start), 0);
+    h.app.advance(SCROLL_BATCH - Duration::from_millis(10));
+    assert_eq!(
+        h.read(|shell| shell.history.viewport.start),
+        10,
+        "all notches landed in one move"
+    );
+    // The settle delay restarted on every notch, so it runs from the last one at t=9 ms.
+    h.app.advance(SCROLL_SETTLE - Duration::from_millis(8));
+    assert!(h.read(|shell| shell.history.scrolling));
+    h.app.advance(Duration::from_millis(1));
+    assert!(!h.read(|shell| shell.history.scrolling));
+    h.read(|shell| {
+        assert!(shell.history.scroll_timer.is_none() && shell.history.settle_timer.is_none());
+    });
+}
+
+#[test]
+fn the_settle_delay_waits_for_the_scrollbar_to_be_released() {
+    let h = Harness::new(100);
+    h.update(Msg::HistoryWheel(1));
+    h.shell.borrow_mut().history.pointer.scrollbar =
+        Some(tuig_ui_model::scrollbar::scrollbar_grab(100, 0, 10, 1));
+    h.app.advance(SCROLL_BATCH + SCROLL_SETTLE);
+    assert!(h.read(|shell| shell.history.scrolling));
+    h.shell.borrow_mut().release_history_scrollbar(h.app.app());
+    h.app.advance(SCROLL_SETTLE);
+    assert!(!h.read(|shell| shell.history.scrolling));
+}
+
+#[test]
 fn the_selected_commit_stays_selected_when_a_watched_commit_lands() {
     let h = Harness::new(10);
     h.wait("the watcher", |shell| shell.refresh.watcher.is_some());

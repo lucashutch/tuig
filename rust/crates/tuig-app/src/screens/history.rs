@@ -459,6 +459,10 @@ impl Shell {
 
     pub(crate) fn history_settled(&mut self) {
         self.history.settle_timer = None;
+        // A scrollbar drag keeps the avatars hidden until release, which starts the delay again.
+        if self.history.pointer.scrollbar.is_some() {
+            return;
+        }
         self.history.scrolling = false;
         self.dirty |= Dirty::AVATARS;
     }
