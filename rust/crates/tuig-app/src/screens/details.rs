@@ -377,7 +377,6 @@ impl DetailsView {
     }
 
     pub fn hide(&self) {
-        self.provider.visible(false);
         self.banner.visible(false);
         self.message_box.visible(false);
         self.info_box.visible(false);

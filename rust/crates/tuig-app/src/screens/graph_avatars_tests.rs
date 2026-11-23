@@ -1,5 +1,6 @@
 use super::*;
 use crate::avatars::{AvatarFetcher, GitHubLookup};
+use crate::screens::composer::ComposerAction;
 use crate::screens::history::{SCROLL_BATCH, SCROLL_SETTLE};
 use crate::screens::test_support::{Harness, TempDir, repository};
 use crate::services::Services;
@@ -224,6 +225,23 @@ fn a_claude_co_author_gets_a_provider_badge_beside_its_name() {
         !shell.widgets.details_view.provider_shown()
     });
     assert!(!h.read(|shell| shell.avatars.provider_badge().visible));
+}
+
+#[test]
+fn the_provider_badge_comes_back_when_the_message_editor_is_cancelled() {
+    let (h, _fetcher, _cache) = start_with(repository_with_trailers(CLAUDE_TRAILER), None);
+    open_newest(&h);
+    h.wait("the provider badge", |shell| {
+        shell.widgets.details_view.provider_shown()
+    });
+
+    h.send(Msg::Composer(ComposerAction::EditMessage));
+    h.wait("the message editor", |shell| shell.composer.editing());
+    h.app.press("esc");
+    h.wait("the editor to close", |shell| !shell.composer.editing());
+    h.wait("the provider badge", |shell| {
+        shell.widgets.details_view.provider_shown()
+    });
 }
 
 #[test]
