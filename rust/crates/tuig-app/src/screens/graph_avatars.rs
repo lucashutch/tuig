@@ -400,8 +400,9 @@ mod tests;
 
 impl Shell {
     /// The avatar toggle. Off releases the graph images and drops the author photo, on loads them again.
-    pub(crate) fn set_avatars_enabled(&mut self, enabled: bool) {
+    pub(crate) fn set_avatars_enabled(&mut self, app: &App, enabled: bool) {
         self.avatars.enabled = enabled;
+        self.persist_layout(app);
         if !enabled {
             self.clear_graph_avatars();
         }

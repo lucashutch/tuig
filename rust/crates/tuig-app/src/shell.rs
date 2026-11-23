@@ -457,7 +457,7 @@ impl Shell {
                 action,
             } => self.file_row_action(app, section, row, action),
             Msg::ChangesAction(action) => self.changes_action(app, action),
-            Msg::SplitDrag { split, y } => self.split_drag(split, y),
+            Msg::SplitDrag { split, y } => self.split_drag(app, split, y),
             Msg::HistoryWheel(delta) => self.queue_history_scroll(app, delta),
             Msg::HistoryPointer(event) => self.history_pointer(app, event),
             Msg::HistoryScrollGraph(delta) => {
@@ -611,7 +611,7 @@ impl Shell {
             Command::ToggleDetailsPanel => self.toggle_panel_key(false),
             Command::Refresh => self.request_refresh(app, false),
             Command::StageFirstHunk => self.stage_first_hunk(app),
-            Command::ToggleDiffView => self.toggle_diff_view(),
+            Command::ToggleDiffView => self.toggle_diff_view(app),
             // Shift+L loads a diff past the limit. TS falls through to the `l` key when there is none to load.
             Command::LoadLargeDiff => {
                 if self.diff.is_open() && self.diff.too_large {

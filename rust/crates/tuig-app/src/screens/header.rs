@@ -379,8 +379,8 @@ impl Shell {
             HeaderEvent::TabOpen => self.show_repository_picker(app),
             HeaderEvent::TabDrag { id, x } => self.drag_tab(&id, x),
             HeaderEvent::Toolbar(action) => self.run_toolbar_action(app, action),
-            HeaderEvent::ToggleAvatars => self.set_avatars_enabled(!self.avatars.enabled),
-            HeaderEvent::ToggleDiffView => self.toggle_diff_view(),
+            HeaderEvent::ToggleAvatars => self.set_avatars_enabled(app, !self.avatars.enabled),
+            HeaderEvent::ToggleDiffView => self.toggle_diff_view(app),
         }
     }
 

@@ -535,8 +535,9 @@ impl Shell {
         false
     }
 
-    pub(crate) fn toggle_diff_view(&mut self) {
+    pub(crate) fn toggle_diff_view(&mut self, app: &App) {
         self.diff.side_by_side = !self.diff.side_by_side;
+        self.persist_layout(app);
         self.dirty |= Dirty::DIFF;
     }
 

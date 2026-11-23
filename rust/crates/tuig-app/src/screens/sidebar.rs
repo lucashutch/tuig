@@ -22,7 +22,9 @@ use std::time::{Duration, Instant};
 use tuig_git::pull_request_types::PullRequest;
 use tuig_git::types::{Stash, Submodule, Worktree};
 use tuig_ui_model::graph_menu::{GraphMenuAction, GraphMenuTarget};
-use tuig_ui_model::preferences::{LayoutPreferences, SidebarSections, save_layout_preferences};
+use tuig_ui_model::preferences::{
+    DiffView, LayoutPreferences, SidebarSections, save_layout_preferences,
+};
 use tuig_ui_model::runtime_layout::{
     clamp_details_width, clamp_sidebar_width, details_width_for_drag, sidebar_width_for_drag,
 };
@@ -257,6 +259,9 @@ impl Shell {
         if let Some(details) = preferences.details_width {
             self.layout.details_width = clamp_details_width(details as i64, width);
         }
+        self.diff.side_by_side = preferences.diff_view != Some(DiffView::Inline);
+        self.files.preferred_unstaged_height = preferences.unstaged_height.map(|h| h as i64);
+        self.files.preferred_composer_height = preferences.composer_height.map(|h| h as i64);
         self.layout.left_collapsed = preferences.left_collapsed.unwrap_or(false);
         self.layout.details_collapsed = preferences.details_collapsed.unwrap_or(false);
         if let Some(heights) = &preferences.sidebar_heights {
@@ -388,9 +393,17 @@ impl Shell {
             Dirty::LAYOUT | Dirty::HISTORY | Dirty::DETAILS | Dirty::SIDEBAR | Dirty::OVERLAY;
     }
 
-    /// The saved layout as of now. Fields other screens own stay as they are in the file.
+    /// The saved layout as of now. Fields left `None` stay as they are in the file.
     fn layout_preferences(&self) -> LayoutPreferences {
         LayoutPreferences {
+            avatars_enabled: Some(self.avatars.enabled),
+            diff_view: Some(if self.diff.side_by_side {
+                DiffView::SideBySide
+            } else {
+                DiffView::Inline
+            }),
+            unstaged_height: self.files.preferred_unstaged_height.map(|v| v as f64),
+            composer_height: self.files.preferred_composer_height.map(|v| v as f64),
             left_width: Some(self.layout.left_width as f64),
             details_width: Some(self.layout.details_width as f64),
             left_collapsed: Some(self.layout.left_collapsed),

@@ -433,6 +433,32 @@ mod tests {
     }
 
     #[test]
+    fn round_trips_changes_pane_heights_and_diff_view_in_the_typescript_layout() {
+        let dir = temp_dir("layout-changes");
+        let path = dir.join("layout.json");
+        std::fs::write(
+            &path,
+            r#"{"unstagedHeight":8,"composerHeight":9,"diffView":"inline","avatarsEnabled":false}"#,
+        )
+        .unwrap();
+        let loaded = load_layout_preferences(&path);
+        assert_eq!(loaded.unstaged_height, Some(8.0));
+        assert_eq!(loaded.composer_height, Some(9.0));
+        assert_eq!(loaded.diff_view, Some(DiffView::Inline));
+        let update = LayoutPreferences {
+            diff_view: Some(DiffView::SideBySide),
+            ..loaded
+        };
+        save_layout_preferences(&update, &path).unwrap();
+        let stored: Value = serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+        assert_eq!(
+            stored,
+            json!({"unstagedHeight":8,"composerHeight":9,"diffView":"side-by-side","avatarsEnabled":false})
+        );
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
     fn save_merges_defined_fields_and_replaces_nested_objects_whole() {
         let dir = temp_dir("layout-merge");
         let path = dir.join("tuig").join("layout.json");

@@ -107,6 +107,49 @@ fn the_sidebar_restores_the_saved_layout() {
 }
 
 #[test]
+fn the_changes_pane_and_diff_view_restore_from_the_saved_layout() {
+    let dir = TempDir::new("prefs");
+    std::fs::write(
+        prefs_file(&dir),
+        r#"{"unstagedHeight":8,"composerHeight":9,"diffView":"inline"}"#,
+    )
+    .unwrap();
+    let h = harness_with(Services {
+        layout: load_layout_preferences(&prefs_file(&dir)),
+        ..saving(&dir)
+    });
+    assert_eq!(h.read(|s| s.files.preferred_unstaged_height), Some(8));
+    assert_eq!(h.read(|s| s.files.preferred_composer_height), Some(9));
+    assert!(!h.read(|s| s.diff.side_by_side));
+}
+
+#[test]
+fn toggling_the_diff_view_and_avatars_saves_them_and_keeps_unknown_keys() {
+    let dir = TempDir::new("prefs");
+    std::fs::write(
+        prefs_file(&dir),
+        r#"{"unstagedHeight":8,"futureKey":{"keep":"me"}}"#,
+    )
+    .unwrap();
+    let h = harness_with(Services {
+        layout: load_layout_preferences(&prefs_file(&dir)),
+        ..saving(&dir)
+    });
+    h.app.press("v");
+    h.app.press("ctrl+p");
+    h.app.type_text("avatars");
+    h.app.press("enter");
+    h.wait("avatars on", |shell| shell.avatars.enabled);
+    h.app.advance(PERSIST_DELAY);
+    let saved: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(prefs_file(&dir)).unwrap()).unwrap();
+    assert_eq!(saved["diffView"], "inline");
+    assert_eq!(saved["avatarsEnabled"], true);
+    assert_eq!(saved["unstagedHeight"], 8);
+    assert_eq!(saved["futureKey"]["keep"], "me");
+}
+
+#[test]
 fn the_palette_toggle_collapses_the_sidebar_and_saves_it() {
     let dir = TempDir::new("prefs");
     let h = harness_with(saving(&dir));

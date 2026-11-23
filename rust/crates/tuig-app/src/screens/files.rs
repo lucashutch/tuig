@@ -913,7 +913,7 @@ impl Shell {
     }
 
     /// Ports `resizeChangeSplit` and `resizeComposer`. `y` is a screen row.
-    pub(crate) fn split_drag(&mut self, split: Split, y: u16) {
+    pub(crate) fn split_drag(&mut self, app: &App, split: Split, y: u16) {
         if self.files.contents != Contents::Working {
             return;
         }
@@ -925,6 +925,7 @@ impl Shell {
                     Some((self.details_content_height() - 2 - y).max(0));
             }
         }
+        self.persist_layout(app);
         self.dirty |= Dirty::FILES;
     }
 

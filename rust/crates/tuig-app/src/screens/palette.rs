@@ -624,7 +624,7 @@ impl Shell {
             "view.sidebar" => self.toggle_left_panel(app),
             "view.details" => self.toggle_details_panel(app),
             "settings.avatars" => {
-                self.set_avatars_enabled(!self.avatars.enabled);
+                self.set_avatars_enabled(app, !self.avatars.enabled);
                 self.notify(if self.avatars.enabled {
                     "Author avatars on"
                 } else {
