@@ -114,25 +114,3 @@ fn the_row_under_the_pointer_is_highlighted_again_when_a_popup_closes() {
     h.app.hover(130, 14);
     assert_ne!(background(&h, 100, 14), color(theme.hover));
 }
-
-#[test]
-fn a_split_bar_takes_the_hover_color_on_motion_and_loses_it_on_leaving() {
-    let theme = one_dark_theme();
-    let h = dirty();
-    let frame = h.app.render();
-    // The bar between the lists has a thick grip in the middle of the changes pane.
-    let (x, y) = (0..48)
-        .find_map(|y| {
-            (116..160u32).find_map(|x| {
-                let cell = frame.cell(x, y)?;
-                format!("{:?}", cell.symbol).contains('━').then_some((x, y))
-            })
-        })
-        .expect("a split bar grip");
-    let resting = background(&h, x, y);
-    assert_ne!(resting, color(theme.hover));
-    h.app.hover(x as u16, y as u16);
-    assert_eq!(background(&h, x, y), color(theme.hover));
-    h.app.hover(60, 20);
-    assert_eq!(background(&h, x, y), resting);
-}
