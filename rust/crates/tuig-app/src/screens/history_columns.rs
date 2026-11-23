@@ -70,8 +70,8 @@ impl Shell {
                 y,
             } => {
                 // A lost mouse-up must not leave a drag that captures later presses.
-                let was_active = self.history.pointer.scrollbar.is_some()
-                    || self.history.pointer.drag.is_some();
+                let was_active =
+                    self.history.pointer.scrollbar.is_some() || self.history.pointer.drag.is_some();
                 self.release_history_scrollbar(app);
                 self.history.pointer.drag = None;
                 let changed = match button {
@@ -258,3 +258,7 @@ impl Shell {
         self.history.pointer.drag = None;
     }
 }
+
+#[cfg(test)]
+#[path = "history_columns_tests.rs"]
+mod tests;
