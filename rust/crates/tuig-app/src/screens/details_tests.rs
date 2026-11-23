@@ -404,3 +404,41 @@ fn escape_leaves_a_comparison() {
     h.wait("the view to close", |shell| !shell.commit_open());
     assert!(h.read(|shell| shell.files.comparison.is_none()));
 }
+
+#[test]
+fn a_refresh_keeps_the_comparison_open() {
+    let h = Harness::new();
+    let (newest, oldest) = h.read(|shell| {
+        (
+            shell.history.commits[0].sha.clone(),
+            shell.history.commits[2].sha.clone(),
+        )
+    });
+    h.compare(&oldest, &newest);
+    h.wait("the comparison", |shell| shell.files.commit.files.is_some());
+    {
+        let app = h.app.app();
+        let mut shell = h.shell.borrow_mut();
+        shell.request_refresh(app, false);
+        assert!(shell.tasks.snapshot.busy(), "the refresh must start");
+    }
+    h.wait("the refresh to finish", |shell| {
+        !shell.tasks.snapshot.busy()
+    });
+    h.wait("the files", |shell| shell.files.commit.files.is_some());
+    assert!(h.read(|shell| shell.commit_open()));
+    assert_eq!(
+        h.read(|shell| shell
+            .files
+            .comparison
+            .as_ref()
+            .map(|c| (c.base.clone(), c.target.clone()))),
+        Some((oldest.clone(), newest.clone()))
+    );
+    h.app.render();
+    let screen = h.app.text();
+    assert!(
+        screen.contains(&format!("Compare {} → {}", &oldest[..8], &newest[..8])),
+        "{screen}"
+    );
+}

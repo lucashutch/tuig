@@ -537,3 +537,49 @@ fn a_comparison_file_asks_for_the_direct_diff_between_its_commits() {
     assert_eq!(request.commit, None);
     assert!(!request.staged);
 }
+
+#[test]
+fn a_comparison_diff_cannot_be_staged_or_discarded() {
+    // The work tree equals the target commit, so a wrongly allowed discard would apply and change `a.txt`.
+    let repo = edited_repository();
+    git(&repo.0, &["commit", "-q", "-am", "edit"]);
+    let (base, target) = (
+        git(&repo.0, &["rev-parse", "HEAD~1"]).trim().to_owned(),
+        git(&repo.0, &["rev-parse", "HEAD"]).trim().to_owned(),
+    );
+    let h = Harness::with_repo(repo);
+    h.show("a.txt", FileSource::Comparison { base, target });
+    let document = h.wait_for_document("a.txt");
+    h.press(&document, "+ONE", false);
+    assert!(
+        h.shell.borrow().diff.selected_rows.is_empty(),
+        "a press on a committed diff selects nothing"
+    );
+    // Even with rows forced into the selection, the actions refuse.
+    {
+        let mut shell = h.shell.borrow_mut();
+        shell.diff.selection_document = shell.diff.document.clone();
+        shell.diff.selected_rows.insert(
+            document
+                .patch
+                .split('\n')
+                .position(|line| line == "+ONE")
+                .unwrap(),
+        );
+    }
+    for discard in [false, true] {
+        h.shell
+            .borrow_mut()
+            .apply_selected_lines(h.app.app(), discard);
+        assert!(h.shell.borrow().diff.mutation.is_none());
+        assert!(!h.shell.borrow().tasks.mutation.busy());
+    }
+    h.shell.borrow_mut().stage_first_hunk(h.app.app());
+    assert!(!h.shell.borrow().tasks.mutation.busy());
+    assert_eq!(
+        std::fs::read_to_string(h.repo.0.join("a.txt")).unwrap(),
+        "ONE\ntwo\nTHREE\n"
+    );
+    assert_eq!(h.index(), "ONE\ntwo\nTHREE\n");
+    assert_eq!(git(&h.repo.0, &["status", "--porcelain"]), "");
+}
