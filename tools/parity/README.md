@@ -164,6 +164,7 @@ drag 36 9 62 12 [ctrl|alt|shift]
 wheel down 60 20 3           # up or down, x y, optional count
 move 60 11                   # hover
 mask 100 0 20 1              # x y width height, from here on
+unmask 100 0 20 1            # remove an earlier mask with the same rect. Masks carry forward to later snapshots
 ignore 130 1 30 1            # mask, and do not count changes there as activity (a spinner that never stops)
 extra second                 # build a second fixture. Type its path with text "{second}"
 mask-text "\d+ minutes ago"  # regex on each row, from here on (only the matched cells)

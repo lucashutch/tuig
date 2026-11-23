@@ -241,6 +241,12 @@ def _steps(sc: Scenario, s: Session, extras: dict[str, str] | None = None, repo:
                     raise ValueError(f"clipboard is {got[-1:]!r}, expected {want!r}")
             elif st.op == "mask":
                 masks.rects.append(tuple(map(int, a[:4])))  # type: ignore[arg-type]
+            elif st.op == "unmask":
+                # `unmask x y w h`: stop masking a rect that an earlier `mask` or `ignore` added.
+                rect = tuple(map(int, a[:4]))
+                if rect not in masks.rects:
+                    raise ValueError(f"no mask {rect} to remove")
+                masks.rects.remove(rect)  # type: ignore[arg-type]
             elif st.op == "ignore":
                 # Mask the cells, and stop them from counting as screen activity.
                 rect = tuple(map(int, a[:4]))
