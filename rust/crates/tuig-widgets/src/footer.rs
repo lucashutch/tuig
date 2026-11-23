@@ -154,7 +154,9 @@ impl Component for Footer {
             painter.cell(0, 0, ' ', Style::new().fg(to_color(self.theme.text)));
         }
         let total = i64::from(width);
-        let message = self.message.as_str();
+        // The text has one row, so a second line does not show. The width and the position come from the first
+        // line only. TS uses the width of the whole text, which leaves a gap before a message with two lines.
+        let message = self.message.split('\n').next().unwrap_or_default();
         let message_width = string_width(message) as i64;
         // The hints must leave the message its columns and a gap.
         let room = (total - message_width - 4).max(10);
@@ -170,9 +172,7 @@ impl Component for Footer {
             painter.text(
                 i32::try_from(left).unwrap_or(1),
                 0,
-                // The text has one row, so a second line does not show. The width and the position still come
-                // from the whole text, as in TS.
-                message.split('\n').next().unwrap_or_default(),
+                message,
                 Style::new().fg(to_color(fg)),
             );
         }

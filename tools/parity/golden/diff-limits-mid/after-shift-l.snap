@@ -48,7 +48,7 @@ parity-snapshot 1 160x48 cursor=hidden
                             │    41 - value_000040 = 'xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx │  [ ] Amend previous commit                 |
                             │    42 - value_000041 = 'xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx │           Stage files to commit            |
                             │    43 - value_000042 = 'xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx │                                            |
- click select  ·  ctrl/alt-click add  ·  alt-drag range  ·  esc back  ·  ⇥ p…  git pull: There is no tracking information for the current branch.               |
+ click select  ·  ctrl/alt-click add  ·  alt-drag range  ·  esc back  ▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒|
 
 [styles]
 a fg=61afef bg=3e4451 attrs=-
@@ -75,8 +75,7 @@ u fg=e5c07b bg=3e4451 attrs=-
 v fg=2b5b61 bg=21252b attrs=-
 w fg=ffffff bg=2c313a attrs=-
 x fg=5c6370 bg=282c34 attrs=-
-y fg=e06c75 bg=282c34 attrs=-
-z fg=e06c75 bg=21252b attrs=-
+y fg=default bg=default attrs=-
 
 [grid]
 aaaaaaaaaaaaaaaabcccbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb|
@@ -126,4 +125,4 @@ llllllllllllllllllllllllllllhimmmnnoompppppppppppppppppppppppppppppppppppppppppp
 ggggggggggggggggggggggggggglhimmmnnoomppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppihffgggggggggggggggggggggggggfffffffffffffffff|
 llllllllllllllllllllllllllllhimmmnnoomppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppihffeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeff|
 ggggggggggggggggggggggggggglhimmmnnoomppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppihffffffffffffffffffffffffffffffffffffffffffff|
-lgggggggggggggggggggggggggggxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxiiyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyzzzzzzzzzzzzzzzzzzzzzzzzzzzzzfffffffffffffff|
+lgggggggggggggggggggggggggggxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy|

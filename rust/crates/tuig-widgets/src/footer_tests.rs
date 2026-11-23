@@ -98,9 +98,9 @@ fn a_message_with_two_lines_shows_only_the_first_line() {
         160,
     );
     let (line, _app) = row(footer, 160);
-    // The text is clipped to 80 columns and starts at column 79. The second line is not drawn.
+    // The first line is 66 columns wide and ends one column before the edge. The second line is not drawn.
     let start = line.find("git pull").map(|at| line[..at].chars().count());
-    assert_eq!(start, Some(79), "{line:?}");
+    assert_eq!(start, Some(160 - 66 - 1), "{line:?}");
     assert!(line.contains(first), "{line:?}");
     assert!(!line.contains("Please"), "{line:?}");
 }
