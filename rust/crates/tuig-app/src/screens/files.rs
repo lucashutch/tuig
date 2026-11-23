@@ -318,6 +318,8 @@ impl FilesState {
     }
 
     /// Keeps the selection on a file of the active list. A missing path moves to the file at the old position.
+    /// `last_index` is a position in the flat list, in `git status` order, as `fileIndex` is in TS. It is not a
+    /// tree row, so after `t` or a stage the selection can differ from the first tree row.
     fn resolve_selection(&mut self) {
         let kind = self.active();
         let files = self.files_of(kind);
@@ -325,25 +327,15 @@ impl FilesState {
             self.selected_path = None;
             return;
         }
-        let visible: Vec<String> = self
-            .rows(kind)
-            .iter()
-            .filter(|row| !row.directory)
-            .map(|row| row.path.clone())
-            .collect();
-        let present = |path: &String| files.iter().any(|file| file.path == *path);
-        match self.selected_path.as_ref().filter(|path| present(path)) {
-            Some(path) => {
-                if let Some(at) = visible.iter().position(|visible| visible == path) {
-                    self.last_index = at;
-                }
-            }
+        let present = self
+            .selected_path
+            .as_ref()
+            .and_then(|path| files.iter().position(|file| file.path == *path));
+        match present {
+            Some(at) => self.last_index = at,
             None => {
-                let at = self.last_index.min(visible.len().saturating_sub(1));
-                self.selected_path = visible
-                    .get(at)
-                    .cloned()
-                    .or_else(|| files.first().map(|file| file.path.clone()));
+                let at = self.last_index.min(files.len() - 1);
+                self.selected_path = Some(files[at].path.clone());
                 self.last_index = at;
             }
         }
@@ -900,8 +892,15 @@ impl Shell {
             None if delta < 0 => paths.len() - 1,
             None => 0,
         };
+        let flat = self
+            .files
+            .files_of(kind)
+            .iter()
+            .position(|file| file.path == paths[next]);
         self.files.selected_path = Some(paths[next].clone());
-        self.files.last_index = next;
+        if let Some(flat) = flat {
+            self.files.last_index = flat;
+        }
         self.ensure_file_visible();
         self.dirty |= Dirty::FILES;
     }

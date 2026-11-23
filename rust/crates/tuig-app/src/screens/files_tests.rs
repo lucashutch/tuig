@@ -166,7 +166,8 @@ fn the_working_changes_open_with_the_first_unstaged_file_selected() {
     let h = Harness::new();
     h.wait("the file lists", |shell| !shell.files.unstaged.is_empty());
     h.settle();
-    assert_eq!(h.selected_path().as_deref(), Some("src/a.rs"));
+    // `git status` order, as `fileIndex` 0 in TS. The tree lists `src/a.rs` first.
+    assert_eq!(h.selected_path().as_deref(), Some("README.md"));
     let selected = h.shell.borrow().files.selected.clone().unwrap();
     assert_eq!(selected.source, FileSource::WorkingUnstaged);
     // Tree order: the directory first, then its file, then the top-level file.
@@ -203,6 +204,20 @@ fn the_selection_follows_its_file_through_a_refresh_and_moves_when_the_file_is_g
 }
 
 #[test]
+fn switching_section_selects_the_first_file_in_status_order_not_tree_order() {
+    let h = Harness::new();
+    h.settle();
+    h.shell.borrow_mut().files_toggle_mode();
+    h.settle();
+    assert_eq!(h.selected_path().as_deref(), Some("src/new.rs"));
+
+    // The tree lists `src/a.rs` first, and `git status` lists `README.md` first. TS selects by the flat list.
+    h.shell.borrow_mut().files_toggle_mode();
+    h.settle();
+    assert_eq!(h.selected_path().as_deref(), Some("README.md"));
+}
+
+#[test]
 fn a_collapsed_directory_stays_collapsed_when_the_files_change() {
     let h = Harness::new();
     h.settle();
@@ -230,7 +245,7 @@ fn a_collapsed_directory_stays_collapsed_when_the_files_change() {
         "a directory seen for the first time opens"
     );
     // Clicking a directory does not move the selection or open a file.
-    assert_eq!(h.selected_path().as_deref(), Some("src/a.rs"));
+    assert_eq!(h.selected_path().as_deref(), Some("README.md"));
 }
 
 #[test]
@@ -277,8 +292,8 @@ fn the_selected_commit_file_survives_a_refresh_without_reloading() {
     h.wait("the commit files", |shell| {
         shell.files.commit.files.is_some()
     });
-    assert_eq!(h.selected_path().as_deref(), Some("src/a.rs"));
-    h.shell.borrow_mut().move_file(h.app.app(), 1);
+    assert_eq!(h.selected_path().as_deref(), Some("README.md"));
+    h.shell.borrow_mut().move_file(h.app.app(), -1);
     h.settle();
     let before = h.selected_path();
     assert_eq!(before.as_deref(), Some("src/b.rs"));
