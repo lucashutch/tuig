@@ -17,7 +17,7 @@ Evidence values:
 - code: the Rust source was read and has the feature. No test or run compares it with TS.
 - ui-model: `tuig-ui-model` ports the logic, and a randomized cross-check against TS found no mismatch.
 
-State of the check: Rust on `feature/rust-rewrite` at `af8ce16` (release build, OpenTUI 0.9.7), parity compare of all scenarios (183 of 223 snapshots equal) and 61 mutation cases (60 same, `unstage-all-button` differs; same with `--native-keys`), TS `0.1.21`, 160x48 terminal. The older scenarios ran once each. The 23 evidence scenarios ran 3 times on TS (identical) and once on Rust. Section 10 has the parity results, and section 8 has the Git mutation results.
+State of the check: Rust on `feature/rust-rewrite` at `9e95218` (release build, OpenTUI 0.9.7), parity compare of all scenarios (200 of 225 snapshots equal) and 61 mutation cases (60 same, `unstage-all-button` differs; same with `--native-keys`), TS `0.1.21`, 160x48 terminal. The older scenarios ran once each. The 23 evidence scenarios ran 3 times on TS (identical) and once on Rust. Section 10 has the parity results, and section 8 has the Git mutation results.
 
 ## 1. Command line and startup
 
@@ -244,7 +244,7 @@ With `--native-keys`, the 9 key cases (stage-file, unstage-file, stage-all, disc
 | `theme.json` saved and read at start                                                 | `theme-store.ts`                         | same        | test: `theme_tests.rs` (the choice is saved, and the next start uses it)                                                                                                                                                                                                                                                                                    |
 | Custom themes in `~/.config/tuig/themes/` and `.tuig/themes/`                        | `theme-store.ts`                         | same        | test: `theme_tests.rs` (a custom theme file shows in the picker and recolors the screen; a broken file falls back to One Dark)                                                                                                                                                                                                                              |
 | Dialog colors follow the theme                                                       | `runtime-theme.ts`                       | same        | test: `theme_tests.rs` (the active theme sets the OpenTUI theme, so dialogs follow it)                                                                                                                                                                                                                                                                      |
-| `layout.json` (widths, collapse flags, columns, heights, unknown keys kept)          | `src/ui/preferences.ts`                  | differs     | parity: `saved-layout` (3 snapshots, plus `expect-file`: the app keeps the key `futureKey` and saves `leftWidth` in both). Rust applies the widths, the collapse flags, the sidebar heights and avatars. It saves and restores `historyColumns`. It ignores `unstagedHeight`, `composerHeight` and `diffView` (`sidebar.rs:242`). ui-model: `preferences`, randomized cross-check |
+| `layout.json` (widths, collapse flags, columns, heights, unknown keys kept)          | `src/ui/preferences.ts`                  | same        | parity: `saved-layout` (3 of 3, plus `expect-file`: the app keeps the key `futureKey` and saves `leftWidth` in both). Rust applies the widths, the collapse flags, the sidebar and changes pane heights, the diff view and avatars. It saves and restores `historyColumns`. ui-model: `preferences`, randomized cross-check                                                       |
 | Material icons by file name                                                          | `icon-theme.ts`                          | same        | ui-model: `icon-theme`. parity: file trees in `initial-load`                                                                                                                                                                                                                                                                                                |
 | Text width of CJK, emoji and combining marks                                         | `Bun.stringWidth`                        | differs     | ui-model: 303 of 1.2 million cross-checked code points differ (odd Thai, Indic and ZWJ mixes)                                                                                                                                                                                                                                                               |
 | Sorting of directory and file names                                                  | `file-tree.ts`                           | differs     | ui-model: approximates `localeCompare` for ASCII names, and sorts non-ASCII names by code point                                                                                                                                                                                                                                                             |
@@ -268,7 +268,7 @@ The Rust binary was compared with `python3 tools/parity/run.py side-by-side --go
 | `history-header`   | 3         | 3          | none                                                                                   |
 | `history-columns`  | 2         | 2          | none                                                                                   |
 | `keyboard-staging` | 6         | 2          | After `t`, TS selects the first file in `git status` order, Rust the first in the tree |
-| `compare`          | 3         | 0          | `A ` marker missing, comparison view missing                                           |
+| `compare`          | 3         | 3          | none                                                                                   |
 | `file-history`     | 3         | 3          | none                                                                                   |
 | `line-staging`     | 3         | 3          | none                                                                                   |
 | `line-selection`   | 3         | 3          | none                                                                                   |
@@ -286,13 +286,13 @@ These 23 scenarios cover the `same` rows that rested on code reading. They were 
 | `palette-actions`         | 80, 82 to 90           | 19 of 23   | Stale column in TS, avatars notice (2), composer hints                                             |
 | `diff-view-modes`         | 103                    | 6 of 6     | none (the pointer moves away, the blank cells after `Inline` are masked)                           |
 | `copy-sha`                | 118                    | 1 of 1     | none                                                                                               |
-| `changes-tree`            | 174, 175, 179          | 8 of 10    | Hover background of the section heading under the pointer                                          |
+| `changes-tree`            | 174, 175, 179          | 10 of 10   | none                                                                                               |
 | `diff-text-copy`          | 165                    | 1 of 1     | none                                                                                               |
 | `diff-line-actions`       | 154                    | 3 of 3     | none                                                                                               |
 | `pane-dividers`           | 109                    | 2 of 4     | Style of column 158, and the heading at 29 columns                                                 |
 | `history-scroll`          | 113                    | 5 of 5     | none                                                                                               |
 | `history-scrollbar`       | 112                    | 2 of 2     | none                                                                                               |
-| `saved-layout`            | 116, 140, 238          | 0 of 3     | The history region is equal. Rust ignores `unstagedHeight`, `composerHeight` and `diffView`. Sidebar is equal |
+| `saved-layout`            | 116, 140, 238          | 3 of 3     | none                                                                                                          |
 | `window-resize`           | 123                    | 2 of 4     | Footer fit at 100 and 60 columns                                                                   |
 | `diff-limits`             | 70, 159, 161           | 2 of 4     | Gutter width follows the diff rows in TS and the line numbers in Rust                              |
 | `external-changes`        | 68, 197, 198           | 4 of 4     | none (two label ranges and the selected rows are masked)                                           |
@@ -323,23 +323,18 @@ These are problems in the TS app. A re-record or a TS fix is needed before the R
 
 ## Blockers for removing the TS app
 
-1. Compare two commits does not draw the comparison, and the `A ` marker is missing in the history list.
-2. PR numbers in the history column are not hyperlinks.
-3. The diff hunk menu items are hidden until the `main` change lands.
-4. The diff gutter width differs for every diff with more rows than line-number digits (a rewritten file), so the code moves by one column.
-5. `layout.json` keys `unstagedHeight`, `composerHeight` and `diffView` are not applied in Rust.
-6. `tuig update` has not been run against a published Rust release.
-7. The `changes-tree` section heading hover background regressed (row 175).
+1. The diff hunk menu items are hidden until the `main` change lands.
+2. The diff gutter width differs for every diff with more rows than line-number digits (a rewritten file), so the code moves by one column.
+3. `tuig update` has not been run against a published Rust release.
 
 ## Summary counts
 
 | Status      | Rows |
 | ----------- | ---- |
-| same        | 120  |
+| same        | 127  |
 | same (text) | 1    |
 | differs     | 28   |
-| missing     | 3    |
-| placeholder | 1    |
-| Total       | 153  |
+| missing     | 1    |
+| Total       | 157  |
 
 Count the rows again with `awk -F'|' 'NF==6{s=$4;gsub(/^ +| +$/,"",s);c[s]++}END{for(k in c)print k,c[k]}' rust/docs/removal-checklist.md`. It also prints a few numeric keys from other tables. Read the lines for `same`, `differs`, `missing` and `placeholder`.
