@@ -1,9 +1,13 @@
 import { MouseButton } from "@opentui/core";
-import { selectPatchLines } from "../git/hunks.js";
+import { hunkAtRow, selectPatchLines } from "../git/hunks.js";
 import type { ChangedFile, GitRepository } from "../git/types.js";
 import { changedDiffRowsInRange } from "./diff-lines.js";
 import type { DiffView } from "./diff-view.js";
-import type { GraphMenuItem, GraphMenuTarget } from "./graph-menu.js";
+import {
+  hunkMenuItems,
+  type GraphMenuItem,
+  type GraphMenuTarget,
+} from "./graph-menu.js";
 import type { ChangeSection } from "./runtime-widgets.js";
 
 export interface RuntimeDiffSelectionContext {
@@ -25,6 +29,10 @@ export interface RuntimeDiffSelectionContext {
     select: (item: GraphMenuItem) => void,
   ) => void;
   openGraphMenu: (x: number, y: number, target: GraphMenuTarget) => void;
+  hunkAction: (
+    action: "stage-hunk" | "unstage-hunk" | "revert-hunk",
+    patch: string,
+  ) => unknown;
   perform: (
     label: string,
     action: (signal?: AbortSignal) => Promise<void>,
@@ -83,6 +91,10 @@ export class RuntimeDiffSelectionController {
       return;
     }
     if (button !== MouseButton.RIGHT) return;
+    const hunk =
+      ctx.diffOrigin === "working" && hit
+        ? hunkAtRow(ctx.commitDiff.diff, hit.rawRow)
+        : undefined;
     if (
       ctx.diffOrigin === "working" &&
       hit &&
@@ -108,9 +120,20 @@ export class RuntimeDiffSelectionController {
           ? [{ label: "Discard selected", destructive: true }]
           : []),
         { label: "Clear selection" },
+        ...(hunk
+          ? [
+              { label: "", separator: true },
+              ...hunkMenuItems(ctx.mode === "staged"),
+            ]
+          : []),
       ];
       ctx.openPopup("Selected lines", items, x, y, (item) => {
-        if (item.label === "Clear selection") this.clear();
+        if (hunk && item.action)
+          ctx.hunkAction(
+            item.action as "stage-hunk" | "unstage-hunk" | "revert-hunk",
+            hunk.patch,
+          );
+        else if (item.label === "Clear selection") this.clear();
         else if (item.label === "Discard selected") void this.apply(true);
         else void this.apply();
       });
@@ -141,6 +164,7 @@ export class RuntimeDiffSelectionController {
         ctx.diffOrigin !== "commit" && hit.kind === "context"
           ? (hit.oldLine ?? hit.line)
           : hit.line,
+      hunkPatch: hunk?.patch,
     });
   }
 

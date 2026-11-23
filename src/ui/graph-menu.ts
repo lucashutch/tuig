@@ -39,6 +39,9 @@ export type GraphMenuAction =
   | "stage-file"
   | "unstage-file"
   | "discard-file"
+  | "stage-hunk"
+  | "unstage-hunk"
+  | "revert-hunk"
   | "file-history"
   | "line-history"
   | "blame-line"
@@ -74,6 +77,8 @@ export interface GraphMenuTarget {
   fileStaged?: boolean;
   /** One-based line in the file at `sha`, when a diff line was hit. */
   line?: number;
+  /** Patch of the working-tree diff hunk that was hit; adds hunk actions. */
+  hunkPatch?: string;
 }
 
 /** A menu pane placed in terminal coordinates. */
@@ -108,6 +113,7 @@ export function buildGraphMenu(
       target.fileStaged === true,
       target.line,
       Boolean(target.sha),
+      target.hunkPatch !== undefined,
     );
   if (target.tag) {
     return {
@@ -288,6 +294,7 @@ function fileMenu(
   staged: boolean,
   line?: number,
   historical = false,
+  hunk = false,
 ): { title: string; items: GraphMenuItem[] } {
   const name = file.path.split("/").at(-1) ?? file.path;
   const items: GraphMenuItem[] = historical
@@ -302,6 +309,8 @@ function fileMenu(
             destructive: true,
           },
         ];
+  if (hunk)
+    items.unshift(...hunkMenuItems(staged), { label: "", separator: true });
   if (items.length) items.push({ label: "", separator: true });
   items.push(
     { label: "Show file history", action: "file-history" },
@@ -317,6 +326,16 @@ function fileMenu(
     { label: "Copy path", action: "copy-path" },
   );
   return { title: file.path, items };
+}
+
+/** Actions for one diff hunk of a working-tree file. */
+export function hunkMenuItems(staged: boolean): GraphMenuItem[] {
+  return staged
+    ? [{ label: "Unstage hunk", action: "unstage-hunk" }]
+    : [
+        { label: "Stage hunk", action: "stage-hunk" },
+        { label: "Revert hunk", action: "revert-hunk", destructive: true },
+      ];
 }
 
 function resetSubmenu(current: string, destination: string): GraphMenuItem {
