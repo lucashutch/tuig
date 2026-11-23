@@ -6,7 +6,14 @@ drag 136 17 136 12
 snapshot changes-divider-up
 drag 136 33 136 24
 snapshot composer-divider-up
+# TS sizes each file list row from the list width of the previous layout, so the last cell of the rows
+# in a widened pane keeps its old style. Column 158 of the list rows is masked.
+mask 158 5 1 13
 drag 116 25 96 25
 snapshot details-wider
+# At 29 columns the Staged heading overlaps the Unstage all button. TS draws the heading over the button
+# (the click folds the section, a TS bug). Rust keeps the button on top so it can be clicked. The
+# heading row of the details pane is masked.
+mask 131 13 29 1
 drag 96 25 130 25
 snapshot details-narrower
