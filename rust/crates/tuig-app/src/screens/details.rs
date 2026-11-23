@@ -75,9 +75,6 @@ impl FileHistory {
 #[derive(Default)]
 pub struct DetailsState {
     pub file_history: Option<FileHistory>,
-    /// The pane width when the commit or comparison was selected. TS clips the banner text then and does not clip it
-    /// again when the window resizes, so a narrower pane cuts the text without an ellipsis. 0 before a selection.
-    pub banner_width: i64,
 }
 
 /// The result of a file or line history request, with what asked for it.
@@ -92,8 +89,6 @@ pub struct DetailsInput<'a> {
     pub commit: &'a Commit,
     pub working_files: usize,
     pub pane_width: i64,
-    /// The pane width the banner text was clipped for, `0` to use `pane_width`.
-    pub banner_width: i64,
     /// Rows below the tab strip and toolbar.
     pub content_height: i64,
     pub history: Option<&'a FileHistory>,
@@ -385,15 +380,7 @@ impl DetailsView {
             layout.info_box_height = split.info_box_height;
         }
 
-        let banner_lines = working_changes_banner_lines(
-            input.working_files,
-            (if input.banner_width > 0 {
-                input.banner_width
-            } else {
-                width
-            } - 2)
-                .max(1),
-        );
+        let banner_lines = working_changes_banner_lines(input.working_files, (width - 2).max(1));
         self.banner
             .visible(banner_rows > 0)
             .height(cells(banner_rows))
@@ -640,7 +627,6 @@ impl Shell {
         }
         self.files.comparison = None;
         self.files.contents = Contents::Commit;
-        self.details.banner_width = self.layout.panes.details_width;
         self.notify("Commit selected · click a changed file for its diff".to_owned());
         self.dirty |= Dirty::DETAILS | Dirty::FILES;
     }
@@ -696,7 +682,6 @@ impl Shell {
             target: target_sha.to_owned(),
         });
         self.files.contents = Contents::Commit;
-        self.details.banner_width = self.layout.panes.details_width;
         self.reset_file_selection();
         self.notify(format!(
             "Comparing {} → {} · select a file",
@@ -920,7 +905,6 @@ impl Shell {
             commit: &commit,
             working_files: self.has_working_files(),
             pane_width: self.layout.panes.details_width,
-            banner_width: self.details.banner_width,
             content_height: self.content_height(),
             history: self.details.file_history.as_ref(),
             comparison: self.comparison_text(),
