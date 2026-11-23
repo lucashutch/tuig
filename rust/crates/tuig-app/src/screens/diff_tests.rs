@@ -583,3 +583,21 @@ fn a_comparison_diff_cannot_be_staged_or_discarded() {
     assert_eq!(h.index(), "ONE\ntwo\nTHREE\n");
     assert_eq!(git(&h.repo.0, &["status", "--porcelain"]), "");
 }
+
+#[test]
+fn a_failed_pull_keeps_its_error_notice_while_a_diff_is_open() {
+    let h = Harness::new();
+    h.show("a.txt", FileSource::WorkingUnstaged);
+    h.wait_for_document("a.txt");
+    h.update(Msg::Key(KeyEvent::from(opentui::input::KeyCode::Char('l'))));
+    h.wait("the pull", |shell| {
+        shell.diff.mutation.is_none() && !shell.tasks.mutation.busy()
+    });
+    let shell = h.shell.borrow();
+    assert!(
+        !shell.tasks.diff.busy() && !shell.tasks.snapshot.busy(),
+        "a failed pull reloaded"
+    );
+    let notice = shell.notice.clone().unwrap_or_default();
+    assert!(notice.contains("git pull"), "notice was {notice:?}");
+}

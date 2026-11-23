@@ -506,12 +506,14 @@ impl Shell {
         self.commands.cancel = None;
         let label = self.diff.mutation.take().unwrap_or_default();
         self.composer_mutation_done(result.is_ok());
+        // TS `perform` refreshes only after the action succeeds. A failed or cancelled action keeps its notice,
+        // and a diff reload would replace it with the large diff notice.
         match result {
             Ok(()) => self.notice = None,
             Err(GitError::Aborted(_)) => {
-                self.notify(format!("Cancelled {}", label.to_lowercase()));
+                return self.notify(format!("Cancelled {}", label.to_lowercase()));
             }
-            Err(error) => self.notify_error(error.to_string()),
+            Err(error) => return self.notify_error(error.to_string()),
         }
         self.request_refresh(app, false);
         if self.diff.working() {
