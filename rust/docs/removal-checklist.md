@@ -17,7 +17,7 @@ Evidence values:
 - code: the Rust source was read and has the feature. No test or run compares it with TS.
 - ui-model: `tuig-ui-model` ports the logic, and a randomized cross-check against TS found no mismatch.
 
-State of the check: Rust on `feature/rust-rewrite` at `9e95218` (release build, OpenTUI 0.9.7), parity compare of all scenarios (200 of 225 snapshots equal) and 61 mutation cases (60 same, `unstage-all-button` differs; same with `--native-keys`), TS `0.1.21`, 160x48 terminal. The older scenarios ran once each. The 23 evidence scenarios ran 3 times on TS (identical) and once on Rust. Section 10 has the parity results, and section 8 has the Git mutation results.
+State of the check: Rust on `feature/rust-rewrite` at `3c6590a` (release build, OpenTUI 0.9.7), parity compare of all scenarios (212 of 225 snapshots equal) and 61 mutation cases (60 same, `unstage-all-button` differs; same with `--native-keys`), TS `0.1.21`, 160x48 terminal. The older scenarios ran once each. The 23 evidence scenarios ran 3 times on TS (identical) and once on Rust. Section 10 has the parity results, and section 8 has the Git mutation results.
 
 ## 1. Command line and startup
 
@@ -284,7 +284,7 @@ These 23 scenarios cover the `same` rows that rested on code reading. They were 
 | `sidebar-open-tab`        | 134, 137               | 2 of 2     | none                                                                                               |
 | `worktree-lock-menu`      | 137                    | 1 of 2     | The menu offers `Unlock` in Rust after a lock, and `Lock` in TS                                    |
 | `sidebar-scroll`          | 110                    | 5 of 5     | none                                                                                               |
-| `palette-actions`         | 80, 82 to 90           | 19 of 23   | Stale column in TS, avatars notice (2), composer hints                                             |
+| `palette-actions`         | 80, 82 to 90           | 21 of 23   | Stale column in TS, composer hints                                                                 |
 | `diff-view-modes`         | 103                    | 6 of 6     | none (the pointer moves away, the blank cells after `Inline` are masked)                           |
 | `copy-sha`                | 118                    | 1 of 1     | none                                                                                               |
 | `changes-tree`            | 174, 175, 179          | 10 of 10   | none                                                                                               |
@@ -294,12 +294,12 @@ These 23 scenarios cover the `same` rows that rested on code reading. They were 
 | `history-scroll`          | 113                    | 5 of 5     | none                                                                                               |
 | `history-scrollbar`       | 112                    | 2 of 2     | none                                                                                               |
 | `saved-layout`            | 116, 140, 238          | 3 of 3     | none                                                                                                          |
-| `window-resize`           | 123                    | 2 of 4     | Footer fit at 100 and 60 columns                                                                   |
-| `diff-limits`             | 70, 159, 161           | 2 of 4     | Gutter width follows the diff rows in TS and the line numbers in Rust                              |
+| `window-resize`           | 123                    | 3 of 4     | `tiny`: TS keeps stale banner text and stale footer cells                                          |
+| `diff-limits`             | 70, 159, 161           | 4 of 4     | none                                                                                               |
 | `external-changes`        | 68, 197, 198           | 4 of 4     | none (two label ranges and the selected rows are masked)                                           |
 | `restore-session`         | 33, 34, 98             | 2 of 2     | none                                                                                               |
 | `restore-session-no-path` | 32                     | 2 of 2     | the selected rows 4 and 5 of `other-tab` are masked                                                |
-| `remote-cancel`           | 55, 194, 202           | 2 of 3     | Color of the busy refusal notice                                                                   |
+| `remote-cancel`           | 55, 194, 202           | 3 of 3     | none                                                                                               |
 | `remote-credentials`      | 195                    | 3 of 3     | none                                                                                               |
 | `auto-fetch`              | 196                    | 2 of 2     | none                                                                                               |
 | `pull-requests`           | 82, 132, 133, 204, 206 | 6 of 6     | none (the PR column is masked: TS underlines the numbers)                                          |
@@ -318,24 +318,23 @@ These are problems in the TS app. A re-record or a TS fix is needed before the R
 - Collapsing the left panel from the palette leaves 12 cells of row stripes in column 2. Rust draws that column clean.
 - At 60 columns the footer draws the hints and the notice over each other (`escebacCommit selected`). At a details width of 29 columns, `Unstage all` is drawn over the Staged heading (`Staged filesU(3)age all`).
 - After `Lock` in the worktree menu, the menu still offers `Lock` (also after `r`). Opening the app on a repository with a locked worktree shows `Unlock`.
-- The diff gutter is as wide as the number of diff rows, not the largest line number. A 60-line file that is replaced whole gets a gutter of 3 digits. Rust uses 2 (scenario `diff-limits`, snapshot `rewritten-small-file`).
+- The diff gutter is as wide as the number of diff rows, not the largest line number. A 60-line file that is replaced whole gets a gutter of 3 digits. Rust now sizes the gutter the same way (scenario `diff-limits`, snapshot `rewritten-small-file`, equal).
 - The `Unstage all` button of the Staged heading is painted late when the pull request list or the composer focus changes the layout. A snapshot taken right after shows the button shifted. The scenarios `palette-actions` (snapshot `compose`) and `pull-requests` mask it.
 - A plain click on diff code text, followed by `Ctrl`+click on a second line, shows "Copied selection" and keeps one selected line. `Ctrl`+click in the line-number gutter works. The text selection from the first click seems to take the second press. The Rust app adds the line in both places. Confirm this in a real terminal before the Rust app copies it.
 
 ## Blockers for removing the TS app
 
 1. The diff hunk menu items are hidden until the `main` change lands.
-2. The diff gutter width differs for every diff with more rows than line-number digits (a rewritten file), so the code moves by one column.
-3. `tuig update` has not been run against a published Rust release.
+2. `tuig update` has not been run against a published Rust release.
 
 ## Summary counts
 
 | Status      | Rows |
 | ----------- | ---- |
-| same        | 127  |
+| same        | 130  |
 | same (text) | 1    |
-| differs     | 28   |
+| differs     | 26   |
 | missing     | 1    |
-| Total       | 157  |
+| Total       | 158  |
 
 Count the rows again with `awk -F'|' 'NF==6{s=$4;gsub(/^ +| +$/,"",s);c[s]++}END{for(k in c)print k,c[k]}' rust/docs/removal-checklist.md`. It also prints a few numeric keys from other tables. Read the lines for `same`, `differs`, `missing` and `placeholder`.
