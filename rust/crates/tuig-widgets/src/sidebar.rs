@@ -502,18 +502,37 @@ impl Sidebar {
         1..end
     }
 
-    /// How many TS handlers see a wheel event at pane-local row `y`. The section content text and the
+    /// The columns the divider hit box covers: TS starts it at a quarter of the pane and makes it half
+    /// the pane wide, at least 5 columns and at most the pane.
+    fn divider_columns(&self) -> std::ops::Range<i64> {
+        let pane = self.view.width.max(1);
+        let left = pane / 4;
+        left..left + pane.min((pane / 2).max(5))
+    }
+
+    /// Whether `(x, y)` is inside the hit box of the divider that belongs to `section`: the divider row
+    /// and the content row above it.
+    fn in_divider_box(&self, section: Section, x: i64, y: i64) -> bool {
+        let rect = self.view.rects[section];
+        !rect.hidden
+            && self.divider_columns().contains(&x)
+            && rect
+                .divider_top
+                .is_some_and(|top| y == top || y == (top - 1).max(0))
+    }
+
+    /// How many TS handlers see a wheel event at pane-local `(x, y)`. The section content text and the
     /// sidebar box both scroll by `WHEEL_ROWS` and the event bubbles, so a content row scrolls twice.
-    /// Header and divider rows reach only the box.
-    fn wheel_handlers(&self, y: i64) -> i32 {
-        if Section::ALL
+    /// Header and divider rows reach only the box. The divider hit box covers the content row above its
+    /// divider and has no wheel handler, so that row scrolls once as well.
+    fn wheel_handlers(&self, x: i64, y: i64) -> i32 {
+        let in_content = Section::ALL
             .into_iter()
-            .any(|s| self.view.rects[s].holds(y))
-        {
-            2
-        } else {
-            1
-        }
+            .any(|s| self.view.rects[s].holds(y));
+        let under_divider = Section::ALL
+            .into_iter()
+            .any(|s| self.in_divider_box(s, x, y));
+        if in_content && !under_divider { 2 } else { 1 }
     }
 
     fn header_at(&self, x: i64, y: i64) -> Option<Section> {
@@ -526,15 +545,13 @@ impl Sidebar {
         })
     }
 
-    /// The divider whose hit box holds `y`: its row and the content row above it. Later sections sit on top.
-    fn divider_at(&self, y: i64) -> Option<Section> {
-        Section::ALL.into_iter().rev().find(|section| {
-            let rect = self.view.rects[*section];
-            !rect.hidden
-                && rect
-                    .divider_top
-                    .is_some_and(|top| y == top || y == (top - 1).max(0))
-        })
+    /// The divider whose hit box holds `(x, y)`: its row and the content row above it, over the middle
+    /// columns only. Later sections sit on top.
+    fn divider_at(&self, x: i64, y: i64) -> Option<Section> {
+        Section::ALL
+            .into_iter()
+            .rev()
+            .find(|section| self.in_divider_box(*section, x, y))
     }
 
     fn paint_header(&self, painter: &mut Painter<'_>, section: Section, rect: SidebarRect) {
@@ -603,12 +620,12 @@ impl Component for Sidebar {
         let (x, y) = (i64::from(local.0), i64::from(local.1));
         let kind = match event.kind {
             MouseEventKind::ScrollUp => {
-                let delta = -WHEEL_ROWS * self.wheel_handlers(y);
+                let delta = -WHEEL_ROWS * self.wheel_handlers(x, y);
                 self.emit(cx, SidebarEvent::Wheel { y, delta });
                 return true;
             }
             MouseEventKind::ScrollDown => {
-                let delta = WHEEL_ROWS * self.wheel_handlers(y);
+                let delta = WHEEL_ROWS * self.wheel_handlers(x, y);
                 self.emit(cx, SidebarEvent::Wheel { y, delta });
                 return true;
             }
@@ -624,7 +641,7 @@ impl Component for Sidebar {
                 // The divider takes the drag, and the press still reaches the row under it, as in TS where the
                 // press bubbles from the divider box to the sidebar.
                 if button == MouseButton::Left {
-                    self.divider_drag = self.divider_at(y);
+                    self.divider_drag = self.divider_at(x, y);
                 }
                 if matches!(button, MouseButton::Left | MouseButton::Right) {
                     self.emit(

@@ -199,3 +199,38 @@ fn a_scrolled_list_clamps_to_its_last_page() {
     assert_eq!(presented.start[Section::Local], 20 - local.lines.len());
     assert!(text(local, local.lines.len() - 1).contains("b19"));
 }
+
+#[test]
+fn only_the_middle_columns_above_a_divider_scroll_once_and_start_its_drag() {
+    let mut hidden = PerSection::<bool>::default();
+    hidden[Section::PullRequests] = true;
+    let rects =
+        layout_sidebar_sections(30, &PerSection::default(), &PerSection::default(), &hidden);
+    let divider = rects[Section::Local]
+        .divider_top
+        .expect("a divider below Local");
+    let mut sidebar = Sidebar::new(one_dark_theme());
+    sidebar.set_view(Rc::new(SidebarView {
+        width: 28,
+        rects,
+        ..SidebarView::default()
+    }));
+    // The hit box starts at column 7 and is 14 columns wide.
+    let (inside, left_of, right_of) = (7, 6, 21);
+    for (x, handlers, drags) in [(inside, 1, true), (left_of, 2, false), (right_of, 2, false)] {
+        assert_eq!(
+            sidebar.wheel_handlers(x, divider - 1),
+            handlers,
+            "column {x}"
+        );
+        assert_eq!(
+            sidebar.divider_at(x, divider - 1).is_some(),
+            drags,
+            "column {x}"
+        );
+    }
+    assert_eq!(sidebar.wheel_handlers(inside, divider - 2), 2);
+    assert_eq!(sidebar.wheel_handlers(inside, divider), 1);
+    assert_eq!(sidebar.divider_at(inside, divider), Some(Section::Local));
+    assert_eq!(sidebar.divider_at(left_of, divider), None);
+}
