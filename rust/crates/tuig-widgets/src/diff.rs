@@ -111,8 +111,11 @@ impl DiffColumn {
     }
 
     fn digits(&self) -> usize {
-        let max = self.rows.iter().filter_map(|row| row.number).max();
-        max.map_or(1, |max| max.to_string().len())
+        // OpenTUI sizes the gutter for the larger of the row count and the largest line number. The blank row between
+        // hunks is not a row of the TS document, so it does not count.
+        let largest = self.rows.iter().filter_map(|row| row.number).max();
+        let max = largest.unwrap_or(0).max(self.text_rows as u64);
+        max.max(1).to_string().len()
     }
 
     fn highlight(&mut self, filetype: &str) {

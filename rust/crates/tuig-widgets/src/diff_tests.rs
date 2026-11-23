@@ -304,3 +304,18 @@ fn every_registered_grammar_compiles() {
         );
     }
 }
+
+#[test]
+fn the_gutter_fits_the_row_count_when_it_exceeds_the_largest_line_number() {
+    // A whole-file rewrite of 60 lines: 120 rows, but no line number above 60. OpenTUI sizes the gutter by rows.
+    let mut patch =
+        String::from("diff --git a/s.py b/s.py\n--- a/s.py\n+++ b/s.py\n@@ -1,60 +1,60 @@\n");
+    for i in 0..60 {
+        patch.push_str(&format!("-old{i}\n"));
+    }
+    for i in 0..60 {
+        patch.push_str(&format!("+new{i}\n"));
+    }
+    let document = DiffDocument::new(patch, Some("python"));
+    assert_eq!(document.unified.digits(), 3);
+}

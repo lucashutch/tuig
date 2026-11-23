@@ -260,8 +260,10 @@ impl Shell {
             self.layout.details_width = clamp_details_width(details as i64, width);
         }
         self.diff.side_by_side = preferences.diff_view != Some(DiffView::Inline);
-        self.files.preferred_unstaged_height = preferences.unstaged_height.map(|h| h.round() as i64);
-        self.files.preferred_composer_height = preferences.composer_height.map(|h| h.round() as i64);
+        self.files.preferred_unstaged_height =
+            preferences.unstaged_height.map(|h| h.round() as i64);
+        self.files.preferred_composer_height =
+            preferences.composer_height.map(|h| h.round() as i64);
         self.layout.left_collapsed = preferences.left_collapsed.unwrap_or(false);
         self.layout.details_collapsed = preferences.details_collapsed.unwrap_or(false);
         if let Some(heights) = &preferences.sidebar_heights {
