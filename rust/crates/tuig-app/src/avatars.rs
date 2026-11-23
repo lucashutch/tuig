@@ -1,6 +1,7 @@
-//! Author avatars: where an avatar comes from, the cache, and the circular graph image. Ports `src/ui/avatars.ts`,
-//! without the provider avatars for automated co-authors (`getProviderAvatarUrl`), which belong to the commit
-//! details pane's co-author line.
+//! Author avatars: where an avatar comes from, the cache, and the circular graph image. Ports `src/ui/avatars.ts`.
+//! The provider badge for automated co-authors (`getProviderAvatarUrl`) is [`provider_avatar_url`]. The commit
+//! details pane draws it beside the co-author line, and loads it with [`AvatarService::load_image`], so it shares
+//! the memory and disk caches and the failure memory of every other avatar.
 //!
 //! Nothing here touches the UI. [`AvatarService::load`] returns decoded pixels, and [`circular_avatar`] masks them
 //! into the three-cell canvas that sits over a graph dot. The shell turns the canvas into an OpenTUI image.
@@ -88,6 +89,30 @@ static SCP_GITHUB: LazyLock<Regex> = LazyLock::new(|| {
 });
 static SCP_HOST: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"^[^@/:]+@([^/:]+):").expect("valid regex"));
+
+static ANTHROPIC: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"(?:^|[.@])anthropic\.com(?-u:\b)|(?-u:\b)claude(?-u:\b)").unwrap()
+});
+static OPENAI: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"(?:^|[.@])openai\.com(?-u:\b)|(?-u:\b)(?:openai|chatgpt)(?-u:\b)").unwrap()
+});
+
+const CLAUDE_AVATAR_URL: &str = "https://upload.wikimedia.org/wikipedia/commons/thumb/5/58/Claude-ai-icon.svg/120px-Claude-ai-icon.svg.png";
+const OPENAI_AVATAR_URL: &str = "https://github.com/openai.png?size=64";
+
+/// The public avatar for a recognizable automated co-author: Claude for `anthropic.com` or "claude", OpenAI for
+/// `openai.com`, "openai" or "chatgpt". The name and email are matched together, lowercased. The word boundary is
+/// ASCII, as in JavaScript. `getProviderAvatarUrl`.
+pub fn provider_avatar_url(name: &str, email: &str) -> Option<&'static str> {
+    let value = format!("{name} {email}").to_lowercase();
+    if ANTHROPIC.is_match(&value) {
+        Some(CLAUDE_AVATAR_URL)
+    } else if OPENAI.is_match(&value) {
+        Some(OPENAI_AVATAR_URL)
+    } else {
+        None
+    }
+}
 
 fn hex(bytes: &[u8]) -> String {
     bytes.iter().map(|byte| format!("{byte:02x}")).collect()

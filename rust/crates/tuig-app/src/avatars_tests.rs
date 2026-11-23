@@ -292,3 +292,55 @@ async fn a_failed_image_is_not_requested_again() {
     assert!(avatars.load_image(AVATAR).await.is_err());
     assert_eq!(fake.image_calls.load(Ordering::SeqCst), 1);
 }
+
+/// Every row was produced by `getProviderAvatarUrl` in `src/ui/avatars.ts` (run with bun), so the table pins the
+/// Rust regexes to the TypeScript ones, including the word boundaries around `.com` and the names.
+#[test]
+fn provider_avatars_follow_the_typescript_rules() {
+    const CLAUDE: &str = "https://upload.wikimedia.org/wikipedia/commons/thumb/5/58/Claude-ai-icon.svg/120px-Claude-ai-icon.svg.png";
+    const OPENAI: &str = "https://github.com/openai.png?size=64";
+    let table: &[(&str, &str, Option<&str>)] = &[
+        ("Claude", "noreply@anthropic.com", Some(CLAUDE)),
+        ("Claude Opus 4.5", "noreply@anthropic.com", Some(CLAUDE)),
+        ("Someone", "dev@anthropic.com", Some(CLAUDE)),
+        ("Someone", "dev@mail.anthropic.com", Some(CLAUDE)),
+        ("Someone", "dev@notanthropic.com", None),
+        ("Someone", "dev@anthropic.community", None),
+        ("Someone", "dev@anthropic.com.au", Some(CLAUDE)),
+        ("Claude Code", "a@b.co", Some(CLAUDE)),
+        ("claudette", "a@b.co", None),
+        ("Claude-Code", "a@b.co", Some(CLAUDE)),
+        ("Claudé", "a@b.co", None),
+        ("xclaude", "a@b.co", None),
+        ("Ada", "claude_bot@example.com", None),
+        ("Ada", "claude.bot@example.com", Some(CLAUDE)),
+        ("Ada", "claude@example.com", Some(CLAUDE)),
+        ("ChatGPT", "noreply@openai.com", Some(OPENAI)),
+        ("Codex", "codex@openai.com", Some(OPENAI)),
+        ("OpenAI Codex", "a@b.co", Some(OPENAI)),
+        ("Ada", "ada@openai.com", Some(OPENAI)),
+        ("Ada", "ada@my.openai.com", Some(OPENAI)),
+        ("Ada", "ada@myopenai.com", None),
+        ("ChatGPT-4", "a@b.co", Some(OPENAI)),
+        ("chatgpts", "a@b.co", None),
+        ("Ada", "ada@openai.community", Some(OPENAI)),
+        ("Claude", "noreply@openai.com", Some(CLAUDE)),
+        ("ChatGPT", "noreply@anthropic.com", Some(CLAUDE)),
+        ("Ada Lovelace", "ada@example.com", None),
+        ("", "anthropic.com", None),
+        ("anthropic.com", "", Some(CLAUDE)),
+        ("ANTHROPIC.COM Bot", "X@Y.Z", Some(CLAUDE)),
+        ("Ada", "ada@sub.OpenAI.com", Some(OPENAI)),
+        ("İclaude", "a@b.co", Some(CLAUDE)),
+        ("Ada", "ada@anthropic.com_", None),
+        ("Ada", "ada@anthropic.com-x", Some(CLAUDE)),
+        ("Ada", "ada@anthropic.com1", None),
+    ];
+    for (name, email, expected) in table {
+        assert_eq!(
+            provider_avatar_url(name, email),
+            *expected,
+            "{name:?} <{email}>"
+        );
+    }
+}
