@@ -882,21 +882,43 @@ impl Shell {
         if paths.is_empty() {
             return;
         }
+        let files = self.files.files_of(kind);
+        let flat_of = |path: &str| files.iter().position(|file| file.path == path);
         let current = self
             .files
             .selected_path
             .as_ref()
             .and_then(|path| paths.iter().position(|candidate| candidate == path));
-        let next = match current {
-            Some(at) => (at as i64 + delta).clamp(0, paths.len() as i64 - 1) as usize,
-            None if delta < 0 => paths.len() - 1,
-            None => 0,
+        let next = match (
+            current,
+            self.files.selected_path.as_deref().and_then(flat_of),
+        ) {
+            (Some(at), _) => (at as i64 + delta).clamp(0, paths.len() as i64 - 1) as usize,
+            // The selected file sits in a collapsed directory. Step from where it is in the flat
+            // order to the nearest visible file in that direction, or the nearest one at the edge.
+            (None, Some(selected)) => {
+                let flat: Vec<usize> = paths
+                    .iter()
+                    .map(|path| flat_of(path).unwrap_or(usize::MAX))
+                    .collect();
+                let nearest = if delta < 0 {
+                    (0..paths.len())
+                        .filter(|&i| flat[i] < selected)
+                        .max_by_key(|&i| flat[i])
+                        .or_else(|| (0..paths.len()).min_by_key(|&i| flat[i]))
+                } else {
+                    (0..paths.len())
+                        .filter(|&i| flat[i] > selected)
+                        .min_by_key(|&i| flat[i])
+                        .or_else(|| (0..paths.len()).max_by_key(|&i| flat[i]))
+                };
+                let at = nearest.unwrap_or(0) as i64;
+                (at + delta - delta.signum()).clamp(0, paths.len() as i64 - 1) as usize
+            }
+            (None, None) if delta < 0 => paths.len() - 1,
+            (None, None) => 0,
         };
-        let flat = self
-            .files
-            .files_of(kind)
-            .iter()
-            .position(|file| file.path == paths[next]);
+        let flat = flat_of(&paths[next]);
         self.files.selected_path = Some(paths[next].clone());
         if let Some(flat) = flat {
             self.files.last_index = flat;

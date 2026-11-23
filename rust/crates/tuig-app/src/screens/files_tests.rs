@@ -249,6 +249,53 @@ fn a_collapsed_directory_stays_collapsed_when_the_files_change() {
 }
 
 #[test]
+fn a_selection_hidden_in_a_collapsed_directory_steps_from_its_place_in_the_flat_order() {
+    let h = Harness::new();
+    write(&h.repo.0, "docs/guide.md", "changed\n");
+    write(&h.repo.0, "src/b.rs", "changed\n");
+    h.refresh();
+    h.settle();
+    let flat: Vec<String> = h.read(|shell| {
+        shell
+            .files
+            .unstaged
+            .iter()
+            .map(|f| f.path.clone())
+            .collect()
+    });
+    assert_eq!(flat, ["README.md", "docs/guide.md", "src/a.rs", "src/b.rs"]);
+
+    h.shell.borrow_mut().files.selected_path = Some("src/a.rs".to_string());
+    let src = h
+        .rows(ListKind::Unstaged)
+        .iter()
+        .position(|row| row.0 == "src" && row.2)
+        .unwrap();
+    h.update(Msg::FileClick {
+        section: ListKind::Unstaged,
+        row: src,
+    });
+    let visible: Vec<String> = h
+        .rows(ListKind::Unstaged)
+        .into_iter()
+        .map(|row| row.0)
+        .collect();
+    assert_eq!(visible, ["docs", "docs/guide.md", "src", "README.md"]);
+    assert_eq!(h.selected_path().as_deref(), Some("src/a.rs"));
+
+    // The tree order ends at README.md, but the flat order puts docs/guide.md next to the hidden file.
+    h.shell.borrow_mut().move_file(h.app.app(), -1);
+    h.settle();
+    assert_eq!(h.selected_path().as_deref(), Some("docs/guide.md"));
+
+    // From the end of the flat order, the nearest visible file is still docs/guide.md.
+    h.shell.borrow_mut().files.selected_path = Some("src/b.rs".to_string());
+    h.shell.borrow_mut().move_file(h.app.app(), 1);
+    h.settle();
+    assert_eq!(h.selected_path().as_deref(), Some("docs/guide.md"));
+}
+
+#[test]
 fn a_commit_opens_its_files_and_a_superseded_load_is_dropped() {
     let h = Harness::new();
     h.settle();
