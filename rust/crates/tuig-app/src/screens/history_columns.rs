@@ -70,14 +70,21 @@ impl Shell {
                 y,
             } => {
                 // A lost mouse-up must not leave a drag that captures later presses.
+                let was_active = self.history.pointer.scrollbar.is_some()
+                    || self.history.pointer.drag.is_some();
                 self.release_history_scrollbar(app);
                 self.history.pointer.drag = None;
-                match button {
-                    MouseButton::Right => self.open_columns_menu(i64::from(x), i64::from(y)),
+                let changed = match button {
+                    MouseButton::Right => {
+                        self.open_columns_menu(i64::from(x), i64::from(y));
+                        false
+                    }
                     MouseButton::Left => self.press_divider(app, i64::from(column), i64::from(x)),
-                    _ => {}
+                    _ => false,
+                };
+                if changed || was_active {
+                    self.dirty |= Dirty::HISTORY;
                 }
-                self.dirty |= Dirty::HISTORY;
             }
             HistoryEvent::ScrollbarPress { line } => {
                 self.release_history_scrollbar(app);
@@ -90,11 +97,16 @@ impl Shell {
                 }
             }
             HistoryEvent::Release => {
+                let grabbed = self.history.pointer.scrollbar.is_some();
                 self.release_history_scrollbar(app);
-                if self.history.pointer.drag.take().is_some() {
+                let dragged = self.history.pointer.drag.take().is_some();
+                if dragged {
                     self.persist_layout(app);
                 }
-                self.dirty |= Dirty::HISTORY;
+                // The widget clears its own hover on release.
+                if grabbed || dragged {
+                    self.dirty |= Dirty::HISTORY;
+                }
             }
             _ => {}
         }
@@ -137,10 +149,10 @@ impl Shell {
 
     /// A left press on the header. A press on a separator starts a drag, and a second press on it within the
     /// double click time restores the column's default width.
-    fn press_divider(&mut self, app: &App, column: i64, x: i64) {
+    fn press_divider(&mut self, app: &App, column: i64, x: i64) -> bool {
         let layout = self.history_geometry();
         let Some(key) = history_divider_at(column, &layout) else {
-            return;
+            return false;
         };
         let pointer = &mut self.history.pointer;
         let now = i64::try_from(pointer.clock.elapsed().as_millis()).unwrap_or(i64::MAX);
@@ -157,6 +169,7 @@ impl Shell {
                 width: key.width_in(&layout),
             });
         }
+        true
     }
 
     /// `dragTo`. The committer's left edge is its separator, so dragging right narrows it.
