@@ -114,3 +114,102 @@ fn the_row_under_the_pointer_is_highlighted_again_when_a_popup_closes() {
     h.app.hover(130, 14);
     assert_ne!(background(&h, 100, 14), color(theme.hover));
 }
+
+#[test]
+fn a_split_bar_hovers_only_inside_its_ts_hit_box() {
+    let theme = one_dark_theme();
+    let h = dirty();
+    let frame = h.app.render();
+    // The bar between the lists has a thick grip in the middle of the changes pane.
+    let (grip_x, y) = (0..48)
+        .find_map(|y| {
+            (116..160u32).find_map(|x| {
+                let cell = frame.cell(x, y)?;
+                format!("{:?}", cell.symbol).contains('━').then_some((x, y))
+            })
+        })
+        .expect("a split bar grip");
+    let is_bar = |x: u32| {
+        frame.cell(x, y).is_some_and(|cell| {
+            let symbol = format!("{:?}", cell.symbol);
+            symbol.contains('─') || symbol.contains('━')
+        })
+    };
+    let left = (0..=grip_x)
+        .rev()
+        .take_while(|x| is_bar(*x))
+        .last()
+        .unwrap();
+    let width = (left..160).take_while(|x| is_bar(*x)).count() as u32;
+    let resting = background(&h, grip_x, y);
+    assert_ne!(resting, color(theme.hover));
+
+    // TS: the hit box starts at width / 4, spans max(5, width / 2) cells and covers the bar row and the row below.
+    let inside = left + width / 4 + 1;
+    let hit_end = left + width / 4 + (width / 2).max(5);
+    for (x, row, hovered) in [
+        (inside, y, true),
+        (inside, y + 1, true),
+        (hit_end - 1, y, true),
+        (left + 1, y, false),
+        (hit_end, y, false),
+        (left + width - 1, y, false),
+        (inside, y + 2, false),
+        (inside, y - 1, false),
+    ] {
+        h.app.hover(60, 20);
+        h.app.hover(x as u16, row as u16);
+        let shown = background(&h, grip_x, y) == color(theme.hover);
+        assert_eq!(
+            shown,
+            hovered,
+            "pointer at {x},{row}, bar at {left}..{}",
+            left + width
+        );
+    }
+    h.app.hover(60, 20);
+    assert_eq!(background(&h, grip_x, y), resting);
+}
+
+#[test]
+fn a_split_bar_dragged_under_the_still_pointer_is_not_hovered() {
+    let theme = one_dark_theme();
+    let h = dirty();
+    let frame = h.app.render();
+    let (x, y) = (0..48)
+        .find_map(|y| {
+            (116..160u32).find_map(|x| {
+                let cell = frame.cell(x, y)?;
+                format!("{:?}", cell.symbol).contains('━').then_some((x, y))
+            })
+        })
+        .expect("a split bar grip");
+    // TS paints no hover after a drag, because it sets the hover only from pointer motion.
+    h.app
+        .mouse(MouseEventKind::Down(MouseButton::Left), x as u16, y as u16);
+    h.app.mouse(
+        MouseEventKind::Drag(MouseButton::Left),
+        x as u16,
+        y as u16 - 3,
+    );
+    h.app.mouse(
+        MouseEventKind::Up(MouseButton::Left),
+        x as u16,
+        y as u16 - 3,
+    );
+    h.app.render();
+    let frame = h.app.render();
+    let (_, bar_y) = (0..48)
+        .find_map(|row| {
+            let cell = frame.cell(x, row)?;
+            format!("{:?}", cell.symbol)
+                .contains('━')
+                .then_some((x, row))
+        })
+        .expect("the moved grip");
+    assert_ne!(bar_y, y, "the drag must move the bar");
+    assert_ne!(background(&h, x, bar_y), color(theme.hover));
+    // Moving the pointer inside the hit box hovers it.
+    h.app.hover(x as u16, bar_y as u16);
+    assert_eq!(background(&h, x, bar_y), color(theme.hover));
+}

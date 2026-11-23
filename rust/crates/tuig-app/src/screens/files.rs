@@ -30,14 +30,14 @@ use tuig_ui_model::file_tree::{
 };
 use tuig_ui_model::history_viewport::HistorySelection;
 use tuig_ui_model::runtime_layout::{
-    ChangesGeometry, ChangesInputs, ChangesLayout, ComposerLayout, View as ChangesView,
-    WorkingChangesGeometry, layout_changes,
+    ChangesGeometry, ChangesInputs, ChangesLayout, ComposerLayout, DividerPlacement,
+    View as ChangesView, WorkingChangesGeometry, layout_changes,
 };
 use tuig_ui_model::text_width::string_width;
 use tuig_ui_model::theme::Theme;
 use tuig_widgets::files::{
     ActionButton, ActionVariant, FileList, FileListData, FileListEvent, FileRow, ListKind,
-    ListStatus, SplitBar, SplitEvent,
+    ListStatus, SplitBar, SplitEvent, SplitHit,
 };
 use tuig_widgets::pointer::PointerTracker;
 
@@ -388,7 +388,8 @@ struct Place {
     discard_left: i64,
     stage_all_left: i64,
     unstage_all: Option<(i64, i64)>,
-    bars: Option<(i64, i64)>,
+    /// The grip rows of the two split bars and the hit boxes over them.
+    bars: Option<[DividerPlacement; 2]>,
 }
 
 /// Width of a file list widget in a details pane of `details_width`: `97%` of the pane, as in TS.
@@ -404,6 +405,8 @@ pub struct FilesWidgets {
     unstage_all: Custom<ActionButton>,
     files_bar: Custom<SplitBar>,
     composer_bar: Custom<SplitBar>,
+    files_hit: Custom<SplitHit>,
+    composer_hit: Custom<SplitHit>,
 }
 
 impl FilesWidgets {
@@ -429,10 +432,10 @@ impl FilesWidgets {
                 inbox.post(cx.app(), msg);
             });
             let list = Custom::new(app, list).absolute();
+            // The TS file list has `onMouseOut` and `onMouseMove` but no `onMouseOver`, so an enter that a layout
+            // change causes under a still pointer highlights nothing. Only motion does.
             wire_hover(&list, |list, entered| {
-                if entered {
-                    list.pointer_entered();
-                } else {
+                if !entered {
                     list.pointer_left();
                 }
             });
@@ -446,17 +449,44 @@ impl FilesWidgets {
             wire_hover(&button, |button, entered| button.set_hovered(entered));
             button
         };
-        let bar = |split: Split| {
-            let mut bar = SplitBar::new(theme.clone());
-            let inbox = inbox.clone();
-            bar.on_event(move |cx, event| {
-                let SplitEvent::Drag { y } = event;
-                inbox.post(cx.app(), Msg::SplitDrag { split, y });
-            });
-            let bar = Custom::new(app, bar).absolute().height(1);
-            wire_hover(&bar, |bar, entered| bar.set_hovered(entered));
-            bar
+        let bar = || {
+            Custom::new(app, SplitBar::new(theme.clone()))
+                .absolute()
+                .height(1)
         };
+        // The hit box takes the pointer, as `makeHorizontalDivider` does in TS. The bar only shows the state.
+        let hit = |split: Split, bar: &Custom<SplitBar>| {
+            let mut hit = SplitHit::new();
+            let inbox = inbox.clone();
+            let shown = bar.clone();
+            hit.on_event(move |cx, event| {
+                match event {
+                    SplitEvent::Press => shown.update(|bar| bar.set_dragging(true)),
+                    SplitEvent::Drag { y } => inbox.post(cx.app(), Msg::SplitDrag { split, y }),
+                    SplitEvent::Release => shown.update(|bar| bar.set_dragging(false)),
+                    SplitEvent::Moved => shown.update(|bar| bar.set_hovered(true)),
+                }
+                let _ = cx.app().proxy().post(|_| {});
+            });
+            let hit = Custom::new(app, hit).absolute().height(2);
+            let shown = bar.clone();
+            // TS sets the hover in `onMouseOver`, which it sends for pointer motion. OpenTUI Rust also sends an enter
+            // when a press or a layout change puts the hit box under a pointer that did not move: a drag ends with
+            // the bar under the pointer, and a folded section moves the bar there. TS paints no hover then, so
+            // only a leave and a `Moved` event change the hover.
+            hit.on_hover(move |cx, entered| {
+                if !entered {
+                    shown.update(|bar| bar.set_hovered(false));
+                    let _ = cx.app().proxy().post(|_| {});
+                }
+            });
+            hit
+        };
+        let (files_bar, composer_bar) = (bar(), bar());
+        let (files_hit, composer_hit) = (
+            hit(Split::Files, &files_bar),
+            hit(Split::Composer, &composer_bar),
+        );
         Self {
             unstaged: list(ListKind::Unstaged),
             staged: list(ListKind::Staged),
@@ -478,8 +508,10 @@ impl FilesWidgets {
                 ChangesAction::Unstage,
                 ActionVariant::Secondary,
             ),
-            files_bar: bar(Split::Files),
-            composer_bar: bar(Split::Composer),
+            files_bar,
+            composer_bar,
+            files_hit,
+            composer_hit,
         }
     }
 
@@ -504,6 +536,8 @@ impl FilesWidgets {
             .add(&self.staged)
             .add(&self.files_bar)
             .add(&self.composer_bar)
+            .add(&self.files_hit)
+            .add(&self.composer_hit)
             .add(&self.discard)
             .add(&self.stage_all)
             .add(&self.unstage_all);
@@ -625,7 +659,7 @@ impl Shell {
                 if changes.unstage_all_visible == Some(true) {
                     place.unstage_all = Some((unstage_all_top, unstage_all_left));
                 }
-                place.bars = Some((unstaged_divider.top, composer_divider.top));
+                place.bars = Some([unstaged_divider, composer_divider]);
             }
             ChangesGeometry::CommitDiff { .. } | ChangesGeometry::Editing(_) => {}
         }
@@ -753,15 +787,27 @@ impl Shell {
             }
         }
         match place.bars {
-            Some((files_top, composer_top)) if working => {
-                place_at(&widgets.files_bar, 0, files_top, width, 1);
-                place_at(&widgets.composer_bar, 0, composer_top, width, 1);
+            Some([files, composer]) if working => {
+                place_at(&widgets.files_bar, 0, files.top, width, 1);
+                place_at(&widgets.composer_bar, 0, composer.top, width, 1);
+                place_at(&widgets.files_hit, files.left, files.top, files.width, 2);
+                place_at(
+                    &widgets.composer_hit,
+                    composer.left,
+                    composer.top,
+                    composer.width,
+                    2,
+                );
                 widgets.files_bar.visible(true);
                 widgets.composer_bar.visible(true);
+                widgets.files_hit.visible(true);
+                widgets.composer_hit.visible(true);
             }
             _ => {
                 widgets.files_bar.visible(false);
                 widgets.composer_bar.visible(false);
+                widgets.files_hit.visible(false);
+                widgets.composer_hit.visible(false);
             }
         }
         let (unstaged, staged) = (Rc::new(unstaged), Rc::new(staged));

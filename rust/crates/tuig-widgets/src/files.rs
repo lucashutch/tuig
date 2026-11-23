@@ -168,14 +168,6 @@ impl FileList {
         self.hovered = None;
     }
 
-    /// The pointer is over the list without having moved. Hovers the row under the last known position.
-    pub fn pointer_entered(&mut self) {
-        self.hovered = self
-            .pointer
-            .local(self.origin)
-            .and_then(|(_, line)| self.row_at_line(line));
-    }
-
     pub fn set_data(&mut self, data: Rc<FileListData>) {
         self.data = data;
     }
@@ -512,19 +504,25 @@ impl Component for ActionButton {
     }
 }
 
-/// What a drag on a [`SplitBar`] reports.
+/// What the pointer does on a [`SplitHit`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SplitEvent {
+    /// The left button went down on the hit box.
+    Press,
     /// The pointer moved to screen row `y` while the button was down.
     Drag { y: u16 },
+    /// The button came up after a press.
+    Release,
+    /// The pointer moved over the hit box with no button down.
+    Moved,
 }
 
-/// The grip line between two sections, `───━━━━━───`. Dragging it asks the shell to move the split.
+/// The grip line between two sections, `───━━━━━───`. It only paints. A [`SplitHit`] takes the pointer, because TS
+/// does not use the painted bar as the hit area.
 pub struct SplitBar {
     theme: Theme,
     dragging: bool,
     hovered: bool,
-    on_event: Option<SplitHandler>,
 }
 
 impl SplitBar {
@@ -533,7 +531,6 @@ impl SplitBar {
             theme,
             dragging: false,
             hovered: false,
-            on_event: None,
         }
     }
 
@@ -541,14 +538,14 @@ impl SplitBar {
         self.theme = theme.clone();
     }
 
-    /// Set from the widget's hover handler.
+    /// Set from the hover handler of the [`SplitHit`], on enter and on leave.
     pub fn set_hovered(&mut self, hovered: bool) {
         self.hovered = hovered;
     }
 
-    /// The handler must not call `Custom::update` or `Custom::with` on this widget. Queue a message instead.
-    pub fn on_event(&mut self, handler: impl FnMut(&mut Cx<'_>, SplitEvent) + 'static) {
-        self.on_event = Some(Box::new(handler));
+    /// Set while the [`SplitHit`] has the button down.
+    pub fn set_dragging(&mut self, dragging: bool) {
+        self.dragging = dragging;
     }
 
     /// The bar text for `width` cells: a thin line with a thick grip in the middle.
@@ -590,22 +587,63 @@ impl Component for SplitBar {
         painter.fill(0, 0, width, height, to_color(bg));
         painter.text(0, 0, &Self::content(width), style);
     }
+}
+
+/// The area that takes the pointer for a [`SplitBar`]: two rows from the bar's row, a half of the width, starting
+/// at a quarter. Paints nothing. The shell wires its events and its hover to the bar.
+pub struct SplitHit {
+    dragging: bool,
+    on_event: Option<SplitHandler>,
+}
+
+impl SplitHit {
+    pub fn new() -> Self {
+        Self {
+            dragging: false,
+            on_event: None,
+        }
+    }
+
+    /// The handler must not call `Custom::update` or `Custom::with` on this widget. Queue a message instead.
+    pub fn on_event(&mut self, handler: impl FnMut(&mut Cx<'_>, SplitEvent) + 'static) {
+        self.on_event = Some(Box::new(handler));
+    }
+
+    fn emit(&mut self, cx: &mut Cx<'_>, event: SplitEvent) {
+        if let Some(handler) = self.on_event.as_mut() {
+            handler(cx, event);
+        }
+    }
+}
+
+impl Default for SplitHit {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl Component for SplitHit {
+    fn paint(&self, _painter: &mut Painter<'_>) {}
 
     fn mouse(&mut self, cx: &mut Cx<'_>, event: &MouseEvent, _local: (i32, i32)) -> bool {
         match event.kind {
             MouseEventKind::Down(MouseButton::Left) => {
                 self.dragging = true;
+                self.emit(cx, SplitEvent::Press);
                 true
             }
             MouseEventKind::Drag(MouseButton::Left) => {
-                if let Some(handler) = self.on_event.as_mut() {
-                    handler(cx, SplitEvent::Drag { y: event.y });
-                }
+                self.emit(cx, SplitEvent::Drag { y: event.y });
                 true
             }
             MouseEventKind::Up(_) if self.dragging => {
                 self.dragging = false;
+                self.emit(cx, SplitEvent::Release);
                 true
+            }
+            MouseEventKind::Moved => {
+                self.emit(cx, SplitEvent::Moved);
+                false
             }
             _ => false,
         }
