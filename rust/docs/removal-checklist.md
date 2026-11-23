@@ -320,7 +320,7 @@ These are problems in the TS app. A re-record or a TS fix is needed before the R
 ## Blockers for removing the TS app
 
 1. Compare two commits does not draw the comparison, and the `A ` marker is missing in the history list.
-2. The history header has no column drag and no columns menu, and Rust ignores the saved `historyColumns`, so a user cannot hide Committer, SHA or PR. The history scrollbar cannot be dragged. PR numbers are not hyperlinks.
+2. PR numbers in the history column are not hyperlinks.
 3. The diff hunk menu items are hidden until the `main` change lands.
 4. The diff gutter width differs for every diff with more rows than line-number digits (a rewritten file), so the code moves by one column.
 5. `layout.json` keys `unstagedHeight`, `composerHeight` and `diffView` are not applied in Rust.
@@ -331,10 +331,10 @@ These are problems in the TS app. A re-record or a TS fix is needed before the R
 
 | Status      | Rows |
 | ----------- | ---- |
-| same        | 116  |
+| same        | 120  |
 | same (text) | 1    |
 | differs     | 28   |
-| missing     | 7    |
+| missing     | 3    |
 | placeholder | 1    |
 | Total       | 153  |
 
