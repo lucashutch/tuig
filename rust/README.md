@@ -47,6 +47,17 @@ were generated from.
 3. Run `scripts/build-opentui-native.sh`. It rebuilds the library and checks the zig version the new release needs.
 4. Run `cargo clippy --all-targets -- -D warnings` and `cargo test`.
 
+## ICU4X data
+
+`tuig-ui-model` sorts file names with the ICU4X root collator. `.cargo/config.toml` sets `ICU4X_DATA_DIR` to
+`icu4x_data`, a baked data module for the root collation only. The `icu_*_data` crates include it in place of their
+bundled data for every locale, which makes the release binary about 0.65 MB smaller (the directory is 1.8 MB of source).
+
+To regenerate it after an `icu_collator` update, run `cargo install icu4x-datagen --version <version in Cargo.lock>`
+and then `scripts/gen-icu4x-data.sh`. The script lists the data markers by name, because `--markers-for-bin` misses
+the normalizer and fallback markers. If a build fails with "cannot find macro `impl_..._v1`", add that marker to the
+script. `cargo test -p tuig-ui-model --test name_sort` fails when the root data is missing.
+
 ## Release package
 
 ```sh
