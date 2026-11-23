@@ -195,6 +195,15 @@ impl Shell {
                     (_, None) => (commit.clone(), file.path.clone()),
                 }
             }
+            FileSource::Comparison { base, target: end } => match target.side {
+                DiffSide::Old => (
+                    base.clone(),
+                    file.original_path
+                        .clone()
+                        .unwrap_or_else(|| file.path.clone()),
+                ),
+                DiffSide::New => (end.clone(), file.path.clone()),
+            },
             _ if target.kind != DiffLineKind::Added => (
                 self.head_sha().unwrap_or_default(),
                 file.original_path
@@ -206,7 +215,7 @@ impl Shell {
                 return;
             }
         };
-        let committed = matches!(file.source, FileSource::Commit(_));
+        let committed = !file.source.is_working();
         let line = if !committed && target.kind == DiffLineKind::Context {
             target.old_line.unwrap_or(target.line)
         } else {

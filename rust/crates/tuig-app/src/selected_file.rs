@@ -11,12 +11,14 @@ pub enum FileSource {
     WorkingStaged,
     /// The changes a commit made, by SHA.
     Commit(String),
+    /// The direct tree comparison from `base` to `target`. `ctx.comparisonBaseSha` in TypeScript.
+    Comparison { base: String, target: String },
 }
 
 impl FileSource {
     /// Working-tree changes, which line staging can stage, unstage or discard.
     pub fn is_working(&self) -> bool {
-        !matches!(self, Self::Commit(_))
+        !matches!(self, Self::Commit(_) | Self::Comparison { .. })
     }
 }
 

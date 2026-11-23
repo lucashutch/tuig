@@ -114,11 +114,22 @@ fn flat_rows(tree: &FileTreeDirectory, expanded: &HashSet<String>) -> Vec<FileRo
         .collect()
 }
 
+/// Two commits the commit view compares directly.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Comparison {
+    /// The older endpoint, the commit picked with "Select for comparison".
+    pub base: String,
+    /// The newer endpoint, the commit selected in the history.
+    pub target: String,
+}
+
 /// The commit whose files the pane shows, and their load state.
 #[derive(Default)]
 pub struct CommitFiles {
     /// The commit the pane wants. `None` in the working view.
     pub sha: Option<String>,
+    /// The older commit of a comparison. The files are the changes from `base` to `sha`.
+    pub base: Option<String>,
     pub files: Option<Rc<[ChangedFile]>>,
     pub error: Option<String>,
     requested: bool,
@@ -132,6 +143,9 @@ pub struct FilesState {
     /// The highlighted file. Other panes read this.
     pub selected: Option<SelectedFile>,
     pub commit: CommitFiles,
+    /// The open comparison. Set with the commit view, and dropped when another commit gets selected.
+    /// `comparisonBaseSha` in `Runtime`.
+    pub comparison: Option<Comparison>,
     /// Unstaged and staged files of the snapshot. Rebuilt only when the files change, so the tree caches hold.
     unstaged: Rc<[ChangedFile]>,
     staged: Rc<[ChangedFile]>,
@@ -178,6 +192,7 @@ impl FilesState {
             mode: FileSection::Unstaged,
             selected: None,
             commit: CommitFiles::default(),
+            comparison: None,
             unstaged: Rc::from(Vec::new()),
             staged: Rc::from(Vec::new()),
             selected_path: None,
@@ -339,7 +354,11 @@ impl FilesState {
         let source = match self.contents {
             Contents::Commit => {
                 self.commit.files.as_ref()?;
-                FileSource::Commit(self.commit.sha.clone()?)
+                let sha = self.commit.sha.clone()?;
+                match self.commit.base.clone() {
+                    Some(base) => FileSource::Comparison { base, target: sha },
+                    None => FileSource::Commit(sha),
+                }
             }
             Contents::Working => match self.mode {
                 FileSection::Unstaged => FileSource::WorkingUnstaged,
@@ -655,7 +674,7 @@ impl Shell {
             rows,
             selected_path: is_active.then(|| files.selected_path.clone()).flatten(),
             status,
-            compared: false,
+            compared: files.commit.base.is_some(),
             actions: working.then_some(match kind {
                 ListKind::Staged => FileSection::Staged,
                 _ => FileSection::Unstaged,
@@ -931,6 +950,13 @@ impl Shell {
 
     // -- loading the files of a commit
 
+    /// `openComparison` starts at the first file and the top of the list, where `openCommit` keeps the selection.
+    pub(crate) fn reset_file_selection(&mut self) {
+        self.files.selected_path = None;
+        self.files.last_index = 0;
+        self.files.start = [0; 3];
+    }
+
     /// Runs after every message. Keeps the view, the commit being loaded, the selection and `files.selected` in
     /// step with the history selection and the snapshot.
     pub(crate) fn settle_files(&mut self, app: &App) {
@@ -944,8 +970,18 @@ impl Shell {
             Contents::Commit => self.history.selected_sha().map(str::to_owned),
             Contents::Working => None,
         };
-        if target != self.files.commit.sha {
-            self.retarget_commit_files(app, target);
+        // Selecting another commit ends the comparison, as `openCommit` does in TS.
+        if self
+            .files
+            .comparison
+            .as_ref()
+            .is_some_and(|comparison| target.as_deref() != Some(comparison.target.as_str()))
+        {
+            self.files.comparison = None;
+        }
+        let base = self.files.comparison.as_ref().map(|c| c.base.clone());
+        if target != self.files.commit.sha || base != self.files.commit.base {
+            self.retarget_commit_files(app, target, base);
         }
         self.files.resolve_selection();
         let selected = self.files.compute_selected();
@@ -965,13 +1001,14 @@ impl Shell {
         }
     }
 
-    fn retarget_commit_files(&mut self, app: &App, target: Option<String>) {
+    fn retarget_commit_files(&mut self, app: &App, target: Option<String>, base: Option<String>) {
         self.tasks.commit_files.cancel();
         if let Some(timer) = self.files.timer.take() {
             app.cancel_timer(timer);
         }
         self.files.commit = CommitFiles {
             sha: target.clone(),
+            base,
             ..CommitFiles::default()
         };
         self.dirty |= Dirty::FILES;
@@ -995,18 +1032,27 @@ impl Shell {
             return;
         };
         self.files.commit.requested = true;
+        let base = self.files.commit.base.clone();
         let repo = self.repo.clone();
         self.spawn(
             app,
             |tasks| &mut tasks.commit_files,
-            async move { repo.commit_files(&sha, None).await },
+            async move { repo.commit_files(&sha, base.as_deref()).await },
             Msg::CommitFiles,
         );
     }
 
     pub(crate) fn commit_files_loaded(&mut self, result: GitResult<Vec<ChangedFile>>) {
         match result {
-            Ok(files) => self.files.commit.files = Some(files.into()),
+            Ok(files) => {
+                // TS selects index 0 of the flat list, which is not always the first row of the tree.
+                if self.files.comparison.is_some()
+                    && let Some(first) = files.first()
+                {
+                    self.files.selected_path = Some(first.path.clone());
+                }
+                self.files.commit.files = Some(files.into());
+            }
             Err(error) => {
                 self.files.commit.error = Some(error.to_string());
                 self.notify_error(error.to_string());

@@ -520,3 +520,20 @@ fn the_hunk_lookup_is_right_for_rows_on_both_sides_of_a_separator() {
     );
     assert!(index.contains("line 2\n") && !index.contains("line 35\n"));
 }
+
+#[test]
+fn a_comparison_file_asks_for_the_direct_diff_between_its_commits() {
+    let file = SelectedFile {
+        path: "a.txt".into(),
+        original_path: None,
+        source: FileSource::Comparison {
+            base: "aaa".into(),
+            target: "bbb".into(),
+        },
+    };
+    let request = request_for(&file, 6, None);
+    assert_eq!(request.base.as_deref(), Some("aaa"));
+    assert_eq!(request.target.as_deref(), Some("bbb"));
+    assert_eq!(request.commit, None);
+    assert!(!request.staged);
+}

@@ -15,12 +15,12 @@
 //! - The provider badge for co-authors. The author photo is in `graph_avatars.rs`. Its initials badge shows while the
 //!   photo loads and when graphics are off, as in TS.
 //! - The message card scrolls with the wheel, but the scrollbar of its `ScrollBox` is not checked against TS.
-//! - Compare mode (`openComparison`) does nothing yet. "Edit Message" opens the composer (`screens/composer.rs`).
+//! - "Edit Message" opens the composer (`screens/composer.rs`).
 //! - TS drops an in-flight file history when a refresh replaces the snapshot. Here a result applies unless a newer
 //!   request or a close replaced it.
 
 use crate::screens::composer::ComposerAction;
-use crate::screens::files::{Contents, Focus};
+use crate::screens::files::{Comparison, Contents, Focus};
 use crate::screens::footer::NoticeTone;
 use crate::selected_file::{FileSource, SelectedFile};
 use crate::shell::{Dirty, GitResult, Inbox, Msg, PANE_TOP, Shell};
@@ -92,6 +92,34 @@ pub struct DetailsInput<'a> {
     /// Rows below the tab strip and toolbar.
     pub content_height: i64,
     pub history: Option<&'a FileHistory>,
+    /// The comparison the commit view shows, with the subject of its older commit. It replaces the commit message.
+    pub comparison: Option<ComparisonText<'a>>,
+}
+
+/// The card text of a comparison. `openComparison` writes it over the commit message.
+#[derive(Clone, Copy)]
+pub struct ComparisonText<'a> {
+    pub base: &'a str,
+    /// `None` when the older commit is not in the loaded history.
+    pub base_subject: Option<&'a str>,
+}
+
+impl ComparisonText<'_> {
+    fn header(&self, target: &Commit) -> String {
+        format!(
+            "Compare {} → {}",
+            short_sha(self.base),
+            short_sha(&target.sha)
+        )
+    }
+
+    fn body(&self, target: &Commit) -> String {
+        format!(
+            "{}\n→ {}",
+            self.base_subject.unwrap_or("Comparison start"),
+            target.subject
+        )
+    }
 }
 
 fn color(color: Rgba) -> Color {
@@ -338,6 +366,7 @@ impl DetailsView {
             input.working_files,
             width,
             input.history.is_some(),
+            input.comparison,
         );
         let co_author_text = co_author_content(theme, &co_authors);
         let split = input
@@ -442,8 +471,13 @@ fn commit_layout(
     working_files: usize,
     width: i64,
     with_history: bool,
+    comparison: Option<ComparisonText<'_>>,
 ) -> CommitLayout {
-    let text = present_commit_text(commit);
+    let mut text = present_commit_text(commit);
+    if let Some(comparison) = comparison {
+        text.header = comparison.header(commit);
+        text.body = comparison.body(commit);
+    }
     let co_authors = parse_co_authors(commit.body.as_deref().unwrap_or(""));
     let text_width = details_text_width(width);
     let banner_rows = if with_history {
@@ -562,9 +596,28 @@ impl Shell {
             self.has_working_files(),
             self.layout.panes.details_width.max(1),
             self.details.file_history.is_some(),
+            self.comparison_text(),
         )
         .layout
         .files_top
+    }
+
+    /// The text for the commit card while a comparison is open. A file history shows its own commits instead.
+    fn comparison_text(&self) -> Option<ComparisonText<'_>> {
+        if self.details.file_history.is_some() {
+            return None;
+        }
+        let comparison = self.files.comparison.as_ref()?;
+        let base_subject = self
+            .history
+            .commits
+            .iter()
+            .find(|commit| commit.sha == comparison.base)
+            .map(|commit| commit.subject.as_str());
+        Some(ComparisonText {
+            base: &comparison.base,
+            base_subject,
+        })
     }
 
     /// Ports `openCommit`. The files pane loads the commit's files when it sees the new view.
@@ -572,6 +625,7 @@ impl Shell {
         if self.selected_commit().is_none() {
             return;
         }
+        self.files.comparison = None;
         self.files.contents = Contents::Commit;
         self.notify("Commit selected · click a changed file for its diff".to_owned());
         self.dirty |= Dirty::DETAILS | Dirty::FILES;
@@ -579,6 +633,7 @@ impl Shell {
 
     /// Ports `closeDiff` for a commit view: back to the working changes with the working row selected.
     pub fn close_commit(&mut self) {
+        self.files.comparison = None;
         self.files.contents = Contents::Working;
         self.history.selection = HistorySelection::Working;
         self.history.viewport.detached = false;
@@ -589,6 +644,7 @@ impl Shell {
     /// commit view and the selection stays on the working row.
     pub(crate) fn close_details_for_working(&mut self) {
         self.clear_file_history();
+        self.files.comparison = None;
         self.files.contents = Contents::Working;
         self.dirty |= Dirty::DETAILS | Dirty::FILES;
     }
@@ -603,6 +659,36 @@ impl Shell {
             return true;
         }
         false
+    }
+
+    /// Ports `openComparison`: select the commit at `target_sha` and compare it with `base`. Nothing happens when
+    /// both are the same commit or the target is not in the loaded history.
+    pub fn open_comparison(&mut self, base: String, target_sha: &str) {
+        if base == target_sha {
+            return;
+        }
+        let Some(index) = self
+            .history
+            .commits
+            .iter()
+            .position(|commit| commit.sha == target_sha)
+        else {
+            return;
+        };
+        self.clear_file_history();
+        self.history.selection = HistorySelection::Commit(index);
+        self.files.comparison = Some(Comparison {
+            base: base.clone(),
+            target: target_sha.to_owned(),
+        });
+        self.files.contents = Contents::Commit;
+        self.reset_file_selection();
+        self.notify(format!(
+            "Comparing {} → {} · select a file",
+            short_sha(&base),
+            short_sha(target_sha)
+        ));
+        self.dirty |= Dirty::DETAILS | Dirty::FILES | Dirty::HISTORY;
     }
 
     pub(crate) fn details_action(&mut self, app: &App, action: DetailsAction) {
@@ -821,6 +907,7 @@ impl Shell {
             pane_width: self.layout.panes.details_width,
             content_height: self.content_height(),
             history: self.details.file_history.as_ref(),
+            comparison: self.comparison_text(),
         });
     }
 }

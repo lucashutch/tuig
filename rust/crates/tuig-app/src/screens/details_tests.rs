@@ -1,6 +1,7 @@
 //! Details pane, file history and blame against a real repository, driven through `TestApp`.
 
 use super::*;
+use crate::selected_file::FileSource;
 use crate::shell::Shell;
 use opentui::testing::TestApp;
 use std::cell::RefCell;
@@ -98,6 +99,14 @@ impl Harness {
             unstaged: false,
             submodule: None,
         }
+    }
+
+    /// Runs `open_comparison` the way the graph menu does, inside a message, so the files pane settles after it.
+    fn compare(&self, base: &str, target: &str) {
+        let app = self.app.app();
+        let mut shell = self.shell.borrow_mut();
+        shell.open_comparison(base.to_owned(), target);
+        shell.update(app, Msg::CommitFilesDue);
     }
 
     fn subject_at(&self, index: usize) -> String {
@@ -318,4 +327,80 @@ fn newest_sha(shell: &Shell) -> String {
         .and_then(|history| history.selected_commit())
         .map(|commit| commit.sha.clone())
         .unwrap_or_default()
+}
+
+#[test]
+fn comparing_two_commits_lists_the_changes_between_them_and_ends_with_the_next_selection() {
+    let h = Harness::new();
+    let (newest, oldest) = h.read(|shell| {
+        (
+            shell.history.commits[0].sha.clone(),
+            shell.history.commits[2].sha.clone(),
+        )
+    });
+
+    // The same commit on both ends compares nothing.
+    h.compare(&newest, &newest);
+    assert!(h.read(|shell| shell.files.comparison.is_none() && !shell.commit_open()));
+
+    h.compare(&oldest, &newest);
+    h.wait("the files between the commits", |shell| {
+        shell.files.commit.files.is_some()
+    });
+    let (paths, selected) = h.read(|shell| {
+        let mut paths: Vec<String> = shell
+            .files
+            .commit
+            .files
+            .iter()
+            .flat_map(|files| files.iter().map(|file| file.path.clone()))
+            .collect();
+        paths.sort();
+        (paths, shell.files.selected.clone())
+    });
+    // `notes.txt` changed in the second commit and `other.txt` in the third. The first commit is the base, so
+    // both count.
+    assert_eq!(paths, ["notes.txt", "other.txt"]);
+    assert_eq!(
+        selected.map(|file| file.source),
+        Some(FileSource::Comparison {
+            base: oldest.clone(),
+            target: newest.clone()
+        })
+    );
+    h.app.render();
+    let screen = h.app.text();
+    let short = |sha: &str| sha[..8].to_owned();
+    assert!(
+        screen.contains(&format!("Compare {} → {}", short(&oldest), short(&newest))),
+        "{screen}"
+    );
+    assert!(screen.contains("add notes"), "{screen}");
+    assert!(screen.contains("→ add other"), "{screen}");
+
+    // Another commit ends the comparison and shows its own files.
+    h.app.press("down");
+    h.wait("the comparison to end", |shell| {
+        shell.files.comparison.is_none()
+    });
+    h.wait("the files of the commit", |shell| {
+        shell.files.commit.files.is_some() && shell.files.commit.base.is_none()
+    });
+    assert!(!h.app.text().contains("Compare "), "{}", h.app.text());
+}
+
+#[test]
+fn escape_leaves_a_comparison() {
+    let h = Harness::new();
+    let (newest, oldest) = h.read(|shell| {
+        (
+            shell.history.commits[0].sha.clone(),
+            shell.history.commits[2].sha.clone(),
+        )
+    });
+    h.compare(&oldest, &newest);
+    h.wait("the comparison", |shell| shell.files.commit.files.is_some());
+    h.app.press("escape");
+    h.wait("the view to close", |shell| !shell.commit_open());
+    assert!(h.read(|shell| shell.files.comparison.is_none()));
 }

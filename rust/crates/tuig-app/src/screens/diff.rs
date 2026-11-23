@@ -107,16 +107,21 @@ fn hunk_gap_enabled() -> bool {
 }
 
 fn request_for(file: &SelectedFile, context: u32, max_bytes: Option<usize>) -> DiffRequest {
-    let (staged, commit) = match &file.source {
-        FileSource::WorkingUnstaged => (false, None),
-        FileSource::WorkingStaged => (true, None),
-        FileSource::Commit(sha) => (false, Some(sha.clone())),
+    let (staged, commit, base, target) = match &file.source {
+        FileSource::WorkingUnstaged => (false, None, None, None),
+        FileSource::WorkingStaged => (true, None, None, None),
+        FileSource::Commit(sha) => (false, Some(sha.clone()), None, None),
+        FileSource::Comparison { base, target } => {
+            (false, None, Some(base.clone()), Some(target.clone()))
+        }
     };
     DiffRequest {
         path: Some(file.path.clone()),
         original_path: file.original_path.clone(),
         staged,
         commit,
+        base,
+        target,
         context: Some(context),
         max_bytes,
         ..DiffRequest::default()

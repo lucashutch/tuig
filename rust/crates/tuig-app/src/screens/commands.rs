@@ -5,7 +5,7 @@
 //! Every mutation goes through [`Shell::perform`] (one at a time, in the `mutation` task slot). Remote
 //! operations also carry a [`CancelToken`], which Esc cancels.
 
-use crate::shell::{GitResult, Shell};
+use crate::shell::{Dirty, GitResult, Shell};
 use opentui::prelude::*;
 use std::future::Future;
 use std::sync::Arc;
@@ -182,6 +182,7 @@ impl Shell {
             }
             A::SelectComparisonStart => {
                 self.commands.comparison_start = Some(target.sha.clone());
+                self.dirty |= Dirty::HISTORY;
                 self.notify(format!(
                     "Comparison start: {} · right-click another commit",
                     short_sha(&target.sha)
@@ -190,9 +191,13 @@ impl Shell {
             A::ClearComparisonStart => {
                 self.commands.comparison_start = None;
                 self.notify("Comparison start cleared");
+                self.dirty |= Dirty::HISTORY;
             }
-            // TODO: `openComparison` needs the comparison diff in the commit view.
-            A::CompareWithSelected => self.notify("Comparing two commits is not available yet"),
+            A::CompareWithSelected => {
+                if let Some(base) = self.commands.comparison_start.clone() {
+                    self.open_comparison(base, &target.sha);
+                }
+            }
             A::OpenSubmodule => {
                 if let Some(submodule) = target.submodule {
                     self.open_submodule(app, submodule);
