@@ -74,6 +74,40 @@ fn the_pane_dividers_take_the_hover_color_and_lose_it_on_leaving() {
 }
 
 #[test]
+fn the_collapsed_sidebar_divider_hovers_without_painting_over_the_history() {
+    let theme = one_dark_theme();
+    let h = start(repository(3));
+    let divider = h.read(|shell| shell.layout.panes.left_divider_left) as u16;
+    h.app.click(divider, 20);
+    h.wait("the fold", |shell| shell.layout.left_collapsed);
+    h.app.render();
+    let (left, width, bar) = h.read(|shell| {
+        let panes = &shell.layout.panes;
+        (
+            panes.left_divider_left,
+            panes.left_divider_width,
+            panes.left_divider_bar_left,
+        )
+    });
+    // The collapsed hit box is three cells wide. Its third cell lies over the history.
+    assert_eq!(width, 3, "hit box {left}..{}", left + width);
+    let (bar, third) = (bar as u32, bar as u32 + 2);
+    // The history header row has a background that differs from the sidebar color, so a backdrop that
+    // reaches the third cell shows.
+    const HEADER_ROW: u32 = 4;
+    assert_ne!(background(&h, third, HEADER_ROW), color(theme.bg));
+    let (bar_resting, history_resting) = (
+        background(&h, bar, HEADER_ROW),
+        background(&h, third, HEADER_ROW),
+    );
+    h.app.hover(third as u16, HEADER_ROW as u16);
+    assert_eq!(background(&h, bar, HEADER_ROW), color(theme.hover));
+    assert_eq!(background(&h, third, HEADER_ROW), history_resting);
+    h.app.hover(100, 20);
+    assert_eq!(background(&h, bar, HEADER_ROW), bar_resting);
+}
+
+#[test]
 fn stage_all_keeps_its_hover_color_under_the_pointer_and_loses_it_on_leaving() {
     let theme = one_dark_theme();
     let h = dirty();
