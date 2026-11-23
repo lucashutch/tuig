@@ -541,9 +541,13 @@ impl SplitBar {
         self.theme = theme.clone();
     }
 
-    /// Set from the widget's hover handler.
+    /// Set from the widget's hover handler. Only a leave counts. OpenTUI also sends an enter when a layout change
+    /// puts the bar under a pointer that has not moved, and TS paints no hover then. The bar takes the hover from
+    /// a `Moved` event instead.
     pub fn set_hovered(&mut self, hovered: bool) {
-        self.hovered = hovered;
+        if !hovered {
+            self.hovered = false;
+        }
     }
 
     /// The handler must not call `Custom::update` or `Custom::with` on this widget. Queue a message instead.
@@ -593,6 +597,11 @@ impl Component for SplitBar {
 
     fn mouse(&mut self, cx: &mut Cx<'_>, event: &MouseEvent, _local: (i32, i32)) -> bool {
         match event.kind {
+            MouseEventKind::Moved => {
+                let changed = !self.hovered;
+                self.hovered = true;
+                changed
+            }
             MouseEventKind::Down(MouseButton::Left) => {
                 self.dragging = true;
                 true
