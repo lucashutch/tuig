@@ -768,7 +768,7 @@ impl Shell {
             .is_some_and(|at| at.elapsed() < DISCARD_ARM);
         if !armed {
             self.commands.discard_armed = Some(Instant::now());
-            return self.notify("Discard all unstaged changes? Press again to confirm");
+            return self.notify_error("Discard all unstaged changes? Press again to confirm");
         }
         self.commands.discard_armed = None;
         let repo = self.repo.clone();
