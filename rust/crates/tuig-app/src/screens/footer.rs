@@ -122,9 +122,10 @@ impl Shell {
             (Some(text), NoticeTone::Error) => (text.clone(), MessageTone::Error),
             _ => (String::new(), MessageTone::Info),
         };
+        let terminal_width = u32::from(self.layout.width);
         self.widgets
             .footer
-            .update(|footer| footer.set_message(&text, message_tone));
+            .update(|footer| footer.set_message(&text, message_tone, terminal_width));
         if !text.is_empty() {
             self.footer.generation += 1;
             let generation = self.footer.generation;

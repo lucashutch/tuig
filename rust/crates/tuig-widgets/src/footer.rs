@@ -131,10 +131,11 @@ impl Footer {
         self.hints = format_hints(context);
     }
 
-    /// An empty `text` clears the message. The text is clipped at paint time, because the limit depends on the row
-    /// width.
-    pub fn set_message(&mut self, text: &str, tone: MessageTone) {
-        self.message = text.to_owned();
+    /// An empty `text` clears the message. The text is clipped to half of `terminal_width`, but at least 20
+    /// columns, as `notify` does when the message appears. A later resize does not clip it again.
+    pub fn set_message(&mut self, text: &str, tone: MessageTone, terminal_width: u32) {
+        let limit = (i64::from(terminal_width) / 2).max(20);
+        self.message = clip_columns(text, limit);
         self.tone = tone;
     }
 }
@@ -153,10 +154,8 @@ impl Component for Footer {
             painter.cell(0, 0, ' ', Style::new().fg(to_color(self.theme.text)));
         }
         let total = i64::from(width);
-        // `notify` clips the message to half the row, but at least 20 columns.
-        let limit = (total / 2).max(20);
-        let message = clip_columns(&self.message, limit);
-        let message_width = string_width(&message) as i64;
+        let message = self.message.as_str();
+        let message_width = string_width(message) as i64;
         // The hints must leave the message its columns and a gap.
         let room = (total - message_width - 4).max(10);
         let hints = clip_columns(&self.hints, room);
@@ -171,7 +170,7 @@ impl Component for Footer {
             painter.text(
                 i32::try_from(left).unwrap_or(1),
                 0,
-                &message,
+                message,
                 Style::new().fg(to_color(fg)),
             );
         }

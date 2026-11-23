@@ -43,7 +43,7 @@ fn hints_follow_the_focus_and_the_composer() {
 fn the_message_sits_at_the_right_and_the_hints_give_way() {
     let mut footer = Footer::new(one_dark_theme());
     footer.set_hints(&HintContext::default());
-    footer.set_message("Copied abc123", MessageTone::Info);
+    footer.set_message("Copied abc123", MessageTone::Info, 80);
     let (line, _app) = row(footer, 80);
     // The message ends one column before the edge. The hints are clipped with an ellipsis before it.
     assert!(line.ends_with("Copied abc123 "), "{line:?}");
@@ -53,10 +53,29 @@ fn the_message_sits_at_the_right_and_the_hints_give_way() {
 }
 
 #[test]
+fn a_resize_does_not_clip_the_message_again() {
+    let text = "Commit selected · click a changed file for its diff";
+    let mut footer = Footer::new(one_dark_theme());
+    footer.set_hints(&HintContext::default());
+    // The message fit in half of a 160 column row. At 100 columns it stays whole, and the hints take what is left.
+    footer.set_message(text, MessageTone::Info, 160);
+    let (line, _app) = row(footer, 100);
+    assert!(line.ends_with(&format!("{text} ")), "{line:?}");
+    let message_start = line.find("Commit").unwrap();
+    assert!(line[..message_start].trim_end().ends_with('…'), "{line:?}");
+
+    // The same message is clipped when it appears in a 100 column row.
+    let mut footer = Footer::new(one_dark_theme());
+    footer.set_message(text, MessageTone::Info, 100);
+    let (line, _app) = row(footer, 100);
+    assert!(line.trim_end().ends_with('…'), "{line:?}");
+}
+
+#[test]
 fn an_error_message_uses_the_deleted_color() {
     let theme = one_dark_theme();
     let mut footer = Footer::new(theme.clone());
-    footer.set_message("boom", MessageTone::Error);
+    footer.set_message("boom", MessageTone::Error, 40);
     let app = TestApp::new(40, 1);
     let widget = Custom::new(&app, footer).width(40).height(1);
     app.root().add(&widget);
