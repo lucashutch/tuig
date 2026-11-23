@@ -52,6 +52,57 @@ impl HistoryColumns {
     }
 }
 
+impl HistoryDividerKey {
+    /// The width a drag of this separator changes, as laid out now.
+    pub fn width_in(self, layout: &HistoryColumnLayout) -> i64 {
+        match self {
+            Self::BranchWidth => layout.branch_width,
+            Self::GraphWidth => layout.graph_width,
+            Self::CommitterWidth => layout.committer_width,
+        }
+    }
+
+    fn slot(self, columns: &mut HistoryColumns) -> &mut Option<i64> {
+        match self {
+            Self::BranchWidth => &mut columns.branch_width,
+            Self::GraphWidth => &mut columns.graph_width,
+            Self::CommitterWidth => &mut columns.committer_width,
+        }
+    }
+}
+
+impl HistoryColumns {
+    /// Forgets a dragged width, so the column returns to its default.
+    pub fn reset_width(mut self, key: HistoryDividerKey) -> Self {
+        *key.slot(&mut self) = None;
+        self
+    }
+}
+
+/// The columns after a header drag moved a separator by `delta` cells. The width starts from `start_width`, the
+/// column's width when the drag began, and ends at what the layout allows for a pane `width` cells wide.
+/// `RuntimeHistoryColumnsController.dragTo`.
+pub fn drag_history_column(
+    mut columns: HistoryColumns,
+    key: HistoryDividerKey,
+    start_width: i64,
+    delta: i64,
+    width: i64,
+    lanes: usize,
+    pull_requests_available: bool,
+) -> HistoryColumns {
+    let layout_of = |columns: HistoryColumns| {
+        history_column_layout(
+            width,
+            lanes,
+            visible_history_columns(columns, pull_requests_available),
+        )
+    };
+    *key.slot(&mut columns) = Some(4.max(start_width + delta));
+    *key.slot(&mut columns) = Some(key.width_in(&layout_of(columns)));
+    columns
+}
+
 /// Cells for `#N`, the checks icon, and a `+N` count.
 pub const PR_COLUMN_WIDTH: i64 = 9;
 
@@ -206,6 +257,60 @@ mod tests {
             ..HistoryColumns::default()
         };
         assert_eq!(defaults.with_saved(&saved), columns);
+    }
+
+    fn shown() -> HistoryColumns {
+        HistoryColumns {
+            show_committer: true,
+            show_sha: true,
+            ..HistoryColumns::default()
+        }
+    }
+
+    fn drag(key: HistoryDividerKey, start: i64, delta: i64) -> i64 {
+        let columns = drag_history_column(shown(), key, start, delta, 120, 3, false);
+        key.width_in(&history_column_layout(120, 3, columns))
+    }
+
+    #[test]
+    fn a_drag_keeps_room_for_the_message_and_the_other_columns() {
+        use HistoryDividerKey::*;
+        // The branch column stops 40 cells short of the pane width, the graph and committer columns before the
+        // message column drops under 10 cells.
+        assert_eq!(drag(BranchWidth, 22, 500), 80);
+        assert_eq!(
+            drag(GraphWidth, 10, 500),
+            120 - 22 - 11 - 3 - 11 - 2 - 3 - 10 - 1
+        );
+        assert_eq!(
+            drag(CommitterWidth, 11, 500),
+            120 - 22 - 2 - 5 - 3 - 10 - 3 - 11 - 1
+        );
+        // A drag past the other end stops at the narrowest width: 4 for the branch, 5 for the graph, 6 for the
+        // committer. Rows with a narrower value would lose the separator.
+        assert_eq!(drag(BranchWidth, 22, -500), 4);
+        assert_eq!(drag(GraphWidth, 10, -500), 5);
+        assert_eq!(drag(CommitterWidth, 11, -500), 6);
+    }
+
+    #[test]
+    fn a_drag_stores_the_clamped_width_and_a_reset_clears_it() {
+        let columns = drag_history_column(
+            shown(),
+            HistoryDividerKey::BranchWidth,
+            22,
+            500,
+            120,
+            3,
+            false,
+        );
+        assert_eq!(columns.branch_width, Some(80));
+        assert_eq!(
+            columns
+                .reset_width(HistoryDividerKey::BranchWidth)
+                .branch_width,
+            None
+        );
     }
 
     #[test]
