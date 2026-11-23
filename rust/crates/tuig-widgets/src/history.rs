@@ -10,9 +10,6 @@
 //! [`HistoryList::set_window`], with the selection through [`HistoryList::set_selected`]. Mouse input comes back as
 //! [`HistoryEvent`] through [`HistoryList::on_event`].
 //!
-//! Known parity gaps with `paintHistory` and its mouse handling in the TypeScript app:
-//!
-//!
 //! The PR number is a terminal hyperlink (OSC 8). `Painter::text` cannot write one, so a linked span is drawn as a
 //! one-line native `TextView` through `Painter::text_view`. That path stores the link in the cell buffer, so the
 //! renderer writes the escape sequence itself and the diff of cells stays correct. It needs a native context from
@@ -280,7 +277,7 @@ pub struct HistoryList {
     on_event: Option<EventHandler>,
     /// What draws hyperlinks. `None` draws the text without a link.
     links: Option<(Context, WidthMethod)>,
-    /// One-line views for linked spans, by text, URL and colors. Cleared when it grows past [`LINK_VIEWS_MAX`].
+    /// One-line views for linked spans, by text, URL and colors. Cleared at the start of a paint once it holds [`LINK_VIEWS_MAX`].
     link_views: RefCell<HashMap<LinkKey, TextView>>,
 }
 
@@ -348,9 +345,6 @@ impl HistoryList {
             Ok(view)
         };
         let view = build().ok()?;
-        if views.len() >= LINK_VIEWS_MAX {
-            views.clear();
-        }
         views.insert(key, view.clone());
         Some(view)
     }
@@ -921,6 +915,14 @@ impl Component for HistoryList {
         let (width, height) = painter.size();
         self.width.set(width);
         self.height.set(height);
+        // Evict before this frame records any handle. `Painter::text_view` keeps only the raw handle, so a view
+        // dropped mid-paint would leave the frame with a dangling one.
+        {
+            let mut views = self.link_views.borrow_mut();
+            if views.len() >= LINK_VIEWS_MAX {
+                views.clear();
+            }
+        }
         painter.fill(0, 0, width, height, to_color(self.theme.bg));
         for (y, line) in self.render(width, height).into_iter().enumerate() {
             let mut x = 0;

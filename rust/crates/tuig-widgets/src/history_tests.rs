@@ -671,6 +671,55 @@ fn the_pr_number_is_a_hyperlink_to_the_pull_request_and_nothing_around_it_is() {
 }
 
 #[test]
+fn a_full_link_view_cache_never_drops_views_while_a_frame_paints() {
+    let data = demo();
+    let mut login = pull_request(42, "feature/login", CheckRollup::Failed);
+    login.url = "https://example.invalid/pull/42".into();
+    let mut typo = pull_request(7, "fix/typo", CheckRollup::Running);
+    typo.url = "https://example.invalid/pull/7".into();
+    let index = pull_request_commit_index(&[login, typo], &data.branches);
+    let app = TestApp::with_hyperlinks(WIDTH, HEIGHT);
+    let mut list = HistoryList::new(one_dark_theme());
+    list.set_link_context(
+        app.app().session().context().clone(),
+        app.app().width_method(),
+    );
+    // One key short of the limit: the two links in this frame used to trigger a clear between them.
+    for n in 0..LINK_VIEWS_MAX - 1 {
+        let span = Span {
+            text: format!("#{n}"),
+            fg: list.theme.bg,
+            bg: None,
+            link: None,
+        };
+        assert!(
+            list.link_view(&span, "https://example.invalid/old", Style::new())
+                .is_some()
+        );
+    }
+    list.set_window(window_with(&data, 0, usize::from(HEIGHT) - 1, Some(&index)));
+    let widget = Custom::new(&app, list)
+        .width(u32::from(WIDTH))
+        .height(u32::from(HEIGHT));
+    app.root().add(&widget);
+    let text = app.render().text();
+    let session = app.app().session();
+    for (number, url) in [
+        ("#42", "https://example.invalid/pull/42"),
+        ("#7", "https://example.invalid/pull/7"),
+    ] {
+        let (row, line) = text
+            .lines()
+            .enumerate()
+            .find(|(_, line)| line.contains(number))
+            .unwrap();
+        let column = line[..line.find(number).unwrap()].chars().count() as i32;
+        let id = session.link_id(column, row as i32).unwrap().unwrap();
+        assert_eq!(session.context().link_url(id).unwrap(), url);
+    }
+}
+
+#[test]
 fn running_checks_count_only_on_visible_rows() {
     let data = demo();
     let list = [pull_request(7, "feature/login", CheckRollup::Running)];
