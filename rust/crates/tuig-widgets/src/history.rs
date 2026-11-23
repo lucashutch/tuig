@@ -14,7 +14,6 @@
 //!
 //! - The `A ` comparison marker.
 //! - The PR number is not a terminal hyperlink: `Painter` has no hyperlink support.
-//! - The scrollbar drag.
 
 use crate::branch_hints::BranchHintIndex;
 use crate::decorations::{RefIndex, summarise_decorations};
@@ -33,7 +32,8 @@ use tuig_ui_model::graph_viewport::{
     clamp_graph_scroll, graph_scroll_indicator, graph_window_cells,
 };
 use tuig_ui_model::history_columns::{
-    HistoryColumns, history_column_layout, visible_history_columns,
+    HistoryColumns, HistoryDividerKey, history_column_layout, history_divider_at,
+    visible_history_columns,
 };
 use tuig_ui_model::history_viewport::WHEEL_ROWS;
 use tuig_ui_model::scrollbar::{ScrollbarCell, scrollbar_cell, scrollbar_thumb};
@@ -221,6 +221,22 @@ pub enum HistoryEvent {
         x: u16,
         y: u16,
     },
+    /// A press on the header line. The shell opens the columns menu on a right press and starts a divider drag on a
+    /// left press. `column` is the cell from the widget's left edge, and `x` and `y` are terminal cells.
+    HeaderPress {
+        button: MouseButton,
+        column: i32,
+        x: u16,
+        y: u16,
+    },
+    /// A left press on the scrollbar column of a list that has more rows than lines. `line` is the widget line,
+    /// where line 0 is the header.
+    ScrollbarPress { line: i32 },
+    /// The pointer moved with a button down. `x` is a terminal cell and `line` is relative to the widget, so it can be
+    /// negative or past the last line.
+    Drag { x: u16, line: i32 },
+    /// The button came up.
+    Release,
 }
 
 type EventHandler = Box<dyn FnMut(&mut Cx<'_>, HistoryEvent)>;
@@ -238,8 +254,13 @@ pub struct HistoryList {
     spinner: usize,
     /// The row and part of the last press that can start a double click, and when it happened.
     last_press: Option<(usize, bool, Instant)>,
-    /// The width of the last paint, for the label hit test.
+    /// The width and height of the last paint, for hit tests.
     width: Cell<u32>,
+    height: Cell<u32>,
+    /// The header separator under the pointer.
+    divider_hover: Option<HistoryDividerKey>,
+    /// The header separator being dragged, set by the shell.
+    divider_drag: Option<HistoryDividerKey>,
     pointer: PointerTracker,
     /// The list's top left cell on the terminal, from the last pointer event.
     origin: Option<(i32, i32)>,
@@ -263,6 +284,9 @@ impl HistoryList {
             spinner: 0,
             last_press: None,
             width: Cell::new(0),
+            height: Cell::new(0),
+            divider_hover: None,
+            divider_drag: None,
             pointer: PointerTracker::default(),
             origin: None,
             on_event: None,
@@ -277,6 +301,7 @@ impl HistoryList {
     /// The pointer left the list: no row is hovered.
     pub fn pointer_left(&mut self) {
         self.hovered_line = None;
+        self.divider_hover = None;
     }
 
     /// The pointer is over the list without having moved, for example after a popup closed. Hovers the row under
@@ -286,6 +311,40 @@ impl HistoryList {
         self.hovered_line = line
             .filter(|line| self.row_at_line(*line).is_some())
             .and_then(|line| usize::try_from(line - 1).ok());
+        self.divider_hover = self
+            .pointer
+            .local(self.origin)
+            .and_then(|(column, line)| self.divider_at(line, column));
+    }
+
+    /// The header separator at widget line `line` and column `column`, if the line is the header.
+    fn divider_at(&self, line: i32, column: i32) -> Option<HistoryDividerKey> {
+        if line != 0 {
+            return None;
+        }
+        let data = &*self.window;
+        let columns = visible_history_columns(self.columns, data.pr_column);
+        let geometry =
+            history_column_layout(i64::from(self.width.get()), data.graph_columns, columns);
+        history_divider_at(i64::from(column), &geometry)
+    }
+
+    /// The separator the shell is dragging, or `None` when no header drag runs. It stays lit while the pointer is
+    /// away from it.
+    pub fn set_divider_drag(&mut self, key: Option<HistoryDividerKey>) {
+        self.divider_drag = key;
+        if key.is_none() {
+            self.divider_hover = None;
+        }
+    }
+
+    /// Whether widget cell (`line`, `column`) is on the scrollbar of a list that has more rows than lines.
+    fn on_scrollbar(&self, line: i32, column: i32) -> bool {
+        let lines = i64::from(self.height.get()).saturating_sub(1).max(1);
+        let line = i64::from(line) - 1;
+        i64::from(column) == i64::from(self.width.get()) - 1
+            && self.window.total() as i64 > lines
+            && (0..lines).contains(&line)
     }
 
     pub fn set_window(&mut self, window: Rc<HistoryWindow>) {
@@ -507,14 +566,24 @@ impl HistoryList {
             graph_scroll,
             graph_columns.saturating_sub(graph_scroll + visible_graph),
         );
-        let separator = |text: &str| span(text.to_string(), theme.divider, None);
+        // The three separators that resize a column brighten under the pointer and while dragged.
+        let separator = |text: &str, key: Option<HistoryDividerKey>| {
+            let dragging = key.is_some() && self.divider_drag == key;
+            let hovered = key.is_some() && (dragging || self.divider_hover == key);
+            let bg = (self.divider_drag.is_none() || dragging) && hovered;
+            span(
+                text.to_string(),
+                theme.divider,
+                bg.then(|| interaction_background(theme, Rgba::TRANSPARENT, dragging, false, true)),
+            )
+        };
         let mut line = vec![
             span(
                 fit_columns(" Branch / tag", label_width, false),
                 header,
                 None,
             ),
-            separator("│ "),
+            separator("│ ", Some(HistoryDividerKey::BranchWidth)),
             span(
                 fit_columns(
                     "Graph",
@@ -525,7 +594,7 @@ impl HistoryList {
                 None,
             ),
             span(arrows, theme.accent, None),
-            separator(" │ "),
+            separator(" │ ", Some(HistoryDividerKey::GraphWidth)),
             span(
                 fit_columns(
                     &format!(
@@ -541,7 +610,7 @@ impl HistoryList {
             ),
         ];
         if columns.show_committer {
-            line.push(separator(" │ "));
+            line.push(separator(" │ ", Some(HistoryDividerKey::CommitterWidth)));
             line.push(span(
                 fit_columns("Committer", geometry.committer_width, false),
                 header,
@@ -549,7 +618,7 @@ impl HistoryList {
             ));
         }
         if columns.show_pr == Some(true) {
-            line.push(separator(" │ "));
+            line.push(separator(" │ ", None));
             line.push(span(
                 fit_columns("PR", geometry.pr_width, false),
                 header,
@@ -557,10 +626,10 @@ impl HistoryList {
             ));
         }
         if columns.show_sha {
-            line.push(separator(" │ "));
+            line.push(separator(" │ ", None));
             line.push(span("SHA     ".to_string(), header, None));
         }
-        line.push(separator("│"));
+        line.push(separator("│", None));
         out.push(line);
 
         let thumb = scrollbar_thumb(total as i64, start as i64, lines as i64);
@@ -775,6 +844,7 @@ impl Component for HistoryList {
     fn paint(&self, painter: &mut Painter<'_>) {
         let (width, height) = painter.size();
         self.width.set(width);
+        self.height.set(height);
         painter.fill(0, 0, width, height, to_color(self.theme.bg));
         for (y, line) in self.render(width, height).into_iter().enumerate() {
             let mut x = 0;
@@ -806,9 +876,12 @@ impl Component for HistoryList {
             let hovered = usize::try_from(local.1 - 1)
                 .ok()
                 .filter(|_| self.row_at_line(local.1).is_some());
-            let changed = hovered != self.hovered_line;
+            let mut changed = hovered != self.hovered_line;
             self.hovered_line = hovered;
             if event.kind == MouseEventKind::Moved {
+                let divider = self.divider_at(local.1, local.0);
+                changed |= divider != self.divider_hover;
+                self.divider_hover = divider;
                 return changed;
             }
         }
@@ -819,6 +892,13 @@ impl Component for HistoryList {
             MouseEventKind::ScrollRight => HistoryEvent::ScrollGraph(1),
             MouseEventKind::ScrollUp => HistoryEvent::Wheel(-WHEEL_ROWS),
             MouseEventKind::ScrollDown => HistoryEvent::Wheel(WHEEL_ROWS),
+            // The header takes every button, as in TS, where `click` returns true for any press on line 0.
+            MouseEventKind::Down(button) if local.1 == 0 => HistoryEvent::HeaderPress {
+                button,
+                column: local.0,
+                x: event.x,
+                y: event.y,
+            },
             MouseEventKind::Down(MouseButton::Right) => {
                 let Some(row) = self.row_at_line(local.1) else {
                     return false;
@@ -830,7 +910,18 @@ impl Component for HistoryList {
                     y: event.y,
                 }
             }
+            MouseEventKind::Down(MouseButton::Left) if self.on_scrollbar(local.1, local.0) => {
+                HistoryEvent::ScrollbarPress { line: local.1 }
+            }
             MouseEventKind::Down(MouseButton::Left) => return self.press(cx, local.1, local.0),
+            MouseEventKind::Drag(_) => HistoryEvent::Drag {
+                x: event.x,
+                line: local.1,
+            },
+            MouseEventKind::Up(_) => {
+                self.divider_hover = None;
+                HistoryEvent::Release
+            }
             _ => return false,
         };
         self.emit(cx, event);

@@ -281,7 +281,14 @@ fn a_press_on_a_row_with_only_a_hint_counts_as_a_press_on_its_label() {
     let (app, widget) = paint(list);
     let events = Rc::new(RefCell::new(Vec::new()));
     let seen = events.clone();
-    widget.update(|list| list.on_event(move |_cx, event| seen.borrow_mut().push(event)));
+    widget.update(|list| {
+        // Every release comes through as an event. These tests look at the presses.
+        list.on_event(move |_cx, event| {
+            if event != HistoryEvent::Release {
+                seen.borrow_mut().push(event)
+            }
+        })
+    });
     app.render();
     let line = row_of(&data, "feat: add login") as u16;
     for kind in [
@@ -306,7 +313,14 @@ fn mouse_input_becomes_events_for_the_shell() {
     app.root().add(&widget);
     let events = Rc::new(RefCell::new(Vec::new()));
     let seen = events.clone();
-    widget.update(|list| list.on_event(move |_cx, event| seen.borrow_mut().push(event)));
+    widget.update(|list| {
+        // Every release comes through as an event. These tests look at the presses.
+        list.on_event(move |_cx, event| {
+            if event != HistoryEvent::Release {
+                seen.borrow_mut().push(event)
+            }
+        })
+    });
     let screen = app.render();
     assert!(screen.row(1).contains("refactor: rename"), "{screen}");
 
@@ -333,6 +347,13 @@ fn mouse_input_becomes_events_for_the_shell() {
                 part: ClickPart::Row,
                 clicks: 2
             },
+            // The header is not a row. It reports its own press.
+            HistoryEvent::HeaderPress {
+                button: MouseButton::Left,
+                column: 40,
+                x: 40,
+                y: 0
+            },
         ],
         "the header is not a row"
     );
@@ -344,6 +365,54 @@ fn mouse_input_becomes_events_for_the_shell() {
 }
 
 #[test]
+fn a_press_on_the_scrollbar_column_starts_a_scrollbar_drag_only_when_rows_overflow() {
+    let data = demo();
+    // Eleven rows in five lines: the scrollbar has a thumb.
+    let mut list = HistoryList::new(one_dark_theme());
+    list.set_window(window(&data, 0, 5));
+    let app = TestApp::new(WIDTH, 6);
+    let widget = Custom::new(&app, list).width(u32::from(WIDTH)).height(6);
+    app.root().add(&widget);
+    let events = Rc::new(RefCell::new(Vec::new()));
+    let seen = events.clone();
+    widget.update(|list| list.on_event(move |_cx, event| seen.borrow_mut().push(event)));
+    app.render();
+    let last = WIDTH - 1;
+    app.click(last, 2);
+    // A press on the scrollbar column of a header line is a header press.
+    app.click(last, 0);
+    assert_eq!(
+        *events.borrow(),
+        [
+            HistoryEvent::ScrollbarPress { line: 2 },
+            HistoryEvent::Release,
+            HistoryEvent::HeaderPress {
+                button: MouseButton::Left,
+                column: i32::from(last),
+                x: last,
+                y: 0
+            },
+            HistoryEvent::Release,
+        ]
+    );
+
+    // With every row on screen there is no thumb, so the press selects the row.
+    let mut list = HistoryList::new(one_dark_theme());
+    list.set_window(window(&data, 0, usize::from(HEIGHT) - 1));
+    let (app, widget) = paint(list);
+    let events = Rc::new(RefCell::new(Vec::new()));
+    let seen = events.clone();
+    widget.update(|list| list.on_event(move |_cx, event| seen.borrow_mut().push(event)));
+    app.render();
+    app.click(WIDTH - 1, 2);
+    assert!(
+        matches!(events.borrow()[0], HistoryEvent::Click { .. }),
+        "{:?}",
+        events.borrow()
+    );
+}
+
+#[test]
 fn a_press_names_the_label_or_sha_it_hit_and_only_a_matching_second_press_doubles() {
     let data = demo();
     let mut list = HistoryList::new(one_dark_theme());
@@ -351,7 +420,14 @@ fn a_press_names_the_label_or_sha_it_hit_and_only_a_matching_second_press_double
     let (app, widget) = paint(list);
     let events = Rc::new(RefCell::new(Vec::new()));
     let seen = events.clone();
-    widget.update(|list| list.on_event(move |_cx, event| seen.borrow_mut().push(event)));
+    widget.update(|list| {
+        // Every release comes through as an event. These tests look at the presses.
+        list.on_event(move |_cx, event| {
+            if event != HistoryEvent::Release {
+                seen.borrow_mut().push(event)
+            }
+        })
+    });
     let screen = app.render();
     let tip = data
         .commits

@@ -44,7 +44,7 @@ use tuig_ui_model::runtime_layout::{PaneInputs, PaneLayout, layout_panes};
 use tuig_ui_model::theme_resolver::ThemeMode;
 use tuig_widgets::diff::{DiffDocument, DiffEvent};
 use tuig_widgets::files::ListKind;
-use tuig_widgets::history::ClickPart;
+use tuig_widgets::history::{ClickPart, HistoryEvent};
 
 /// The terminal's appearance in the terms of `tuig-ui-model`.
 fn appearance(mode: opentui::prelude::ThemeMode) -> ThemeMode {
@@ -95,6 +95,8 @@ pub enum Msg {
         clicks: u8,
     },
     HistoryWheel(i32),
+    /// A header or scrollbar event of the history list.
+    HistoryPointer(HistoryEvent),
     HistoryScrollGraph(i32),
     FileClick {
         section: ListKind,
@@ -442,6 +444,7 @@ impl Shell {
                 }
             }
             Msg::HistoryClick { row, part, clicks } => {
+                self.history_row_pressed(app);
                 self.history_click(app, row, part, clicks);
                 self.files_history_clicked();
             }
@@ -456,6 +459,7 @@ impl Shell {
             Msg::ChangesAction(action) => self.changes_action(app, action),
             Msg::SplitDrag { split, y } => self.split_drag(split, y),
             Msg::HistoryWheel(delta) => self.queue_history_scroll(app, delta),
+            Msg::HistoryPointer(event) => self.history_pointer(app, event),
             Msg::HistoryScrollGraph(delta) => {
                 self.scroll_graph(i64::from(delta));
             }

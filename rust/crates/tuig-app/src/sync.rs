@@ -82,6 +82,10 @@ impl Widgets {
                     } => Msg::HistoryClick { row, part, clicks },
                     HistoryEvent::Wheel(delta) => Msg::HistoryWheel(delta),
                     HistoryEvent::ScrollGraph(delta) => Msg::HistoryScrollGraph(delta),
+                    event @ (HistoryEvent::HeaderPress { .. }
+                    | HistoryEvent::ScrollbarPress { .. }
+                    | HistoryEvent::Drag { .. }
+                    | HistoryEvent::Release) => Msg::HistoryPointer(event),
                     HistoryEvent::Menu {
                         row,
                         on_label,
@@ -249,9 +253,11 @@ impl Shell {
         }
         let spinner = self.pr.spinner_frame;
         let columns = self.history.columns;
+        let dragging = self.history.pointer.dragging();
         self.widgets.history.update(|list| {
             list.set_spinner_frame(spinner);
             list.set_columns(columns);
+            list.set_divider_drag(dragging);
         });
         if self
             .dirty

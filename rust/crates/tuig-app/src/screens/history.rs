@@ -2,6 +2,7 @@
 //! the history part of `refresh` in `src/ui/runtime-data.ts`, and the viewport and prefetch steps of
 //! `paintHistory` in `src/ui/runtime-paint.ts`.
 
+use crate::screens::history_columns::HistoryPointerState;
 use crate::shell::{Dirty, GitResult, Msg, Shell};
 use opentui::prelude::*;
 use std::rc::Rc;
@@ -61,6 +62,8 @@ pub struct HistoryState {
     pub viewport: HistoryViewport,
     pub graph_scroll: usize,
     pub columns: HistoryColumns,
+    /// Header separator and scrollbar drags.
+    pub pointer: HistoryPointerState,
     /// Commits a refresh reads. Grows with each page. `historyLimit`.
     pub limit: usize,
     pub page_failures: u32,
@@ -95,6 +98,7 @@ impl HistoryState {
                 show_sha: true,
                 ..HistoryColumns::default()
             },
+            pointer: HistoryPointerState::default(),
             limit: HISTORY_PAGE,
             page_failures: 0,
             pending_scroll: 0,
@@ -424,7 +428,7 @@ impl Shell {
     }
 
     /// Ports `markHistoryScrolling`.
-    fn mark_history_scrolling(&mut self, app: &App) {
+    pub(crate) fn mark_history_scrolling(&mut self, app: &App) {
         self.history.scrolling = true;
         if let Some(timer) = self.history.settle_timer.take() {
             app.cancel_timer(timer);
