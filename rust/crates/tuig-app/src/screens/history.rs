@@ -460,7 +460,7 @@ impl Shell {
     pub(crate) fn history_settled(&mut self) {
         self.history.settle_timer = None;
         // A scrollbar drag keeps the avatars hidden until release, which starts the delay again.
-        if self.history.pointer.scrollbar.is_some() {
+        if self.history.pointer.scrollbar_held() {
             return;
         }
         self.history.scrolling = false;

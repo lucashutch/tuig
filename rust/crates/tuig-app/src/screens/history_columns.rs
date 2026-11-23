@@ -29,7 +29,7 @@ pub struct HistoryPointerState {
     last_divider_press: Option<(HistoryDividerKey, i64)>,
     clock: Instant,
     /// Where the scrollbar thumb is held, while a scrollbar drag runs.
-    pub(crate) scrollbar: Option<ScrollbarGrab>,
+    scrollbar: Option<ScrollbarGrab>,
 }
 
 impl Default for HistoryPointerState {
@@ -44,6 +44,16 @@ impl Default for HistoryPointerState {
 }
 
 impl HistoryPointerState {
+    /// Whether the scrollbar thumb is held.
+    pub fn scrollbar_held(&self) -> bool {
+        self.scrollbar.is_some()
+    }
+
+    #[cfg(test)]
+    pub fn hold_scrollbar(&mut self, grab: ScrollbarGrab) {
+        self.scrollbar = Some(grab);
+    }
+
     /// The separator being dragged. The widget keeps it lit.
     pub fn dragging(&self) -> Option<HistoryDividerKey> {
         self.drag.map(|drag| drag.key)

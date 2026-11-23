@@ -202,8 +202,11 @@ fn a_burst_of_wheel_notches_moves_the_viewport_once_and_settles_once() {
 fn the_settle_delay_waits_for_the_scrollbar_to_be_released() {
     let h = Harness::new(100);
     h.update(Msg::HistoryWheel(1));
-    h.shell.borrow_mut().history.pointer.scrollbar =
-        Some(tuig_ui_model::scrollbar::scrollbar_grab(100, 0, 10, 1));
+    h.shell
+        .borrow_mut()
+        .history
+        .pointer
+        .hold_scrollbar(tuig_ui_model::scrollbar::scrollbar_grab(100, 0, 10, 1));
     h.app.advance(SCROLL_BATCH + SCROLL_SETTLE);
     assert!(h.read(|shell| shell.history.scrolling));
     h.shell.borrow_mut().release_history_scrollbar(h.app.app());
