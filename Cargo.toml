@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["crates/tuig-app", "crates/tuig-cli", "crates/tuig-git", "crates/tuig-spike", "crates/tuig-ui-model", "crates/tuig-widgets"]
+members = ["crates/tuig-app", "crates/tuig-cli", "crates/tuig-git", "crates/tuig-ui-model", "crates/tuig-widgets"]
 
 [workspace.package]
 edition = "2024"
