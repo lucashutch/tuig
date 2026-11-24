@@ -23,6 +23,7 @@ use std::time::{Duration, SystemTime};
 use tokio::process::Command;
 use tokio::sync::{OnceCell, Semaphore};
 use tuig_git::debug_log::{debug_log, debug_log_error};
+use tuig_git::github_api::{ApiReply, GITHUB_HOST, GithubApi, rest_url};
 use tuig_git::pull_requests::{GhRunOptions, run_program};
 use tuig_ui_model::bounded_cache::BoundedCache;
 use tuig_ui_model::color::Rgba;
@@ -323,7 +324,22 @@ pub trait AvatarFetcher: Send + Sync {
     async fn api_commit_avatar(&self, url: &str) -> GitHubLookup;
 }
 
-/// Runs `curl` and `gh`.
+/// Looks a commit up through the shared GitHub client, with no `gh` process. Blocks. `None` means the caller should
+/// try `gh`: no token, a failed request, or a commit with no linked account.
+pub(crate) fn commit_avatar_in_process(api: &GithubApi, api_path: &str) -> Option<String> {
+    let url = format!("{}/{api_path}", rest_url(GITHUB_HOST));
+    let ApiReply::Response(reply) = api.get(GITHUB_HOST, &url) else {
+        return None;
+    };
+    if reply.status != 200 {
+        return None;
+    }
+    let value: serde_json::Value = serde_json::from_str(&reply.body).ok()?;
+    let avatar = value["author"]["avatar_url"].as_str()?;
+    (!avatar.is_empty()).then(|| avatar.to_string())
+}
+
+/// Runs `curl`, and `gh` when the in-process client cannot answer.
 pub struct SystemFetcher;
 
 impl SystemFetcher {
@@ -362,6 +378,16 @@ impl AvatarFetcher for SystemFetcher {
     }
 
     async fn gh_commit_avatar(&self, api_path: &str) -> Option<String> {
+        let path = api_path.to_string();
+        let found = tokio::task::spawn_blocking(move || {
+            commit_avatar_in_process(&GithubApi::shared(), &path)
+        })
+        .await
+        .ok()
+        .flatten();
+        if found.is_some() {
+            return found;
+        }
         let options = GhRunOptions {
             cwd: PathBuf::from("."),
             cancel: None,

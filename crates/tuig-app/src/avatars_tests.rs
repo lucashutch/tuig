@@ -344,3 +344,53 @@ fn provider_avatars_follow_the_typescript_rules() {
         );
     }
 }
+
+mod in_process {
+    use super::*;
+    use tuig_git::github_api::{Http, HttpReply, TokenSource};
+
+    struct Reply(u16, &'static str);
+
+    impl Http for Reply {
+        fn post_json(&self, _: &str, _: &str, _: &str) -> Result<HttpReply, String> {
+            unreachable!("a commit lookup reads")
+        }
+        fn get(&self, url: &str, token: &str) -> Result<HttpReply, String> {
+            assert_eq!(url, "https://api.github.com/repos/o/r/commits/abc");
+            assert_eq!(token, "t");
+            Ok(HttpReply {
+                status: self.0,
+                body: self.1.to_string(),
+            })
+        }
+    }
+
+    struct Token(Option<&'static str>);
+
+    impl TokenSource for Token {
+        fn token(&self, _: &str) -> Option<String> {
+            self.0.map(str::to_string)
+        }
+    }
+
+    fn lookup(reply: Reply, token: Option<&'static str>) -> Option<String> {
+        let api = GithubApi::new(Box::new(reply), Box::new(Token(token)));
+        commit_avatar_in_process(&api, "repos/o/r/commits/abc")
+    }
+
+    #[test]
+    fn a_commit_with_a_linked_account_gives_its_avatar() {
+        let body = r#"{"author": {"avatar_url": "https://avatars.example/u/1"}}"#;
+        assert_eq!(
+            lookup(Reply(200, body), Some("t")).as_deref(),
+            Some("https://avatars.example/u/1")
+        );
+    }
+
+    #[test]
+    fn no_linked_account_no_token_or_an_error_status_leaves_the_lookup_to_gh() {
+        assert_eq!(lookup(Reply(200, r#"{"author": null}"#), Some("t")), None);
+        assert_eq!(lookup(Reply(404, "{}"), Some("t")), None);
+        assert_eq!(lookup(Reply(200, "{}"), None), None);
+    }
+}
