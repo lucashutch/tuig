@@ -9,7 +9,7 @@ use std::rc::Rc;
 use std::time::Duration;
 use tuig_git::debug_log::{debug_log, debug_log_error};
 use tuig_git::repository::DEFAULT_HISTORY_PAGE;
-use tuig_git::types::{Commit, CommitPage, RepositorySnapshot};
+use tuig_git::types::{Commit, CommitPage, HistoryHead, RepositorySnapshot};
 use tuig_ui_model::graph_index::GraphIndex;
 use tuig_ui_model::graph_viewport::clamp_graph_scroll;
 use tuig_ui_model::history_columns::{
@@ -147,6 +147,12 @@ impl HistoryState {
 }
 
 impl Shell {
+    /// A snapshot is on screen and its working-tree files are known.
+    #[cfg(test)]
+    pub(crate) fn snapshot_complete(&self) -> bool {
+        self.snapshot.is_some() && !self.files.working_loading
+    }
+
     pub(crate) fn has_working(&self) -> bool {
         self.snapshot
             .as_ref()
@@ -188,6 +194,26 @@ impl Shell {
     pub(crate) fn start_snapshot(&mut self, app: &App) {
         let repo = self.repo.clone();
         let limit = self.history.limit;
+        if self.snapshot.is_none() {
+            // Nothing is on screen yet. Show history as soon as it reads, and the working-tree files when
+            // `git status` ends.
+            let id = self.tasks.snapshot.begin();
+            let proxy = app.proxy();
+            let early: tuig_git::types::EarlyHistory = Box::new(move |head| {
+                // A full queue drops the head. The full snapshot still follows.
+                let _ = proxy.send(crate::refresh::HeadMsg {
+                    id,
+                    head: std::sync::Arc::new(head),
+                });
+            });
+            let inbox = self.inbox.clone();
+            let task = app.spawn(
+                async move { repo.snapshot_early(limit, early).await },
+                move |cx, output| inbox.post(cx.app(), Msg::Snapshot(id, output)),
+            );
+            self.tasks.snapshot.attach(task);
+            return;
+        }
         self.spawn(
             app,
             |tasks| &mut tasks.snapshot,
@@ -199,6 +225,10 @@ impl Shell {
     /// Takes the shown snapshot, with every loaded commit, to keep in a tab the user leaves. Leaves the history
     /// empty, so call it only right before a switch.
     pub(crate) fn take_snapshot_for_cache(&mut self) -> Option<RepositorySnapshot> {
+        if self.files.working_loading {
+            // Without the working-tree files, the snapshot would show a clean tree when the tab returns.
+            return None;
+        }
         let mut snapshot = self.snapshot.take()?;
         snapshot.commits = std::mem::take(&mut self.history.commits);
         snapshot.commits_complete = self.history.complete;
@@ -221,6 +251,14 @@ impl Shell {
         );
     }
 
+    /// Shows the history and refs of the first load while `git status` still runs. The working-tree lists show a
+    /// loading state until the full snapshot lands.
+    pub(crate) fn history_head_loaded(&mut self, head: HistoryHead) {
+        self.files.working_loading = true;
+        self.apply_snapshot(head.into_partial_snapshot());
+        self.dirty |= Dirty::FILES;
+    }
+
     pub(crate) fn snapshot_loaded(&mut self, app: &App, result: GitResult<RepositorySnapshot>) {
         match result {
             Ok(snapshot) => self.apply_snapshot(snapshot),
@@ -232,6 +270,7 @@ impl Shell {
     /// Replaces the history with a new snapshot, keeping the selected commit when it is still there.
     fn apply_snapshot(&mut self, mut snapshot: RepositorySnapshot) {
         self.history.page_failures = 0;
+        // The head of a first load already set the focus and restored the position.
         let first = self.snapshot.is_none();
         let commits = std::mem::take(&mut snapshot.commits);
         let same_history = self.snapshot.as_ref().is_some_and(|previous| {

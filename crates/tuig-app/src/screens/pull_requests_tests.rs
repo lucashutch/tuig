@@ -110,7 +110,7 @@ fn a_missing_gh_or_login_hides_the_column() {
         }]);
         let h = Harness::start(repository(2), services(&service));
         h.wait("the answer", |shell| shell.pr.result.is_some());
-        h.wait("the first snapshot", |shell| shell.snapshot.is_some());
+        h.wait("the first snapshot", |shell| shell.snapshot_complete());
         assert!(!h.read(|shell| shell.pr_column_available()), "{reason:?}");
         assert!(!h.read(|shell| shell.history.window.as_ref().unwrap().pr_column));
     }
@@ -183,7 +183,7 @@ fn a_periodic_fetch_brings_in_remote_branches() {
             ..services(&service)
         },
     );
-    h.wait("the first snapshot", |shell| shell.snapshot.is_some());
+    h.wait("the first snapshot", |shell| shell.snapshot_complete());
     assert!(h.read(|shell| {
         shell
             .snapshot

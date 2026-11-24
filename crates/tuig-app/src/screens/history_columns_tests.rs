@@ -14,7 +14,7 @@ fn started(dir: &TempDir) -> Harness {
         ..Services::default()
     };
     let h = Harness::start(repository(5), services);
-    h.wait("the first snapshot", |shell| shell.snapshot.is_some());
+    h.wait("the first snapshot", |shell| shell.snapshot_complete());
     h.send(Msg::Resize(160, 48));
     h.app.render();
     h

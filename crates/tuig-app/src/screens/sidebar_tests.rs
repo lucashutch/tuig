@@ -15,7 +15,7 @@ fn harness_with(services: Services) -> Harness {
     let repo = repository(3);
     git(&repo.0, &["branch", "topic"]);
     let h = Harness::start(repo, services);
-    h.wait("the snapshot", |shell| shell.snapshot.is_some());
+    h.wait("the snapshot", |shell| shell.snapshot_complete());
     h.app.render();
     h
 }
@@ -201,7 +201,7 @@ fn one_wheel_notch_scrolls_two_rows_of_the_section_under_the_pointer() {
         git(&repo.0, &["branch", &format!("b{i:02}")]);
     }
     let h = Harness::start(repo, Services::default());
-    h.wait("the snapshot", |shell| shell.snapshot.is_some());
+    h.wait("the snapshot", |shell| shell.snapshot_complete());
     h.app.render();
     h.app.scroll(5, 5, true);
     h.app.advance(SIDEBAR_SCROLL_INTERVAL);

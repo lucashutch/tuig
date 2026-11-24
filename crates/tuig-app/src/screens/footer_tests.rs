@@ -5,7 +5,7 @@ use std::time::Duration;
 
 fn start() -> Harness {
     let h = Harness::start(repository(3), Services::default());
-    h.wait("the first snapshot", |shell| shell.snapshot.is_some());
+    h.wait("the first snapshot", |shell| shell.snapshot_complete());
     h
 }
 

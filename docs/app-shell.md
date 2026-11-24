@@ -335,3 +335,7 @@ Where each TS module went:
 - The background fetch runs through the mutation slot, so a staging action and a fetch never overlap. It skips while
   a snapshot reads, while a composer field has focus, and while `GitRepository::auth_blocked` is set. That flag clears when a fetch, pull or push
   succeeds, so a credential failure pauses fetching until then.
+
+## First load
+
+The first load of a tab runs `snapshot_early`. The task reports a `HistoryHead` (refs, HEAD, stashes and the first history page) through `AppProxy` as soon as those reads end, before `git status` ends. The shell applies it as a partial snapshot and sets `files.working_loading`, so the working lists show a loading state instead of "no changes". The full snapshot then replaces it. The head applies only while its request still runs and no snapshot has landed. A tab left in that state is not cached. Refreshes and revisited tabs use the combined path.

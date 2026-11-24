@@ -8,7 +8,8 @@ use std::io::Write as _;
 use std::path::{Path, PathBuf};
 use std::process::{Command as Process, Stdio};
 use std::time::{Duration, Instant};
-use tuig_git::repository::GitRepositoryService;
+use tuig_git::repository::{GitRepository, GitRepositoryService};
+use tuig_git::types::{HistoryHead, RepositorySnapshot};
 use tuig_ui_model::history_viewport::HistorySelection;
 
 const WAIT: Duration = Duration::from_secs(20);
@@ -105,7 +106,7 @@ impl Harness {
             shell,
             _repo: repo,
         };
-        harness.wait("the first snapshot", |shell| shell.snapshot.is_some());
+        harness.wait("the first snapshot", |shell| shell.snapshot_complete());
         harness
     }
 
@@ -329,5 +330,106 @@ fn a_head_beyond_the_first_page_is_paged_in_before_it_is_selected() {
             Some(head_sha(&h._repo.0).as_str())
         );
         assert_eq!(shell.history.viewport.start, 249);
+    });
+}
+
+/// Starts a shell and builds the head and the full snapshot by hand. The test app handles no task result until it
+/// runs, so the real snapshot task cannot land between the steps.
+fn pending_first_load(count: usize) -> (Harness, ReqId, HistoryHead, RepositorySnapshot) {
+    let repo = repository(count);
+    std::fs::write(repo.0.join("untracked.txt"), "x\n").unwrap();
+    let app = TestApp::new(160, 48);
+    let service = Arc::new(
+        app.app()
+            .runtime()
+            .block_on(GitRepositoryService::open(&repo.0))
+            .unwrap(),
+    );
+    let full = app.app().runtime().block_on(service.snapshot(250)).unwrap();
+    let head = HistoryHead {
+        root: full.root.clone(),
+        head_sha: full.head_sha.clone(),
+        branch: full.branch.clone(),
+        branches: full.branches.clone(),
+        stashes: full.stashes.clone(),
+        commits: full.commits.clone(),
+        commits_complete: full.commits_complete,
+    };
+    let shell = Shell::start(app.app(), service);
+    let id = shell.borrow().tasks.snapshot.current();
+    let harness = Harness {
+        app,
+        shell,
+        _repo: repo,
+    };
+    assert!(harness.read(|shell| shell.snapshot.is_none()));
+    (harness, id, head, full)
+}
+
+#[test]
+fn history_rows_show_before_status_and_the_files_load() {
+    let (h, id, head, full) = pending_first_load(30);
+    h.update(Msg::HistoryHead(id, head));
+    h.shell.borrow_mut().sync(h.app.app());
+
+    h.read(|shell| {
+        assert_eq!(shell.history.commits.len(), 30);
+        let window = shell.history.window.as_ref().expect("history painted");
+        assert!(!window.rows.is_empty());
+        assert_eq!(
+            shell.snapshot.as_ref().unwrap().branch.as_deref(),
+            Some("main")
+        );
+        assert!(!shell.snapshot.as_ref().unwrap().branches.is_empty());
+        assert!(
+            shell.files.working_loading,
+            "the files pane is loading, not clean"
+        );
+        assert!(!shell.has_working(), "no working row before status");
+        assert_eq!(
+            shell.history.selection,
+            HistorySelection::Commit(0),
+            "HEAD is selected from the head"
+        );
+    });
+
+    h.update(Msg::Snapshot(id, Ok(full)));
+    h.read(|shell| {
+        assert!(!shell.files.working_loading);
+        assert!(shell.has_working(), "status adds the working row");
+        assert_eq!(shell.snapshot.as_ref().unwrap().files.len(), 1);
+        assert_eq!(shell.history.commits.len(), 30);
+    });
+}
+
+#[test]
+fn a_head_that_arrives_after_its_snapshot_or_for_an_old_request_is_dropped() {
+    let (h, id, head, full) = pending_first_load(5);
+    h.update(Msg::Snapshot(id, Ok(full)));
+    let mut late = head.clone();
+    late.commits.truncate(1);
+    h.update(Msg::HistoryHead(id, late));
+    h.read(|shell| {
+        assert_eq!(shell.history.commits.len(), 5);
+        assert!(!shell.files.working_loading);
+    });
+
+    let (h, id, head, _full) = pending_first_load(5);
+    h.shell.borrow_mut().start_snapshot(h.app.app());
+    h.update(Msg::HistoryHead(id, head));
+    h.read(|shell| assert!(shell.snapshot.is_none(), "a superseded head is dropped"));
+}
+
+#[test]
+fn a_failed_status_ends_the_loading_state() {
+    let (h, id, head, _full) = pending_first_load(5);
+    h.update(Msg::HistoryHead(id, head));
+    h.update(Msg::Snapshot(
+        id,
+        Err(GitError::Invalid("status failed".into())),
+    ));
+    h.read(|shell| {
+        assert!(!shell.files.working_loading);
+        assert_eq!(shell.history.commits.len(), 5, "history stays on screen");
     });
 }

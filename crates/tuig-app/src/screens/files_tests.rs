@@ -87,7 +87,7 @@ impl Harness {
             .unwrap();
         let shell = Shell::start(app.app(), Arc::new(service));
         let harness = Self { app, shell, repo };
-        harness.wait("the first snapshot", |shell| shell.snapshot.is_some());
+        harness.wait("the first snapshot", |shell| shell.snapshot_complete());
         harness
     }
 
