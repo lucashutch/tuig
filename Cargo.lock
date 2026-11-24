@@ -1149,22 +1149,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "tuig-spike"
-version = "0.2.0"
-dependencies = [
- "opentui",
- "tree-sitter-bash",
- "tree-sitter-c",
- "tree-sitter-cpp",
- "tree-sitter-css",
- "tree-sitter-go",
- "tree-sitter-html",
- "tree-sitter-json",
- "tree-sitter-python",
- "tuig-git",
-]
-
-[[package]]
 name = "tuig-ui-model"
 version = "0.2.0"
 dependencies = [

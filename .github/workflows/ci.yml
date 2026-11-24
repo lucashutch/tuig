@@ -16,14 +16,11 @@ env:
   CARGO_ZIGBUILD_VERSION: 0.24.1
 
 jobs:
-  rust:
+  quality:
     # The package built here is a CI artifact. It uses the same Linux build as the release job (glibc 2.17 floor).
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-        with:
-          # The tuig-spike test reads more than 100 commits of this repository's history.
-          fetch-depth: 0
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy

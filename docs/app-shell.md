@@ -14,7 +14,7 @@ The shell builds on these OpenTUI facts:
 - Built-in widgets: `View`, `Text`, `Input`, `Textarea`, `Select`, `Tabs`, `Scroll`, `Diff`, `Code`, `Image`, `Table`, `TextTable`, `Markdown`, `Slider`.
 - `App::on_selection` reports a finished text selection and `copy_to_clipboard` sends OSC 52.
 
-The spike (`crates/tuig-spike/src/ui.rs`) already uses `spawn`, `TaskHandle::abort`, `set_timeout` for a 60 ms diff debounce, and `Rc<State>` with `Cell` and `RefCell` fields. The shell keeps this model and makes it explicit.
+The original spike used `spawn`, `TaskHandle::abort`, `set_timeout` for a 60 ms diff debounce, and `Rc<State>` with `Cell` and `RefCell` fields. The shell keeps this model and makes it explicit.
 
 ## Decision summary
 
@@ -24,7 +24,7 @@ The spike (`crates/tuig-spike/src/ui.rs`) already uses `spawn`, `TaskHandle::abo
 - The watcher sends events through a tokio channel. A forwarder task posts them to the UI thread as `Msg::Watch`.
 - Selection loads (diff, commit files, commit meta) wait for a short debounce. The debounce is a cancelled-and-restarted `TimerId`.
 - Painting is a separate pass. `update` changes state and sets dirty flags. `Shell::sync(app)` then pushes state into widgets once per turn.
-- A new crate `tuig-app` holds the shell. `tuig-spike` stays as a reference until screen ports replace it.
+- A new crate `tuig-app` holds the shell.
 
 ## State
 
@@ -216,12 +216,12 @@ The burst debounce and the drop of Tuig's own index writes stay inside `tuig-git
 
 ## Selection debounce
 
-TS loads the diff without a debounce, but it cancels the previous load. The spike debounces diff loads by 60 ms (`DIFF_DEBOUNCE`). The shell uses a debounce for every load that follows the selection:
+TS loads the diff without a debounce, but it cancels the previous load. The spike debounced diff loads by 60 ms (`DIFF_DEBOUNCE`). The shell uses a debounce for every load that follows the selection:
 
 - Selection change in history: commit files and commit meta.
 - Selection change in files: diff.
 - Each load kind has its own debounce `TimerId`. A new selection cancels the timer and the running task, then calls `set_timeout(DEBOUNCE, |cx| send DebounceElapsed(kind))`.
-- The value is 0 ms (off) until the parity harness can wait for loads, so behavior matches TS. The spike uses 60 ms (`DIFF_DEBOUNCE`). Keep the value in one constant. Raise it to 60 ms when the harness waits for loads.
+- The value is 0 ms (off) until the parity harness can wait for loads, so behavior matches TS. The spike used 60 ms (`DIFF_DEBOUNCE`). Keep the value in one constant. Raise it to 60 ms when the harness waits for loads.
 - The UI updates the selection highlight at once. Only the Git load waits.
 
 Wheel scroll keeps the TS timing: a 16 ms batch timer (`queueHistoryScroll`) and an 80 ms settle timer that hides graph avatars while scrolling (`markHistoryScrolling`).
@@ -294,7 +294,6 @@ crates/
     src/keys.rs        port of runtime-keys.ts
     src/screens/       one module per TS runtime-* area
   tuig-cli/        argument parsing, a separate crate that replaces the path reading in main.rs later
-  tuig-spike/      kept until item 7 ports its screens, then removed
 ```
 
 `tuig-widgets` depends on `opentui`, `tuig-ui-model` and `tuig-git`. It uses `Commit` and `BranchRef` from `tuig-git` in `decorations.rs` and `history.rs`. The target is no `tuig-git` dependency, so the widgets can have headless tests that use only UI types. A later change can move the needed fields into `tuig-ui-model` types.

@@ -11,7 +11,6 @@ Canonical repository: https://github.com/lucashutch/tuig
 - `crates/tuig-widgets/` — OpenTUI widgets that paint `tuig-ui-model` state.
 - `crates/tuig-app/` — app shell, message loop, and screens. Builds the `tuig` binary.
 - `crates/tuig-cli/` — command line parsing, `tuig update`, the URL opener, and start-up repositories.
-- `crates/tuig-spike/` — the original OpenTUI feasibility spike. Not shipped.
 - `assets/icons/`, `assets/themes/` — Material icon data and bundled themes, read with `include_str!`.
 - `icu4x_data/` — generated ICU4X root collation data. Regenerate with `scripts/gen-icu4x-data.sh`.
 - `scripts/` — native library build, release packaging, and data generators.
