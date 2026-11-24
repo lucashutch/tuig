@@ -132,10 +132,10 @@ fn switching_tabs_drops_what_was_loaded_for_the_old_repository() {
     harness.wait("the second snapshot", |shell| shell.snapshot.is_some());
     let first_id = harness.read(|shell| shell.header.tabs[0].id.clone());
     harness.with(|shell, app| shell.activate_tab(app, &first_id));
-    // Until the first repository's snapshot arrives, nothing of the second one may show.
+    // The first tab shows what it kept. Nothing of the second repository may show.
     harness.read(|shell| {
-        assert!(shell.snapshot.is_none());
-        assert!(shell.history.commits.is_empty());
+        let first_root = shell.header.tabs[0].repo.root();
+        assert_eq!(shell.snapshot.as_ref().unwrap().root, first_root);
     });
     harness.wait("the first repository to load", |shell| {
         shell.snapshot.as_ref().is_some_and(|snapshot| {
@@ -391,5 +391,100 @@ fn directory_suggestions_are_read_off_the_ui_thread_and_only_the_latest_input_co
             .map(|suggestion| suggestion.name.as_str())
             .collect();
         assert_eq!(names, ["beta"], "the answer for `a` was dropped");
+    });
+}
+
+/// Opens a second repository and returns the id of the first tab, with the second tab active and loaded.
+fn leave_first_tab(harness: &Harness, other: &TempDir) -> String {
+    harness.open_path(&other.0);
+    harness.wait("the second tab", |shell| {
+        shell.repo.root().contains(other.0.to_str().unwrap()) && shell.snapshot.is_some()
+    });
+    harness.read(|shell| shell.header.tabs[0].id.clone())
+}
+
+#[test]
+fn switching_back_to_a_tab_shows_its_last_state_before_git_answers() {
+    let harness = start();
+    std::fs::write(harness._repo.0.join("new.txt"), "new\n").unwrap();
+    harness.with(|shell, app| shell.request_refresh(app, false));
+    harness.wait("the working file", |shell| shell.has_working());
+    let (commits, files) = harness.read(|shell| {
+        let shas: Vec<String> = shell
+            .history
+            .commits
+            .iter()
+            .map(|c| c.sha.clone())
+            .collect();
+        (shas, shell.snapshot.as_ref().unwrap().files.clone())
+    });
+    let other = repository();
+    let first = leave_first_tab(&harness, &other);
+
+    harness.with(|shell, app| shell.activate_tab(app, &first));
+    // No message has been handled since the switch, so this is the kept state.
+    harness.read(|shell| {
+        let shas: Vec<String> = shell
+            .history
+            .commits
+            .iter()
+            .map(|c| c.sha.clone())
+            .collect();
+        assert_eq!(shas, commits);
+        assert_eq!(shell.snapshot.as_ref().unwrap().files, files);
+        assert!(
+            shell.tasks.snapshot.busy(),
+            "a refresh runs in the background"
+        );
+    });
+}
+
+#[test]
+fn a_refresh_after_switching_back_updates_the_tab_and_keeps_the_selection() {
+    let harness = start();
+    harness.wait("the head commit", |shell| {
+        shell.history.selected_sha().is_some()
+    });
+    harness.shell.borrow_mut().move_commit(1);
+    let selected = harness.read(|shell| shell.history.selected_sha().unwrap().to_owned());
+    let other = repository();
+    let first = leave_first_tab(&harness, &other);
+    git(
+        &harness._repo.0,
+        &["commit", "-q", "--allow-empty", "-m", "three"],
+    );
+
+    harness.with(|shell, app| shell.activate_tab(app, &first));
+    assert_eq!(harness.read(|shell| shell.history.commits.len()), 2);
+    harness.wait("the refreshed history", |shell| {
+        !shell.tasks.snapshot.busy() && shell.history.commits.len() == 3
+    });
+    harness.read(|shell| {
+        assert_eq!(shell.history.selected_sha(), Some(selected.as_str()));
+        assert_eq!(shell.history.commits[0].subject, "three");
+    });
+}
+
+#[test]
+fn a_result_for_the_tab_you_left_does_not_land_in_the_new_one() {
+    let harness = start();
+    let other = repository();
+    let first = leave_first_tab(&harness, &other);
+    harness.with(|shell, app| shell.activate_tab(app, &first));
+    let stale = harness.read(|shell| shell.tasks.snapshot.current());
+    let second = harness.read(|shell| shell.header.tabs[1].id.clone());
+    harness.with(|shell, app| shell.activate_tab(app, &second));
+    let mut wrong = harness.read(|shell| shell.snapshot.clone().unwrap());
+    wrong.root = "/wrong".to_owned();
+    harness.with(|shell, app| shell.update(app, Msg::Snapshot(stale, Ok(wrong))));
+    harness.read(|shell| {
+        assert!(
+            shell
+                .snapshot
+                .as_ref()
+                .unwrap()
+                .root
+                .contains(other.0.to_str().unwrap())
+        );
     });
 }

@@ -4,7 +4,8 @@
 //!
 //! The shell shows one repository at a time. [`HeaderState`] keeps the open tabs. Switching tabs gives the shell a
 //! fresh state for the new repository ([`Shell::switch_repository`]) and starts its loads again, which is what the
-//! TS tab switch does by resetting the same fields.
+//! TS tab switch does by resetting the same fields. A tab the user has seen before keeps its last snapshot, so the
+//! switch back shows it at once and refreshes it in the background with `refresh_snapshot`.
 //!
 //! Differences from the TS app:
 //!
@@ -29,7 +30,7 @@ use tuig_git::repository::{GitRepository, create_git_repository};
 use tuig_git::repository_browser::{
     DirectorySuggestion, resolve_repository_path, suggest_directories,
 };
-use tuig_git::types::{Submodule, UndoPreview, Worktree};
+use tuig_git::types::{RepositorySnapshot, Submodule, UndoPreview, Worktree};
 use tuig_ui_model::graph_menu::ConfirmRequest;
 use tuig_ui_model::repository_tabs::{
     RepositoryTab, drag_repository_tab, submodule_tab_label, worktree_tab_label,
@@ -84,6 +85,9 @@ pub struct Tab {
     pub submodule_of: Option<SubmoduleRelation>,
     /// Where the history was when the user left the tab. `None` until then.
     pub history: Option<SavedHistory>,
+    /// The last snapshot shown in the tab, with every loaded commit. `None` until the user leaves the tab. It is
+    /// taken out again when the tab becomes active.
+    pub snapshot: Option<RepositorySnapshot>,
 }
 
 pub struct PickerState {
@@ -131,6 +135,7 @@ impl HeaderState {
                 repo,
                 submodule_of: None,
                 history: None,
+                snapshot: None,
             }],
             active: "repository-0".to_owned(),
             next_id: 1,
@@ -288,6 +293,7 @@ impl Shell {
                 submodule_of: init.submodules.get(repo.root()).cloned(),
                 repo,
                 history: None,
+                snapshot: None,
             })
             .collect();
         header.next_id = header.tabs.len();
@@ -454,7 +460,7 @@ impl Shell {
     /// As [`Self::activate_tab`]. With `focus_head` the history starts at the checked-out commit instead, as for a
     /// repository the user just opened.
     fn activate_tab_at(&mut self, app: &App, id: &str, focus_head: bool) {
-        let Some(tab) = self.header.tabs.iter().find(|tab| tab.id == id).cloned() else {
+        let Some(index) = self.header.position(id) else {
             return;
         };
         if id == self.header.active {
@@ -465,12 +471,17 @@ impl Shell {
         }
         self.close_repository_picker(app);
         let saved = self.history.save();
+        let cached = self.take_snapshot_for_cache();
         let leaving = self.header.active.clone();
         if let Some(left) = self.header.tabs.iter_mut().find(|tab| tab.id == leaving) {
             left.history = Some(saved);
+            left.snapshot = cached;
         }
+        let tab = &mut self.header.tabs[index];
+        let (repo, history, snapshot) =
+            (tab.repo.clone(), tab.history.clone(), tab.snapshot.take());
         self.header.active = tab.id.clone();
-        self.switch_repository(app, tab.repo.clone(), tab.history.filter(|_| !focus_head));
+        self.switch_repository(app, repo, history.filter(|_| !focus_head), snapshot);
         self.persist_session();
     }
 
@@ -499,10 +510,16 @@ impl Shell {
         let repo = removed.repo;
         app.runtime().spawn(async move { repo.dispose().await });
         if was_active {
-            let next = self.header.tabs[index.min(self.header.tabs.len() - 1)].clone();
+            let next = index.min(self.header.tabs.len() - 1);
+            let next = &mut self.header.tabs[next];
+            let (repo, history, snapshot) = (
+                next.repo.clone(),
+                next.history.clone(),
+                next.snapshot.take(),
+            );
+            self.header.active = next.id.clone();
             self.close_repository_picker(app);
-            self.header.active = next.id;
-            self.switch_repository(app, next.repo, next.history);
+            self.switch_repository(app, repo, history, snapshot);
         }
         self.persist_session();
     }
@@ -641,6 +658,7 @@ impl Shell {
                     repo: repository,
                     submodule_of,
                     history: None,
+                    snapshot: None,
                 });
                 id
             }
@@ -835,12 +853,14 @@ impl Shell {
     // Switching.
 
     /// Shows `repo` in place of the current repository: drops everything loaded for the old one and starts the
-    /// loads for the new one. The caller has checked that no mutation runs. `activateRepositoryTab`.
+    /// loads for the new one. With a `cached` snapshot of a tab seen before, that snapshot shows at once and a
+    /// refresh replaces it in the background. The caller has checked that no mutation runs. `activateRepositoryTab`.
     fn switch_repository(
         &mut self,
         app: &App,
         repo: Arc<dyn GitRepository>,
         restore: Option<SavedHistory>,
+        cached: Option<RepositorySnapshot>,
     ) {
         self.close_popup(app);
         if self.overlay.palette.is_some() {
@@ -891,7 +911,10 @@ impl Shell {
         app.set_title(&window_title(repo.root()));
         self.repo = repo;
         self.dirty = Dirty::all();
-        self.start_snapshot(app);
+        match cached {
+            Some(cached) => self.show_cached_snapshot(app, cached),
+            None => self.start_snapshot(app),
+        }
         self.start_watch_paths(app);
         self.start_pull_requests(app);
     }
