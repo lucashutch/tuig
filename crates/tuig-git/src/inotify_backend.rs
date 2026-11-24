@@ -60,11 +60,20 @@ pub(crate) struct InotifyWatcher {
     /// Events the kernel delivered, for tests.
     #[cfg(test)]
     raw_events: std::sync::Arc<std::sync::atomic::AtomicUsize>,
+    /// Set when the thread finished the first walk, for tests.
+    #[cfg(test)]
+    walked: std::sync::Arc<(std::sync::Mutex<bool>, std::sync::Condvar)>,
 }
 
 impl InotifyWatcher {
-    /// Watches `root`, and every directory below it when `recursive`. Fails when a watch cannot be added, for
-    /// example when the inotify watch limit is reached. `sink` runs on the watcher thread.
+    /// Watches `root`, and every directory below it when `recursive`. Fails when `root` cannot be watched. `sink`
+    /// runs on the watcher thread.
+    ///
+    /// Only the root watch is added before this returns. The thread walks the tree below it, because a large work
+    /// tree takes tens of milliseconds and this runs on the UI thread. Events in directories that are already
+    /// watched queue in the kernel during the walk and are read after it. A change in a directory that the walk has
+    /// not reached yet is not reported, as with a change made before the watch started. The app's periodic refresh
+    /// covers it. A walk that fails, for example at the watch limit, sends `Failed`.
     pub(crate) fn start(
         root: &Path,
         recursive: bool,
@@ -78,26 +87,45 @@ impl InotifyWatcher {
             root: root.to_path_buf(),
             limit_logged: false,
         };
-        state
-            .add_tree(root, &mut Vec::new(), true)
+        let descriptor = state
+            .watches
+            .add(root, watch_mask())
             .map_err(|error| to_notify(error, root))?;
+        state.directories.insert(descriptor, root.to_path_buf());
 
         let (read, write) = pipe().map_err(notify::Error::io)?;
         #[cfg(test)]
         let raw_events = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
         #[cfg(test)]
         let counter = raw_events.clone();
+        #[cfg(test)]
+        let walked = std::sync::Arc::new((std::sync::Mutex::new(false), std::sync::Condvar::new()));
+        #[cfg(test)]
+        let walk_done = walked.clone();
         let root = root.to_path_buf();
         let thread = std::thread::Builder::new()
             .name("tuig-watch".into())
             .spawn(move || {
-                let outcome = state.run(
-                    inotify,
-                    &read,
-                    &sink,
-                    #[cfg(test)]
-                    &counter,
-                );
+                // The root is watched already, so the walk adds only the directories below it.
+                let walk = if state.recursive {
+                    state.add_tree(&root, &mut Vec::new(), true)
+                } else {
+                    Ok(())
+                };
+                #[cfg(test)]
+                {
+                    *walk_done.0.lock().unwrap() = true;
+                    walk_done.1.notify_all();
+                }
+                let outcome = walk.and_then(|()| {
+                    state.run(
+                        inotify,
+                        &read,
+                        &sink,
+                        #[cfg(test)]
+                        &counter,
+                    )
+                });
                 if let Err(error) = outcome {
                     sink(BackendEvent::Failed(to_notify(error, &root)));
                 }
@@ -108,7 +136,19 @@ impl InotifyWatcher {
             thread: Some(thread),
             #[cfg(test)]
             raw_events,
+            #[cfg(test)]
+            walked,
         })
+    }
+
+    /// Blocks until the thread has watched the tree below the root.
+    #[cfg(test)]
+    fn wait_walked(&self) {
+        let (done, changed) = &*self.walked;
+        let mut done = done.lock().unwrap();
+        while !*done {
+            done = changed.wait(done).unwrap();
+        }
     }
 
     #[cfg(test)]
@@ -351,6 +391,7 @@ mod tests {
             let _ = tx.send(event);
         })
         .unwrap();
+        watcher.wait_walked();
         (watcher, rx)
     }
 
@@ -413,6 +454,23 @@ mod tests {
             "the write was not reported, events: {seen:?}"
         );
         assert!(watcher.raw_events() > 0);
+    }
+
+    #[test]
+    fn a_change_in_the_root_right_after_start_is_reported() {
+        let dir = TempDir::new("inotify-early");
+        let root = dir.path();
+        for index in 0..200 {
+            std::fs::create_dir_all(root.join(format!("d{index}/e"))).unwrap();
+        }
+        let (tx, rx) = mpsc::channel();
+        let _watcher = InotifyWatcher::start(root, true, move |event| {
+            let _ = tx.send(event);
+        })
+        .unwrap();
+        // No wait for the walk: the root watch exists when `start` returns.
+        std::fs::write(root.join("early.txt"), "x").unwrap();
+        assert!(next_paths(&rx, &root.join("early.txt")));
     }
 
     #[test]
