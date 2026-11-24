@@ -9,6 +9,8 @@
 - On macOS, the Xcode command line tools. OpenTUI's build reads the macOS SDK.
 - For release packages on Linux, `cargo-zigbuild` (`cargo install --locked cargo-zigbuild`).
 
+tuig talks to the GitHub API with `ureq` and rustls. rustls uses `ring`, which compiles a few C and assembly files with the C compiler that Cargo finds. `cargo-zigbuild` supplies `zig cc` for that. The build needs no cmake and no system TLS library. Certificates come from the bundled `webpki-roots`, so a GitHub Enterprise host with a private certificate authority falls back to `gh`.
+
 The script builds with `-Dvideo=false`, so the native library has no FFmpeg and no video support. tuig does not use video. The script fails if `libopentui.a` holds `avcodec_` or `avformat_` symbols.
 
 The `opentui-sys` crate declares the license `MIT AND LGPL-2.1-or-later`. The LGPL part covers FFmpeg. Our static build has no FFmpeg, so only the MIT part and the non-FFmpeg notices apply (Yoga, zlib, gdtoa, and the Zig compiler-rt and LLVM runtime). The notices are in `licenses/`.
