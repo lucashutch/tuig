@@ -8,10 +8,10 @@ permissions:
   contents: write
 
 env:
-  # Keep equal to .zig-version of the OpenTUI version pinned in rust/Cargo.toml. build-opentui-native.sh stops on a mismatch.
-  # Change it here and in rust.yml.
+  # Keep equal to .zig-version of the OpenTUI version pinned in Cargo.toml. build-opentui-native.sh stops on a mismatch.
+  # Change it here and in ci.yml.
   ZIG_VERSION: 0.17.1
-  # cargo-zigbuild links the Linux binaries against glibc 2.17. Change it here and in rust.yml.
+  # cargo-zigbuild links the Linux binaries against glibc 2.17. Change it here and in ci.yml.
   CARGO_ZIGBUILD_VERSION: 0.24.1
 
 jobs:
@@ -21,16 +21,11 @@ jobs:
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0
-      - uses: oven-sh/setup-bun@v2.2.0
-        with:
-          bun-version: latest
-      - run: bun install --frozen-lockfile
-      - run: bun run check
-      - name: Verify package version
+      - name: Verify the workspace version
         env:
           TAG: ${{ github.ref_name }}
         run: |
-          test "v$(bun pm pkg get version | tr -d '\"')" = "$TAG"
+          test "v$(sed -n '/^\[workspace.package\]$/,/^\[/s|^version = "\([0-9][^"]*\)"$|\1|p' Cargo.toml)" = "$TAG"
       - name: Create GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -40,7 +35,7 @@ jobs:
 
   rust-package:
     # Builds the Rust package for each platform and attaches it, with its SHA-256 file, to the release.
-    # `tuig update` downloads these assets, so the names come from rust/scripts/package.sh.
+    # `tuig update` downloads these assets, so the names come from scripts/package.sh.
     name: rust-package (${{ matrix.platform }})
     needs: release
     runs-on: ${{ matrix.runner }}
@@ -57,9 +52,6 @@ jobs:
             runner: macos-15
           - platform: x86_64-macos
             runner: macos-15-intel
-    defaults:
-      run:
-        working-directory: rust
     steps:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@master
@@ -79,11 +71,10 @@ jobs:
       - name: Cache the OpenTUI native library
         uses: actions/cache@v5
         with:
-          path: rust/.opentui-native
-          key: opentui-native-${{ matrix.platform }}-${{ steps.opentui.outputs.version }}-${{ hashFiles('rust/scripts/build-opentui-native.sh') }}
+          path: .opentui-native
+          key: opentui-native-${{ matrix.platform }}-${{ steps.opentui.outputs.version }}-${{ hashFiles('scripts/build-opentui-native.sh') }}
       - uses: Swatinem/rust-cache@v2
         with:
-          workspaces: rust
           key: ${{ matrix.platform }}
       - name: Build the package
         run: sh scripts/package.sh

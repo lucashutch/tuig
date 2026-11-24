@@ -1,7 +1,0 @@
-# opentui-sys links a native library that Cargo does not build. scripts/build-opentui-native.sh puts it here.
-# The path is relative to this rust/ directory. An OPENTUI_LIB_DIR in the environment wins over this entry.
-[env]
-OPENTUI_LIB_DIR = { value = ".opentui-native/lib", relative = true }
-# The ICU4X collator uses root-locale data only (see "ICU4X data" in README.md). The icu_*_data crates read this
-# directory instead of their bundled data for every locale.
-ICU4X_DATA_DIR = { value = "icu4x_data", relative = true }
