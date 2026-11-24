@@ -12,8 +12,9 @@
 use crate::services::UrlOpener;
 use crate::shell::{Dirty, Msg, Shell};
 use opentui::prelude::*;
+use std::collections::HashMap;
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use tuig_git::pull_request_types::{PullRequest, PullRequestList, PullRequestService};
 use tuig_widgets::pull_requests::{
     PullRequestCommitIndex, SPINNER_FRAMES, is_unsettled, pull_request_branch,
@@ -36,6 +37,8 @@ pub struct PullRequestsState {
     pub result: Option<PullRequestList>,
     /// Row matcher for the history column. `None` while the list is empty or unavailable.
     pub index: Option<PullRequestCommitIndex>,
+    /// The last list per repository root. It outlives a tab switch, so a tab shows its list at once.
+    pub(crate) cache: HashMap<String, (Instant, PullRequestList)>,
     pub(crate) refresh_timer: Option<TimerId>,
     pub(crate) spinner_timer: Option<TimerId>,
     /// Index into [`SPINNER_FRAMES`].
@@ -95,9 +98,35 @@ impl Shell {
         };
     }
 
-    /// Starts the first load. `activate`.
+    /// Starts the first load. `activate`. A cached list for this repository shows at once, and a new request
+    /// starts only when that list is older than its refresh interval.
     pub(crate) fn start_pull_requests(&mut self, app: &App) {
-        self.load_pull_requests(app);
+        let cached = self
+            .pr
+            .service
+            .is_some()
+            .then(|| self.pr.cache.get(self.repo.root()).cloned())
+            .flatten();
+        let Some((fetched, list)) = cached else {
+            self.load_pull_requests(app);
+            return;
+        };
+        let delay = refresh_delay(&list);
+        let age = fetched.elapsed();
+        self.pr.result = Some(list);
+        self.rebuild_pull_request_index();
+        self.dirty |= Dirty::HISTORY;
+        if age >= delay {
+            self.load_pull_requests(app);
+        } else {
+            self.schedule_pull_request_refresh(app, delay - age);
+        }
+    }
+
+    fn schedule_pull_request_refresh(&mut self, app: &App, delay: Duration) {
+        let inbox = self.inbox.clone();
+        self.pr.refresh_timer =
+            Some(app.set_timeout(delay, move |cx| inbox.post(cx.app(), Msg::PullRequestsDue)));
     }
 
     /// Lists pull requests now and keeps the current list on screen until the answer. `refresh`.
@@ -134,11 +163,13 @@ impl Shell {
 
     pub(crate) fn pull_requests_loaded(&mut self, app: &App, result: PullRequestList) {
         let delay = refresh_delay(&result);
+        self.pr.cache.insert(
+            self.repo.root().to_owned(),
+            (Instant::now(), result.clone()),
+        );
         self.pr.result = Some(result);
         self.rebuild_pull_request_index();
-        let inbox = self.inbox.clone();
-        self.pr.refresh_timer =
-            Some(app.set_timeout(delay, move |cx| inbox.post(cx.app(), Msg::PullRequestsDue)));
+        self.schedule_pull_request_refresh(app, delay);
         self.dirty |= Dirty::HISTORY;
     }
 

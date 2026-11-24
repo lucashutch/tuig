@@ -205,3 +205,66 @@ fn a_periodic_fetch_brings_in_remote_branches() {
             .is_some_and(|s| s.branches.iter().any(|b| b.name == "origin/main"))
     });
 }
+
+static TAB_SERVICE: Mutex<Option<Arc<FakeService>>> = Mutex::new(None);
+
+fn tab_service(_root: &str) -> Arc<dyn PullRequestService> {
+    TAB_SERVICE.lock().unwrap().clone().unwrap()
+}
+
+#[test]
+fn a_tab_shows_its_cached_list_at_once_and_asks_again_only_when_it_is_stale() {
+    let service = FakeService::new(vec![available(vec![pr(12, "main", CheckRollup::Passed)])]);
+    *TAB_SERVICE.lock().unwrap() = Some(service.clone());
+    let h = Harness::start(
+        repository(2),
+        Services {
+            pull_requests_for: Some(tab_service),
+            ..services(&service)
+        },
+    );
+    h.wait("the first list", |shell| shell.pr.result.is_some());
+    let first = h.read(|shell| shell.header.tabs[0].id.clone());
+    let other = repository(2);
+    h.shell
+        .borrow_mut()
+        .open_repository_path(h.app.app(), Some(other.0.to_string_lossy().into_owned()));
+    h.wait("the second tab's list", |shell| {
+        shell.repo.root().contains(other.0.to_str().unwrap()) && service.calls() == 2
+    });
+    h.wait("its answer", |shell| {
+        shell.pr.result.is_some() && !shell.tasks.pull_requests.busy()
+    });
+
+    h.shell.borrow_mut().activate_tab(h.app.app(), &first);
+    h.read(|shell| {
+        assert_eq!(shell.pr.pull_requests().len(), 1, "the cached list shows");
+        assert!(
+            !shell.tasks.pull_requests.busy(),
+            "no request for a fresh list"
+        );
+        assert!(
+            shell.pr.refresh_timer.is_some(),
+            "the refresh timer keeps running"
+        );
+    });
+    assert_eq!(service.calls(), 2);
+
+    // An entry older than its interval shows first and loads again.
+    let second = h.read(|s| s.header.tabs[1].id.clone());
+    h.shell.borrow_mut().activate_tab(h.app.app(), &second);
+    h.shell
+        .borrow_mut()
+        .pr
+        .cache
+        .values_mut()
+        .for_each(|entry| {
+            entry.0 = Instant::now().checked_sub(IDLE_REFRESH * 2).unwrap();
+        });
+    h.shell.borrow_mut().activate_tab(h.app.app(), &first);
+    h.read(|shell| {
+        assert_eq!(shell.pr.pull_requests().len(), 1);
+        assert!(shell.tasks.pull_requests.busy(), "a stale list refreshes");
+    });
+    h.wait("the refresh", |_| service.calls() == 3);
+}

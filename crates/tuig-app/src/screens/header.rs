@@ -887,7 +887,9 @@ impl Shell {
             .filter(|_| self.pr.service.is_some())
             .map(|build| build(repo.root()));
         let opener = self.pr.opener.clone();
+        let cache = std::mem::take(&mut self.pr.cache);
         self.pr = crate::screens::pull_requests::PullRequestsState::new(service, opener);
+        self.pr.cache = cache;
 
         let side_by_side = self.diff.side_by_side;
         self.diff = crate::screens::diff::DiffState::new();
