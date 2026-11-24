@@ -498,6 +498,42 @@ async fn stash_tip_pages_with_history_instead_of_shifting_it() {
 }
 
 #[tokio::test]
+async fn snapshot_pages_stash_rows_like_commit_page_and_starts_one_walk() {
+    let dir = repo_dir().await;
+    let repo = open(&dir).await;
+    for name in ["one", "two", "three"] {
+        commit_file(
+            &repo,
+            dir.path(),
+            &format!("{name}.txt"),
+            &format!("{name}\n"),
+            name,
+        )
+        .await;
+    }
+    write(dir.path(), "three.txt", "stashed\n");
+    repo.stash(Some("snap stash"), false).await.unwrap();
+
+    let before = repo.walk_starts().await;
+    let snapshot = repo.snapshot(2).await.unwrap();
+    assert_eq!(repo.walk_starts().await, before + 1);
+    assert_eq!(snapshot.stashes.len(), 1);
+    assert_eq!(snapshot.commits.len(), 2);
+    assert!(snapshot.commits[0].subject.contains("snap stash"));
+    assert_eq!(snapshot.commits[1].subject, "three");
+    assert!(!snapshot.commits_complete);
+
+    let all = repo.snapshot(10).await.unwrap();
+    assert!(all.commits_complete);
+    assert_eq!(all.commits.len(), 4);
+
+    // Read-only metadata calls must not drop the walk an unchanged refresh reuses.
+    let starts = repo.walk_starts().await;
+    repo.refresh_snapshot(&all, 10).await.unwrap();
+    assert_eq!(repo.walk_starts().await, starts);
+}
+
+#[tokio::test]
 async fn shows_a_stash_at_its_creation_time_in_history() {
     let dir = repo_dir().await;
     let root = dir.path();

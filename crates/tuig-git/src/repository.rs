@@ -476,22 +476,30 @@ impl GitRepositoryService {
         signatures.insert(tip_key(commits), signature);
     }
 
+    /// Reads everything in a snapshot except the stash list and the commit
+    /// rows, so a caller can run those beside it.
+    ///
+    /// Every call here is read-only. They go through `git_read` so they cannot
+    /// drop a history walk that runs at the same time.
     async fn read_snapshot_metadata(&self) -> Result<SnapshotMetadata> {
-        let submodule_config = self
-            .git(&[
-                "config",
-                "--null",
-                "--file",
-                ".gitmodules",
-                "--get-regexp",
-                "^submodule\\..*\\.path$",
-            ])
+        let (metadata, stash) = tokio::join!(self.read_snapshot_core(), self.read_stash_list());
+        let mut metadata = metadata?;
+        metadata.stash = stash;
+        Ok(metadata)
+    }
+
+    /// Raw `stash list` output with the fields `parse_stashes` reads.
+    async fn read_stash_list(&self) -> String {
+        self.git_read(&["stash", "list", "--format=%gd%x09%H%x09%cr%x09%s%x00"])
             .await
-            .unwrap_or_else(|_| empty_result());
-        let submodule_names = parse_submodule_names(&submodule_config.stdout);
+            .map(|out| out.stdout)
+            .unwrap_or_default()
+    }
+
+    async fn read_snapshot_core(&self) -> Result<SnapshotMetadata> {
         // Polling must not take the index lock: the auto-refresh would
         // otherwise collide with a Git command the user is running elsewhere.
-        let status = self.git(&[
+        let status = self.git_read(&[
             "--no-optional-locks",
             "status",
             "--porcelain=v2",
@@ -502,7 +510,7 @@ impl GitRepositoryService {
             "--branch",
             "-z",
         ]);
-        let all_refs = self.git(&[
+        let all_refs = self.git_read(&[
             "for-each-ref",
             // %(HEAD) marks the checked-out local branch. Emit the
             // record terminator explicitly: for-each-ref otherwise
@@ -510,24 +518,34 @@ impl GitRepositoryService {
             // tabular parser see all refs as one row.
             "--format=%(refname)\t%(objectname)\t%(HEAD)%00",
         ]);
-        let stash = async {
-            self.git(&["stash", "list", "--format=%gd%x09%H%x09%cr%x09%s%x00"])
-                .await
-                .unwrap_or_else(|_| empty_result())
-        };
-        let worktrees = self.git(&["worktree", "list", "--porcelain"]);
+        let worktrees = self.git_read(&["worktree", "list", "--porcelain"]);
+        // Only `submodule status` needs the names, so the config read chains
+        // inside this future instead of holding back the others.
         let submodules = async {
-            if submodule_names.is_empty() {
-                empty_result()
-            } else {
-                self.git(&["submodule", "status", "--recursive"])
-                    .await
-                    .unwrap_or_else(|_| empty_result())
+            let config = self
+                .git_read(&[
+                    "config",
+                    "--null",
+                    "--file",
+                    ".gitmodules",
+                    "--get-regexp",
+                    "^submodule\\..*\\.path$",
+                ])
+                .await
+                .unwrap_or_else(|_| empty_result());
+            let names = parse_submodule_names(&config.stdout);
+            if names.is_empty() {
+                return (names, empty_result());
             }
+            let status = self
+                .git_read(&["submodule", "status", "--recursive"])
+                .await
+                .unwrap_or_else(|_| empty_result());
+            (names, status)
         };
         let shallow = async { self.read_shallow_metadata() };
-        let (status, all_refs, stash, worktrees, submodules, shallow) =
-            tokio::join!(status, all_refs, stash, worktrees, submodules, shallow);
+        let (status, all_refs, worktrees, (submodule_names, submodules), shallow) =
+            tokio::join!(status, all_refs, worktrees, submodules, shallow);
         let status = status?.stdout;
         let all_refs = all_refs?.stdout;
         let worktrees = worktrees?.stdout;
@@ -578,7 +596,7 @@ impl GitRepositoryService {
         Ok(SnapshotMetadata {
             status,
             refs,
-            stash: stash.stdout,
+            stash: String::new(),
             worktrees,
             submodules: submodules.stdout,
             submodule_names,
@@ -640,6 +658,11 @@ impl GitRepositoryService {
             .map(|sha| sha.trim().to_string())
             .filter(|sha| !sha.is_empty())
             .collect();
+        self.stash_commits(shas).await
+    }
+
+    /// Stash tip rows for known SHAs, newest stash first.
+    async fn stash_commits(&self, shas: Vec<String>) -> Vec<Commit> {
         if shas.is_empty() {
             return Vec::new();
         }
@@ -1141,8 +1164,29 @@ impl GitRepository for GitRepositoryService {
         // A snapshot is the refresh point for new history, so the walk restarts
         // from the tip rather than continuing one taken before a fetch or commit.
         self.invalidate_history().await;
-        let metadata = self.read_snapshot_metadata().await?;
-        let log = self.commit_page(limit, 0).await?;
+        let wanted = limit.max(1);
+        // The walk does not depend on status or the stash list, so it starts
+        // at once. The stash list feeds both the metadata and the stash rows.
+        let stash_rows = async {
+            let stash = self.read_stash_list().await;
+            let shas = parse_stashes(&stash).into_iter().map(|s| s.sha).collect();
+            let tips = self.stash_commits(shas).await;
+            (stash, tips)
+        };
+        let (core, (stash, tips), walked) = tokio::join!(
+            self.read_snapshot_core(),
+            stash_rows,
+            self.walk.read(0, wanted + 1),
+        );
+        let mut metadata = core?;
+        metadata.stash = stash;
+        let mut walked = walked?;
+        if !tips.is_empty() {
+            // The walk read above covered `wanted + 1`. Each stash row can
+            // push one more ordinary commit out of the page.
+            walked.extend(self.walk.read(walked.len(), tips.len()).await?);
+        }
+        let log = merge_page(tips, walked, wanted, 0);
         let signature = metadata.history_signature.clone();
         let snapshot = self.build_snapshot(metadata, log.commits, log.complete);
         self.remember_signature(&snapshot.commits, signature);
@@ -1202,22 +1246,7 @@ impl GitRepository for GitRepositoryService {
         let walk_offset = offset.saturating_sub(tips.len());
         let local_offset = offset - walk_offset;
         let walked = self.walk.read(walk_offset, wanted + tips.len() + 1).await?;
-        let mut merged: Vec<Commit> = tips.into_iter().chain(walked).collect();
-        merged
-            .sort_by_key(|c| std::cmp::Reverse(parse_instant(&c.committed_at).unwrap_or(i64::MIN)));
-        let mut page: Vec<Commit> = merged
-            .into_iter()
-            .skip(local_offset)
-            .take(wanted + 1)
-            .collect();
-        let complete = page.len() <= wanted;
-        if !complete {
-            page.truncate(wanted);
-        }
-        Ok(CommitPage {
-            commits: page,
-            complete,
-        })
+        Ok(merge_page(tips, walked, wanted, local_offset))
     }
 
     /// Re-reads only the working tree and branch tracking state.
@@ -1973,3 +2002,27 @@ impl Drop for RewordHelpers {
 
 #[cfg(test)]
 mod tests;
+
+/// Merges stash tip rows into walked commits by commit time and cuts one page.
+fn merge_page(
+    tips: Vec<Commit>,
+    walked: Vec<Commit>,
+    wanted: usize,
+    local_offset: usize,
+) -> CommitPage {
+    let mut merged: Vec<Commit> = tips.into_iter().chain(walked).collect();
+    merged.sort_by_key(|c| std::cmp::Reverse(parse_instant(&c.committed_at).unwrap_or(i64::MIN)));
+    let mut page: Vec<Commit> = merged
+        .into_iter()
+        .skip(local_offset)
+        .take(wanted + 1)
+        .collect();
+    let complete = page.len() <= wanted;
+    if !complete {
+        page.truncate(wanted);
+    }
+    CommitPage {
+        commits: page,
+        complete,
+    }
+}
