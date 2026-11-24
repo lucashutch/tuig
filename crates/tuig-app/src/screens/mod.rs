@@ -1,4 +1,5 @@
 pub mod commands;
+pub mod commit_graph_hint;
 pub mod composer;
 pub mod context_menu;
 pub mod details;

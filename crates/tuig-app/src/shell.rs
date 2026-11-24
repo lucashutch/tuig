@@ -139,6 +139,8 @@ pub enum Msg {
     HistoryHead(ReqId, HistoryHead),
     CommitPage(ReqId, GitResult<CommitPage>),
     WatchPaths(ReqId, GitResult<Option<RepositoryWatchPaths>>),
+    /// The Git directory of a large repository without a commit-graph, or `None`.
+    CommitGraphHint(ReqId, GitResult<Option<String>>),
     CommitFiles(ReqId, GitResult<Vec<ChangedFile>>),
     CommitFilesDue,
 
@@ -301,6 +303,8 @@ pub struct Shell {
     pub commands: CommandsState,
     pub composer: ComposerState,
     pub layout: LayoutState,
+    /// Git directories whose commit-graph notice was shown. See `screens/commit_graph_hint.rs`.
+    pub commit_graph_hint_dismissed: Vec<String>,
     pub tasks: Tasks,
     pub refresh: RefreshState,
     pub pr: PullRequestsState,
@@ -359,6 +363,7 @@ impl Shell {
             commands: CommandsState::default(),
             composer: ComposerState::default(),
             layout: LayoutState::new(width, height),
+            commit_graph_hint_dismissed: Vec::new(),
             tasks: Tasks::default(),
             refresh: RefreshState::default(),
             pr: PullRequestsState::new(services.pull_requests.clone(), services.url_opener.clone()),
@@ -406,6 +411,7 @@ impl Shell {
             shell.restore_layout(&services.layout);
             shell.start_snapshot(app);
             shell.start_watch_paths(app);
+            shell.start_commit_graph_hint(app);
             shell.start_pull_requests(app);
             if let Some(interval) = services.fetch_interval {
                 shell.start_background_fetch(app, interval);
@@ -489,6 +495,11 @@ impl Shell {
             Msg::CommitPage(id, result) => {
                 if self.tasks.page.finish(id) {
                     self.page_loaded(app, result);
+                }
+            }
+            Msg::CommitGraphHint(id, result) => {
+                if self.tasks.commit_graph.finish(id) {
+                    self.commit_graph_hint_loaded(result);
                 }
             }
             Msg::WatchPaths(id, result) => {

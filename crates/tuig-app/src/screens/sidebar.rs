@@ -252,6 +252,10 @@ impl Shell {
     /// Applies the saved layout at start. `restoreLayout`, plus the clamp that `start()` does once the terminal
     /// size is known.
     pub(crate) fn restore_layout(&mut self, preferences: &LayoutPreferences) {
+        self.commit_graph_hint_dismissed = preferences
+            .commit_graph_hint_dismissed
+            .clone()
+            .unwrap_or_default();
         let width = i64::from(self.layout.width);
         if let Some(left) = preferences.left_width {
             self.layout.left_width = clamp_sidebar_width(left as i64, width);
