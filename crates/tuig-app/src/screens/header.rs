@@ -121,7 +121,7 @@ pub struct HeaderState {
     spinner: Option<TimerId>,
     spinner_frame: usize,
     /// What the widget shows now, to skip a repaint when nothing changed.
-    shown: Option<HeaderView>,
+    pub(crate) shown: Option<HeaderView>,
 }
 
 impl HeaderState {
@@ -924,7 +924,12 @@ impl Shell {
     /// Pushes the header state into the widgets. Runs after every message.
     pub(crate) fn sync_header(&mut self, app: &App) {
         self.sync_spinner_for_busy(app);
-        let snapshot = self.snapshot.as_ref();
+        // Until `git status` lands, the change count, ahead and behind are unknown. Showing them would read as a
+        // clean tree with no upstream.
+        let snapshot = self
+            .snapshot
+            .as_ref()
+            .filter(|_| !self.files.working_loading);
         let busy = self.busy_label().map(|label| {
             format!(
                 "{} {label}",
