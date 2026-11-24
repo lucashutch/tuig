@@ -13,8 +13,7 @@ use std::future::Future;
 use std::path::{Path, PathBuf};
 use std::pin::Pin;
 use std::process::{ExitStatus, Stdio};
-use std::sync::Mutex;
-use std::sync::PoisonError;
+use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
 
 use async_trait::async_trait;
@@ -22,6 +21,7 @@ use serde_json::{Map, Value};
 use tokio::io::{AsyncRead, AsyncReadExt};
 use tokio::process::Command;
 
+use crate::github_api::{ApiReply, GITHUB_HOST, GithubApi, graphql_url, resolve_repo};
 use crate::process::{CancelToken, GroupGuard, Killer, Sig};
 use crate::pull_request_types::{
     CheckRollup, PullRequest, PullRequestList, PullRequestService, PullRequestState,
@@ -289,26 +289,92 @@ fn classify_exit(result: &CommandResult) -> Failure {
     })
 }
 
-/// Pull request access through `gh api graphql`.
+/// Runs [`LIST_QUERY`] against the GraphQL endpoint without a `gh` process. Blocks.
+///
+/// `None` means this path cannot answer and `gh` should: no readable GitHub remote, no token, or a transport failure
+/// on a host with a private certificate authority that the bundled roots do not know.
+fn fetch_in_process(api: &GithubApi, root: &Path) -> Option<Result<Map<String, Value>, Failure>> {
+    let repo = resolve_repo(root)?;
+    let body = serde_json::json!({
+        "query": LIST_QUERY,
+        "variables": {
+            "owner": repo.owner,
+            "repo": repo.name,
+            "review": format!(
+                "repo:{}/{} is:pr is:open review-requested:@me",
+                repo.owner, repo.name
+            ),
+        },
+    })
+    .to_string();
+    let reply = match api.post_json(&repo.host, &graphql_url(&repo.host), &body) {
+        ApiReply::Response(reply) => reply,
+        ApiReply::NoToken => return None,
+        ApiReply::Unauthorized => {
+            return Some(Err(Failure::reason(
+                PullRequestUnavailableReason::NotAuthenticated,
+            )));
+        }
+        ApiReply::Transport(message) => {
+            return if repo.host == GITHUB_HOST {
+                Some(Err(Failure::error(shorten(&message))))
+            } else {
+                None
+            };
+        }
+    };
+    let value: Option<Value> = serde_json::from_str(&reply.body).ok();
+    // A failed review search still returns the list, as it does through `gh`.
+    if let Some(Value::Object(data)) = value.as_ref().and_then(|value| value.get("data"))
+        && data.get("repository").is_some_and(Value::is_object)
+    {
+        return Some(Ok(data.clone()));
+    }
+    let message = value
+        .as_ref()
+        .and_then(|value| value.get("errors"))
+        .and_then(|errors| errors.get(0))
+        .and_then(|error| error.get("message"))
+        .and_then(Value::as_str)
+        .map(shorten);
+    Some(Err(Failure::error(match message {
+        Some(message) if !message.is_empty() => message,
+        _ if reply.status == 200 => "GitHub returned unreadable pull request data.".to_string(),
+        _ => format!("GitHub returned HTTP {}.", reply.status),
+    })))
+}
+
+/// Pull request access through the GitHub GraphQL API, in process when a token exists and through `gh api
+/// graphql` otherwise.
 pub struct GhPullRequestService {
     root: std::path::PathBuf,
     runner: GhRunner,
+    /// `None` always uses `gh`.
+    api: Option<Arc<GithubApi>>,
     /// `GhMissing` and `NotGithub` do not change while Tuig runs.
     permanent: Mutex<Option<Failure>>,
 }
 
 impl GhPullRequestService {
     pub fn new(root: impl AsRef<Path>) -> Self {
-        Self::with_runner(
+        Self::with_api(
             root,
             Box::new(|args, options| Box::pin(run_gh(args, options))),
+            Some(GithubApi::shared()),
         )
     }
 
+    /// A service that always uses `runner`.
     pub fn with_runner(root: impl AsRef<Path>, runner: GhRunner) -> Self {
+        Self::with_api(root, runner, None)
+    }
+
+    /// A service that asks `api` first and uses `runner` when `api` cannot answer.
+    pub fn with_api(root: impl AsRef<Path>, runner: GhRunner, api: Option<Arc<GithubApi>>) -> Self {
         Self {
             root: root.as_ref().to_path_buf(),
             runner,
+            api,
             permanent: Mutex::new(None),
         }
     }
@@ -318,6 +384,22 @@ impl GhPullRequestService {
         &self,
         cancel: Option<&CancelToken>,
     ) -> Result<Result<Map<String, Value>, Failure>, PullRequestCancelled> {
+        if let Some(api) = self.api.clone() {
+            let root = self.root.clone();
+            let task = tokio::task::spawn_blocking(move || fetch_in_process(&api, &root));
+            let outcome = tokio::select! {
+                outcome = task => outcome.ok().flatten(),
+                () = async {
+                    match cancel {
+                        Some(cancel) => cancel.cancelled().await,
+                        None => std::future::pending().await,
+                    }
+                } => return Err(PullRequestCancelled),
+            };
+            if let Some(outcome) = outcome {
+                return Ok(outcome);
+            }
+        }
         let options = GhRunOptions {
             cwd: self.root.clone(),
             cancel: cancel.cloned(),
@@ -970,5 +1052,128 @@ mod tests {
         let args = ["30".to_string()];
         let result = run_program("sleep", &args, &options, Duration::from_millis(100)).await;
         assert_eq!(result, Err(GhError::Timeout(Duration::from_millis(100))));
+    }
+
+    mod in_process {
+        use super::*;
+        use crate::github_api::{Http, HttpReply, TokenSource};
+        use crate::process::run_git;
+        use crate::test_util::{TempDir, temp_repo};
+
+        /// Answers each request from a queue and records the URL and body.
+        struct FakeHttp {
+            replies: Mutex<std::collections::VecDeque<u16>>,
+            body: String,
+            requests: Arc<Mutex<Vec<(String, String)>>>,
+        }
+
+        impl Http for FakeHttp {
+            fn post_json(&self, url: &str, _token: &str, body: &str) -> Result<HttpReply, String> {
+                self.requests
+                    .lock()
+                    .unwrap()
+                    .push((url.to_string(), body.to_string()));
+                let status = self.replies.lock().unwrap().pop_front().unwrap();
+                Ok(HttpReply {
+                    status,
+                    body: if status == 200 {
+                        self.body.clone()
+                    } else {
+                        String::new()
+                    },
+                })
+            }
+            fn get(&self, _url: &str, _token: &str) -> Result<HttpReply, String> {
+                unreachable!("the pull request list posts")
+            }
+        }
+
+        struct Token(Option<&'static str>);
+
+        impl TokenSource for Token {
+            fn token(&self, _host: &str) -> Option<String> {
+                self.0.map(str::to_string)
+            }
+        }
+
+        struct Setup {
+            service: GhPullRequestService,
+            requests: Arc<Mutex<Vec<(String, String)>>>,
+            gh_calls: Calls,
+            _dir: TempDir,
+        }
+
+        async fn setup(statuses: &[u16], token: Option<&'static str>) -> Setup {
+            let dir = temp_repo().await;
+            run_git(
+                &["remote", "add", "origin", "git@github.com:acme/app.git"],
+                Some(dir.path()),
+            )
+            .await
+            .unwrap();
+            let requests: Arc<Mutex<Vec<(String, String)>>> = Arc::default();
+            let http = FakeHttp {
+                replies: Mutex::new(statuses.iter().copied().collect()),
+                body: list_json(),
+                requests: requests.clone(),
+            };
+            let api = GithubApi::new(Box::new(http), Box::new(Token(token)));
+            let gh_calls: Calls = Arc::default();
+            let recorded = gh_calls.clone();
+            let runner: GhRunner = Box::new(move |args, _| {
+                recorded.lock().unwrap().push(args);
+                let result = ok(&list_json());
+                Box::pin(async move { result })
+            });
+            Setup {
+                service: GhPullRequestService::with_api(dir.path(), runner, Some(Arc::new(api))),
+                requests,
+                gh_calls,
+                _dir: dir,
+            }
+        }
+
+        #[tokio::test]
+        async fn posts_the_list_query_for_the_remote_repository_and_never_starts_gh() {
+            let setup = setup(&[200], Some("t")).await;
+            let PullRequestList::Available { pull_requests } = setup.service.list(None).await
+            else {
+                panic!("expected an available list");
+            };
+            assert_eq!(pull_requests.len(), 2);
+            let requests = setup.requests.lock().unwrap();
+            assert_eq!(requests[0].0, "https://api.github.com/graphql");
+            let body: Value = serde_json::from_str(&requests[0].1).unwrap();
+            assert_eq!(body["query"], LIST_QUERY);
+            assert_eq!(body["variables"]["owner"], "acme");
+            assert_eq!(body["variables"]["repo"], "app");
+            assert_eq!(
+                body["variables"]["review"],
+                "repo:acme/app is:pr is:open review-requested:@me"
+            );
+            assert!(setup.gh_calls.lock().unwrap().is_empty());
+        }
+
+        #[tokio::test]
+        async fn a_rejected_token_is_retried_once_then_reported_as_not_authenticated() {
+            let setup = setup(&[401, 401], Some("t")).await;
+            assert_eq!(
+                setup.service.list(None).await,
+                unavailable(PullRequestUnavailableReason::NotAuthenticated)
+            );
+            assert_eq!(setup.requests.lock().unwrap().len(), 2);
+            assert!(setup.gh_calls.lock().unwrap().is_empty());
+        }
+
+        #[tokio::test]
+        async fn without_a_token_the_list_comes_from_gh() {
+            let setup = setup(&[], None).await;
+            assert!(matches!(
+                setup.service.list(None).await,
+                PullRequestList::Available { .. }
+            ));
+            assert!(setup.requests.lock().unwrap().is_empty());
+            assert_eq!(setup.gh_calls.lock().unwrap().len(), 1);
+        }
     }
 }

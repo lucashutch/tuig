@@ -5,6 +5,7 @@
 
 pub mod commit_walk;
 pub mod debug_log;
+pub mod github_api;
 pub mod hunks;
 #[cfg(target_os = "linux")]
 mod inotify_backend;

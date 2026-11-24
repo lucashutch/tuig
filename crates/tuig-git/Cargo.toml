@@ -16,6 +16,9 @@ sha2 = "0.10"
 
 # JSON parsing of `gh api graphql` output.
 serde_json = "1"
+# HTTPS client for the GitHub API, so a request needs no `gh` process. rustls with ring and bundled web roots:
+# no C compiler, cmake or system TLS library. Pinned exactly like opentui. No gzip: replies are small.
+ureq = { version = "=3.5.2", default-features = false, features = ["rustls"] }
 # Filesystem events (inotify, FSEvents, ReadDirectoryChangesW) for the repository watcher.
 notify = "8"
 # Async runtime: child processes, timers, channels, and pipe I/O. `macros` provides `join!` and
