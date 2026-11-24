@@ -75,6 +75,8 @@ pub struct DiffColumn {
     /// document, so a separator never changes how the code around it parses.
     text: String,
     text_rows: usize,
+    /// The largest line number pushed so far, kept so the gutter width needs no scan of `rows`.
+    largest_number: u64,
     captures: Vec<Capture>,
 }
 
@@ -94,6 +96,7 @@ impl DiffColumn {
             self.text.push('\n');
         }
         self.text_rows += 1;
+        self.largest_number = self.largest_number.max(number.unwrap_or(0));
         self.text.push_str(content);
         self.rows.push(DiffRow {
             target,
@@ -113,8 +116,7 @@ impl DiffColumn {
     fn digits(&self) -> usize {
         // OpenTUI sizes the gutter for the larger of the row count and the largest line number. The blank row between
         // hunks is not a row of the TS document, so it does not count.
-        let largest = self.rows.iter().filter_map(|row| row.number).max();
-        let max = largest.unwrap_or(0).max(self.text_rows as u64);
+        let max = self.largest_number.max(self.text_rows as u64);
         max.max(1).to_string().len()
     }
 
@@ -800,7 +802,7 @@ impl DiffPane {
             let mut columns = 0;
             let mut picked = String::new();
             for c in chars {
-                let width = string_width(&c.to_string());
+                let width = string_width(c.encode_utf8(&mut [0; 4]));
                 if let Some((from, to)) = selection.columns(row, usize::MAX)
                     && columns >= from
                     && columns < to
@@ -832,7 +834,7 @@ impl DiffPane {
         let mut at = 0;
         for c in &chars {
             starts.push(at);
-            at += string_width(&c.to_string());
+            at += string_width(c.encode_utf8(&mut [0; 4]));
         }
         starts.push(at);
         let Some(index) = starts.iter().rposition(|&start| start <= column) else {
@@ -867,6 +869,9 @@ impl DiffPane {
         let digits = column.digits();
         let gutter = Self::gutter_width(column);
         let blank = Style::new().fg(palette.blank_fg);
+        let code_width = (pane.width - gutter).max(0) as usize;
+        let pane_fill = " ".repeat(pane.width.max(0) as usize);
+        let code_fill = " ".repeat(code_width);
         for y in 1..height {
             let row = self.scroll + (y - 1) as usize;
             let Some(entry) = column.rows.get(row) else {
@@ -874,8 +879,7 @@ impl DiffPane {
             };
             let Some(target) = entry.target else {
                 // A filler row of the split view, or the separator between hunks. Both are plain background.
-                let fill = " ".repeat(pane.width.max(0) as usize);
-                painter.text(pane.left, y, &fill, blank.bg(palette.bg));
+                painter.text(pane.left, y, &pane_fill, blank.bg(palette.bg));
                 continue;
             };
             let selected = self.selected_rows.contains(&target.raw_row);
@@ -930,8 +934,7 @@ impl DiffPane {
                 Style::new().fg(sign_fg).bg(gutter_bg),
             );
             painter.text(x + gutter - 1, y, " ", blank.bg(gutter_bg));
-            let code_width = (pane.width - gutter).max(0) as usize;
-            painter.text(x + gutter, y, &" ".repeat(code_width), blank.bg(content_bg));
+            painter.text(x + gutter, y, &code_fill, blank.bg(content_bg));
             let selection = self
                 .selection
                 .filter(|selection| selection.side == pane.side)
@@ -939,7 +942,7 @@ impl DiffPane {
             let mut column_at = 0usize;
             'runs: for run in runs.get(row).into_iter().flatten() {
                 for c in run.text.chars() {
-                    let width = string_width(&c.to_string());
+                    let width = string_width(c.encode_utf8(&mut [0; 4]));
                     if column_at + width > code_width {
                         break 'runs;
                     }
