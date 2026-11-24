@@ -386,6 +386,11 @@ fn history_rows_show_before_status_and_the_files_load() {
             "the files pane is loading, not clean"
         );
         assert!(!shell.has_working(), "no working row before status");
+        let header = shell.header.shown.as_ref().expect("header synced");
+        assert!(
+            header.summary.is_none(),
+            "the header does not claim a clean tree before status"
+        );
         assert_eq!(
             shell.history.selection,
             HistorySelection::Commit(0),
@@ -394,8 +399,11 @@ fn history_rows_show_before_status_and_the_files_load() {
     });
 
     h.update(Msg::Snapshot(id, Ok(full)));
+    h.shell.borrow_mut().sync(h.app.app());
     h.read(|shell| {
         assert!(!shell.files.working_loading);
+        let summary = shell.header.shown.as_ref().unwrap().summary.as_ref();
+        assert_eq!(summary.map(|summary| summary.changed), Some(1));
         assert!(shell.has_working(), "status adds the working row");
         assert_eq!(shell.snapshot.as_ref().unwrap().files.len(), 1);
         assert_eq!(shell.history.commits.len(), 30);
