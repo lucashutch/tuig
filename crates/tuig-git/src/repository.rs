@@ -33,6 +33,7 @@ use async_trait::async_trait;
 use regex::Regex;
 
 use crate::commit_walk::{CommitWalk, HISTORY_MUTATING, LOG_FORMAT};
+use crate::lru_cache::LruCache;
 use crate::parsers::{
     parse_log, parse_name_status, parse_refs, parse_stashes, parse_status, parse_submodule_names,
     parse_submodules, parse_tracking, parse_worktrees,
@@ -291,6 +292,46 @@ pub struct GitRepositoryService {
     /// keyed by [`tip_key`].
     history_signatures: Mutex<HashMap<u64, Vec<u8>>>,
     auth_blocked: AtomicBool,
+    /// Commit caches. Every key holds a full commit SHA, which names immutable content. A ref
+    /// name never keys an entry.
+    commit_cache: Mutex<CommitCaches>,
+}
+
+/// Entries the details and file-list caches keep.
+const COMMIT_CACHE_ENTRIES: usize = 64;
+/// Entries and total bytes the commit diff cache keeps.
+const DIFF_CACHE_ENTRIES: usize = 64;
+const DIFF_CACHE_BYTES: usize = 16 * 1024 * 1024;
+
+type CommitDetails = (String, Vec<String>, Option<String>);
+type DiffKey = (String, Option<String>, Option<String>, Option<u32>);
+
+struct CommitCaches {
+    details: LruCache<String, CommitDetails>,
+    files: LruCache<(String, Option<String>), Vec<ChangedFile>>,
+    diffs: LruCache<DiffKey, String>,
+}
+
+impl CommitCaches {
+    fn new() -> Self {
+        Self {
+            details: LruCache::new(COMMIT_CACHE_ENTRIES, usize::MAX),
+            files: LruCache::new(COMMIT_CACHE_ENTRIES, usize::MAX),
+            diffs: LruCache::new(DIFF_CACHE_ENTRIES, DIFF_CACHE_BYTES),
+        }
+    }
+}
+
+/// The lowercase form of `text` when it is a full SHA-1 or SHA-256 object name.
+fn full_sha(text: &str) -> Option<String> {
+    (matches!(text.len(), 40 | 64) && text.bytes().all(|b| b.is_ascii_hexdigit()))
+        .then(|| text.to_ascii_lowercase())
+}
+
+/// Merge-like commits with three parents may be stashes. Whether Git treats one as a stash
+/// depends on the mutable stash reflog, so nothing derived from such a commit is cached.
+fn cacheable_details(details: &CommitDetails) -> bool {
+    details.1.len() < 3
 }
 
 /// Identifies the snapshot a signature belongs to by its newest commit.
@@ -429,6 +470,7 @@ impl GitRepositoryService {
                 .collect(),
             history_signatures: Mutex::new(HashMap::new()),
             auth_blocked: AtomicBool::new(false),
+            commit_cache: Mutex::new(CommitCaches::new()),
         })
     }
 
@@ -853,13 +895,36 @@ impl GitRepositoryService {
         Ok(())
     }
 
-    /// Returns the resolved commit, its parents, and a stash's untracked-files parent.
+    fn caches(&self) -> std::sync::MutexGuard<'_, CommitCaches> {
+        self.commit_cache
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+
+    /// Returns the resolved commit, its parents, and a stash's untracked-files parent. Results
+    /// for a full SHA are cached, except for commits that may be stashes.
     async fn commit_details(
         &self,
         sha: &str,
         cancel: Option<&CancelToken>,
-    ) -> Result<(String, Vec<String>, Option<String>)> {
+    ) -> Result<CommitDetails> {
         Self::validate_commit_ref(sha)?;
+        let key = full_sha(sha);
+        if let Some(hit) = key.as_ref().and_then(|k| self.caches().details.get(k)) {
+            return Ok(hit);
+        }
+        let details = self.load_commit_details(sha, cancel).await?;
+        if let Some(key) = key.filter(|_| cacheable_details(&details)) {
+            self.caches().details.insert(key, details.clone(), 0);
+        }
+        Ok(details)
+    }
+
+    async fn load_commit_details(
+        &self,
+        sha: &str,
+        cancel: Option<&CancelToken>,
+    ) -> Result<CommitDetails> {
         let shown = self
             .git_limited(
                 &[
@@ -910,6 +975,70 @@ impl GitRepositoryService {
         Ok((resolved, parents, untracked_parent))
     }
 
+    /// Lists the changed files and whether the result may be cached.
+    async fn load_commit_files(
+        &self,
+        sha: &str,
+        base: Option<&str>,
+    ) -> Result<(Vec<ChangedFile>, bool)> {
+        if let Some(base) = base {
+            Self::validate_commit_ref(base)?;
+            Self::validate_commit_ref(sha)?;
+            let out = self
+                .git(&[
+                    "diff",
+                    "--name-status",
+                    "-z",
+                    "-M",
+                    "--end-of-options",
+                    base,
+                    sha,
+                ])
+                .await?;
+            return Ok((parse_name_status(&out.stdout), true));
+        }
+        let details = self.commit_details(sha, None).await?;
+        let cacheable = cacheable_details(&details);
+        let (resolved, parents, untracked_parent) = details;
+        let mut args = vec![
+            "diff-tree",
+            "--root",
+            "--no-commit-id",
+            "--name-status",
+            "-z",
+            "-r",
+            "-M",
+        ];
+        match parents.first() {
+            Some(parent) => args.extend([parent.as_str(), resolved.as_str()]),
+            None => args.push(&resolved),
+        }
+        let mut files = parse_name_status(&self.git(&args).await?.stdout);
+        if let Some(untracked) = untracked_parent {
+            let mut args = vec![
+                "diff-tree",
+                "--root",
+                "--no-commit-id",
+                "--name-status",
+                "-z",
+                "-r",
+                "-M",
+            ];
+            args.push(&untracked);
+            files.extend(parse_name_status(&self.git(&args).await?.stdout));
+        }
+        let mut seen: Vec<String> = Vec::new();
+        files.retain(|file| {
+            if seen.contains(&file.path) {
+                false
+            } else {
+                seen.push(file.path.clone());
+                true
+            }
+        });
+        Ok((files, cacheable))
+    }
+
     async fn comparison_diff(&self, r: &DiffRequest) -> Result<String> {
         let (Some(base), Some(target)) = (present(r.base.as_deref()), present(r.target.as_deref()))
         else {
@@ -928,8 +1057,32 @@ impl GitRepositoryService {
     }
 
     async fn commit_diff(&self, r: &DiffRequest, commit: &str) -> Result<String> {
-        let (resolved, parents, untracked_parent) =
-            self.commit_details(commit, r.cancel.as_ref()).await?;
+        let key = full_sha(commit).map(|sha| {
+            (
+                sha,
+                present(r.path.as_deref()).map(String::from),
+                present(r.original_path.as_deref()).map(String::from),
+                r.context,
+            )
+        });
+        if let Some(hit) = key.as_ref().and_then(|k| self.caches().diffs.get(k)) {
+            // A cached diff only answers a request whose byte limit it fits.
+            if r.max_bytes.is_none_or(|max| hit.len() <= max) {
+                return Ok(hit);
+            }
+        }
+        let details = self.commit_details(commit, r.cancel.as_ref()).await?;
+        let cacheable = cacheable_details(&details);
+        let text = self.load_commit_diff(r, details).await?;
+        if let Some(key) = key.filter(|_| cacheable) {
+            let weight = text.len();
+            self.caches().diffs.insert(key, text.clone(), weight);
+        }
+        Ok(text)
+    }
+
+    async fn load_commit_diff(&self, r: &DiffRequest, details: CommitDetails) -> Result<String> {
+        let (resolved, parents, untracked_parent) = details;
         let path = present(r.path.as_deref());
         let mut args: Vec<String> = Vec::new();
         if let Some(parent) = parents.first() {
@@ -1546,59 +1699,19 @@ impl GitRepository for GitRepositoryService {
     }
 
     async fn commit_files(&self, sha: &str, base: Option<&str>) -> Result<Vec<ChangedFile>> {
-        if let Some(base) = present(base) {
-            Self::validate_commit_ref(base)?;
-            Self::validate_commit_ref(sha)?;
-            let out = self
-                .git(&[
-                    "diff",
-                    "--name-status",
-                    "-z",
-                    "-M",
-                    "--end-of-options",
-                    base,
-                    sha,
-                ])
-                .await?;
-            return Ok(parse_name_status(&out.stdout));
+        let base = present(base);
+        let key = match (full_sha(sha), base) {
+            (Some(sha), None) => Some((sha, None)),
+            (Some(sha), Some(base)) => full_sha(base).map(|base| (sha, Some(base))),
+            _ => None,
+        };
+        if let Some(hit) = key.as_ref().and_then(|k| self.caches().files.get(k)) {
+            return Ok(hit);
         }
-        let (resolved, parents, untracked_parent) = self.commit_details(sha, None).await?;
-        let mut args = vec![
-            "diff-tree",
-            "--root",
-            "--no-commit-id",
-            "--name-status",
-            "-z",
-            "-r",
-            "-M",
-        ];
-        match parents.first() {
-            Some(parent) => args.extend([parent.as_str(), resolved.as_str()]),
-            None => args.push(&resolved),
+        let (files, cacheable) = self.load_commit_files(sha, base).await?;
+        if let Some(key) = key.filter(|_| cacheable) {
+            self.caches().files.insert(key, files.clone(), 0);
         }
-        let mut files = parse_name_status(&self.git(&args).await?.stdout);
-        if let Some(untracked) = untracked_parent {
-            let mut args = vec![
-                "diff-tree",
-                "--root",
-                "--no-commit-id",
-                "--name-status",
-                "-z",
-                "-r",
-                "-M",
-            ];
-            args.push(&untracked);
-            files.extend(parse_name_status(&self.git(&args).await?.stdout));
-        }
-        let mut seen: Vec<String> = Vec::new();
-        files.retain(|file| {
-            if seen.contains(&file.path) {
-                false
-            } else {
-                seen.push(file.path.clone());
-                true
-            }
-        });
         Ok(files)
     }
 

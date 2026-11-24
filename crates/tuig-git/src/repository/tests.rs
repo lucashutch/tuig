@@ -1347,3 +1347,129 @@ async fn early_history_reports_a_detached_head() {
     assert_eq!(early.head_sha, snapshot.head_sha);
     assert!(early.head_sha.is_some());
 }
+
+/// Hides the repository so any Git process fails. A cache hit still answers.
+fn hide_git_dir(dir: &Path) {
+    std::fs::rename(dir.join(".git"), dir.join(".git-hidden")).unwrap();
+}
+
+fn commit_request(sha: &str, path: &str) -> DiffRequest {
+    DiffRequest {
+        path: Some(path.into()),
+        commit: Some(sha.into()),
+        context: Some(6),
+        ..DiffRequest::default()
+    }
+}
+
+#[tokio::test]
+async fn full_sha_commit_data_is_served_from_cache_without_git() {
+    let dir = repo_dir().await;
+    write(dir.path(), "a.txt", "one\n");
+    git(dir.path(), &["add", "."]).await;
+    git(dir.path(), &["commit", "-m", "first"]).await;
+    write(dir.path(), "a.txt", "two\n");
+    git(dir.path(), &["commit", "-am", "second"]).await;
+    let sha = git(dir.path(), &["rev-parse", "HEAD"]).await;
+    let repo = GitRepositoryService::open(dir.path()).await.unwrap();
+    let request = commit_request(&sha, "a.txt");
+
+    let details = repo.commit_details(&sha, None).await.unwrap();
+    let files = repo.commit_files(&sha, None).await.unwrap();
+    let diff = repo.diff(&request).await.unwrap();
+    assert!(diff.contains("+two"));
+
+    hide_git_dir(dir.path());
+    assert_eq!(repo.commit_details(&sha, None).await.unwrap(), details);
+    assert_eq!(repo.commit_files(&sha, None).await.unwrap(), files);
+    assert_eq!(repo.diff(&request).await.unwrap(), diff);
+    // A different context size is a different diff.
+    let mut other = request.clone();
+    other.context = Some(1);
+    assert!(repo.diff(&other).await.is_err());
+}
+
+#[tokio::test]
+async fn ref_names_and_working_tree_diffs_are_never_cached() {
+    let dir = repo_dir().await;
+    write(dir.path(), "a.txt", "one\n");
+    git(dir.path(), &["add", "."]).await;
+    git(dir.path(), &["commit", "-m", "first"]).await;
+    let repo = GitRepositoryService::open(dir.path()).await.unwrap();
+
+    repo.commit_files("HEAD", None).await.unwrap();
+    repo.commit_details("main", None).await.unwrap();
+    write(dir.path(), "a.txt", "changed\n");
+    let unstaged = DiffRequest {
+        path: Some("a.txt".into()),
+        ..DiffRequest::default()
+    };
+    assert!(repo.diff(&unstaged).await.unwrap().contains("+changed"));
+    git(dir.path(), &["add", "a.txt"]).await;
+    let staged = DiffRequest {
+        staged: true,
+        ..unstaged.clone()
+    };
+    assert!(repo.diff(&staged).await.unwrap().contains("+changed"));
+    write(dir.path(), "a.txt", "changed again\n");
+    assert!(
+        repo.diff(&unstaged)
+            .await
+            .unwrap()
+            .contains("+changed again")
+    );
+
+    let caches = repo.caches();
+    assert!(caches.details.is_empty());
+    assert!(caches.files.is_empty());
+    assert!(caches.diffs.is_empty());
+}
+
+#[tokio::test]
+async fn amending_a_commit_misses_the_cache_for_the_new_sha() {
+    let dir = repo_dir().await;
+    write(dir.path(), "a.txt", "one\n");
+    git(dir.path(), &["add", "."]).await;
+    git(dir.path(), &["commit", "-m", "first"]).await;
+    let old = git(dir.path(), &["rev-parse", "HEAD"]).await;
+    let repo = GitRepositoryService::open(dir.path()).await.unwrap();
+    let request = commit_request(&old, "a.txt");
+    assert!(repo.diff(&request).await.unwrap().contains("+one"));
+
+    write(dir.path(), "a.txt", "amended\n");
+    git(dir.path(), &["commit", "-a", "--amend", "-m", "first"]).await;
+    let new = git(dir.path(), &["rev-parse", "HEAD"]).await;
+    assert_ne!(old, new);
+    let diff = repo.diff(&commit_request(&new, "a.txt")).await.unwrap();
+    assert!(diff.contains("+amended") && !diff.contains("+one\n"));
+    assert!(repo.diff(&request).await.unwrap().contains("+one"));
+}
+
+#[tokio::test]
+async fn stash_commits_are_not_cached() {
+    let dir = repo_dir().await;
+    write(dir.path(), "a.txt", "one\n");
+    git(dir.path(), &["add", "."]).await;
+    git(dir.path(), &["commit", "-m", "first"]).await;
+    write(dir.path(), "a.txt", "tracked change\n");
+    write(dir.path(), "new.txt", "untracked\n");
+    git(dir.path(), &["stash", "push", "-u"]).await;
+    let stash = git(dir.path(), &["rev-parse", "refs/stash"]).await;
+    let repo = GitRepositoryService::open(dir.path()).await.unwrap();
+
+    let files = repo.commit_files(&stash, None).await.unwrap();
+    assert!(files.iter().any(|f| f.path == "new.txt"));
+    let diff = repo.diff(&commit_request(&stash, "new.txt")).await.unwrap();
+    assert!(diff.contains("+untracked"));
+    {
+        let caches = repo.caches();
+        assert!(caches.details.is_empty());
+        assert!(caches.files.is_empty());
+        assert!(caches.diffs.is_empty());
+    }
+
+    // Once the stash is dropped, Git no longer treats the commit as a stash.
+    git(dir.path(), &["stash", "drop"]).await;
+    let files = repo.commit_files(&stash, None).await.unwrap();
+    assert!(files.iter().all(|f| f.path != "new.txt"));
+}
