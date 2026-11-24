@@ -79,6 +79,11 @@ pub trait GitRepository: Send + Sync {
     async fn watch_paths(&self) -> Result<Option<RepositoryWatchPaths>> {
         Ok(None)
     }
+    /// The common Git directory when the repository is large and has no commit-graph file, so the UI can suggest
+    /// writing one. Looks at the file system only. `None` otherwise.
+    async fn commit_graph_hint(&self) -> Result<Option<String>> {
+        Ok(None)
+    }
     async fn snapshot(&self, limit: usize) -> Result<RepositorySnapshot>;
     /// Like `snapshot`, and calls `early` with the history page, refs, and
     /// HEAD as soon as they are read, before working-tree status finishes.
@@ -1433,6 +1438,18 @@ impl GitRepository for GitRepositoryService {
             git_dir: real(git_dir)?,
             common_dir: real(common_dir)?,
         }))
+    }
+
+    async fn commit_graph_hint(&self) -> Result<Option<String>> {
+        let output = self
+            .git(&["rev-parse", "--path-format=absolute", "--git-common-dir"])
+            .await?;
+        let common_dir = output.stdout.trim().to_owned();
+        Ok(crate::commit_graph::lacks_commit_graph_when_large(
+            Path::new(&common_dir),
+            crate::commit_graph::LARGE_REPOSITORY_PACK_BYTES,
+        )
+        .then_some(common_dir))
     }
 
     async fn snapshot(&self, limit: usize) -> Result<RepositorySnapshot> {

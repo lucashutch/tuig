@@ -113,6 +113,8 @@ pub struct LayoutPreferences {
     pub composer_height: Option<f64>,
     pub sidebar_heights: Option<SidebarSections<f64>>,
     pub sidebar_collapsed: Option<SidebarSections<bool>>,
+    /// Git directories of repositories whose "write a commit-graph" notice was shown. It is not shown again.
+    pub commit_graph_hint_dismissed: Option<Vec<String>>,
 }
 
 pub fn layout_preferences_path() -> PathBuf {
@@ -182,6 +184,14 @@ pub fn parse_layout_preferences(value: &Value) -> LayoutPreferences {
         composer_height: non_negative(get("composerHeight")),
         sidebar_heights,
         sidebar_collapsed,
+        commit_graph_hint_dismissed: get("commitGraphHintDismissed")
+            .and_then(Value::as_array)
+            .map(|items| {
+                items
+                    .iter()
+                    .filter_map(|item| item.as_str().map(str::to_owned))
+                    .collect()
+            }),
     }
 }
 
@@ -274,6 +284,12 @@ impl LayoutPreferences {
             self.sidebar_collapsed
                 .as_ref()
                 .map(|s| sections_to_json(s, |v| Value::Bool(*v))),
+        );
+        put(
+            "commitGraphHintDismissed",
+            self.commit_graph_hint_dismissed
+                .as_ref()
+                .map(|items| Value::Array(items.iter().cloned().map(Value::String).collect())),
         );
         map
     }

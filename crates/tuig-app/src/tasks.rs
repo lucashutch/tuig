@@ -71,6 +71,8 @@ pub struct Tasks {
     pub snapshot: Slot,
     pub page: Slot,
     pub watch_paths: Slot,
+    /// The file system check behind the commit-graph notice.
+    pub commit_graph: Slot,
     pub pull_requests: Slot,
     pub commit_files: Slot,
     pub file_history: Slot,
@@ -89,6 +91,7 @@ impl Tasks {
             &mut self.snapshot,
             &mut self.page,
             &mut self.watch_paths,
+            &mut self.commit_graph,
             &mut self.pull_requests,
             &mut self.commit_files,
             &mut self.file_history,

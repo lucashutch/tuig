@@ -3,6 +3,7 @@
 //! This crate ports `src/git/` from the TypeScript implementation. Behavior
 //! matches the TypeScript code unless a module documents a difference.
 
+pub mod commit_graph;
 pub mod commit_walk;
 pub mod debug_log;
 pub mod github_api;

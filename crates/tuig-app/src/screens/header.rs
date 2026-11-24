@@ -918,6 +918,7 @@ impl Shell {
             None => self.start_snapshot(app),
         }
         self.start_watch_paths(app);
+        self.start_commit_graph_hint(app);
         self.start_pull_requests(app);
     }
 
