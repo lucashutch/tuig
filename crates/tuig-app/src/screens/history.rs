@@ -196,6 +196,31 @@ impl Shell {
         );
     }
 
+    /// Takes the shown snapshot, with every loaded commit, to keep in a tab the user leaves. Leaves the history
+    /// empty, so call it only right before a switch.
+    pub(crate) fn take_snapshot_for_cache(&mut self) -> Option<RepositorySnapshot> {
+        let mut snapshot = self.snapshot.take()?;
+        snapshot.commits = std::mem::take(&mut self.history.commits);
+        snapshot.commits_complete = self.history.complete;
+        Some(snapshot)
+    }
+
+    /// Shows the snapshot a tab kept, as if it had just loaded, and starts a refresh that replaces it the way an
+    /// automatic refresh does. The refresh reuses the commits when the history has not changed.
+    pub(crate) fn show_cached_snapshot(&mut self, app: &App, cached: RepositorySnapshot) {
+        let previous = cached.clone();
+        self.apply_snapshot(cached);
+        self.files_snapshot_applied();
+        let repo = self.repo.clone();
+        let limit = self.history.limit;
+        self.spawn(
+            app,
+            |tasks| &mut tasks.snapshot,
+            async move { repo.refresh_snapshot(&previous, limit).await },
+            Msg::Snapshot,
+        );
+    }
+
     pub(crate) fn snapshot_loaded(&mut self, app: &App, result: GitResult<RepositorySnapshot>) {
         match result {
             Ok(snapshot) => self.apply_snapshot(snapshot),
