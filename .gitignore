@@ -1,9 +1,6 @@
-node_modules/
+target/
+.opentui-native/
 dist/
-coverage/
 *.log
 .DS_Store
 .claude/
-rust/target
-rust/.opentui-native
-rust/dist

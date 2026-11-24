@@ -4,26 +4,25 @@ Tuig is an early project. Small, complete changes are easier to review than broa
 
 ## Development setup
 
-You need Linux, Git, and Bun.
+You need Linux or macOS, Git, Rust, and zig 0.17.1. [docs/building.md](docs/building.md) lists every prerequisite.
 
 ```sh
 git clone https://github.com/lucashutch/tuig.git
 cd tuig
-bun install
-bun run check
-bun run start -- /path/to/a/test/repository
+scripts/build-opentui-native.sh
+cargo run -p tuig-app -- /path/to/a/test/repository
 ```
 
 Use a disposable repository when testing destructive Git operations.
 
 ## Project structure
 
-- `src/git/` contains the Git process boundary, parsers, domain types, and repository operations.
-- `src/ui/` contains OpenTUI rendering, graph routing, file-tree models, themes, icons, and interaction state.
-- `src/index.ts` resolves the repository path and starts the application.
-- `tests/git/` uses temporary repositories for parser and operation coverage.
-- `tests/ui/` covers pure graph, tree, icon, and state models.
-- `assets/icons/` contains the Material icon association data.
+- `crates/tuig-git/` contains the Git process boundary, parsers, domain types, and repository operations.
+- `crates/tuig-ui-model/` contains UI state, layout, themes, and preferences, with no rendering.
+- `crates/tuig-widgets/` contains the OpenTUI widgets that paint `tuig-ui-model` state.
+- `crates/tuig-app/` contains the app shell, message loop, and screens. It builds the `tuig` binary.
+- `crates/tuig-cli/` contains command line handling and `tuig update`.
+- `assets/` contains the Material icon data and the bundled themes.
 
 The short [`repo-map.md`](repo-map.md) is the quickest orientation reference.
 
@@ -31,7 +30,7 @@ The short [`repo-map.md`](repo-map.md) is the quickest orientation reference.
 
 ### Keep Git isolated
 
-UI code should depend on `GitRepository`, not spawn processes. Add commands to `src/git/repository.ts` and expose typed results through `src/git/types.ts`.
+UI code should depend on typed methods in `tuig-git`, not spawn processes. Add Git commands and their result types to `crates/tuig-git/`.
 
 - Pass arguments as arrays. Never build shell command strings from repository data.
 - Prefer porcelain, `-z`, and explicit `--format` output.
@@ -54,14 +53,15 @@ Confirm actions that can discard work. A branch switch must retain the submodule
 
 ## Code style and checks
 
-Format the repository before submitting:
+Run these before submitting:
 
 ```sh
-bun run format
-bun run check
+cargo fmt
+cargo clippy --all-targets --locked -- -D warnings
+cargo test --locked
 ```
 
-`bun run check` verifies Prettier formatting, ESLint rules, TypeScript types, and the Bun test suite. The same checks run in GitHub Actions for every push and pull request.
+The same checks run in GitHub Actions for every push and pull request.
 
 Add tests for behavior, not implementation details. Parser fixtures should include spaces, unusual paths, empty repositories, and relevant failure output.
 
@@ -80,14 +80,15 @@ Material icons require a patched Nerd Font. Make sure missing glyphs are not mis
 
 ## Releases
 
-Releases are created from `main` using Bun's Git-tag-aware version command:
+1. Set `version` in `[workspace.package]` in `Cargo.toml`, run `cargo update --workspace`, and merge the change to `main`.
+2. Tag the merge commit and push the tag:
 
-```sh
-bun pm version patch
-git push origin main --follow-tags
-```
+   ```sh
+   git tag vX.Y.Z
+   git push origin vX.Y.Z
+   ```
 
-The tag must match the `package.json` version and use the `vX.Y.Z` format. The release workflow validates the tag, runs the full check suite, and creates the GitHub release.
+The release workflow checks that the tag matches the workspace version, creates a draft release, and builds a package for each platform. It publishes the release when every package is uploaded. If a platform fails, the release stays a draft.
 
 ## Pull requests
 
@@ -99,7 +100,7 @@ Include:
 - Screenshots or a short recording when layout or graph rendering changes.
 - Known limitations or follow-up work.
 
-Do not include generated output, local logs, or `node_modules`.
+Do not include generated output, local logs, `target/`, or `.opentui-native/`.
 
 ## Licensing
 

@@ -4,7 +4,7 @@
 
 Tuig, pronounced "twig", combines a visual branch graph with a terminal Git workflow. Browse history, inspect diffs, stage changes, create commits, and manage branches without leaving your terminal.
 
-Tuig is built with TypeScript, Bun, OpenTUI, and the Git executable already installed on your system. It does not replace Git or hide it behind a custom repository implementation.
+Tuig is written in Rust on OpenTUI and runs the Git executable already installed on your system. It does not replace Git or hide it behind a custom repository implementation.
 
 > Tuig is under active development. The core workflow is usable, but releases may still change interactions and configuration.
 
@@ -40,8 +40,7 @@ its pending Git read and releases the displayed document.
 
 ## Requirements
 
-- Linux
-- [Bun](https://bun.sh/)
+- Linux (glibc 2.17 or newer) or macOS 13 or newer, on x86_64 or aarch64
 - Git 2.43 or newer recommended
 - A patched [Nerd Font](https://www.nerdfonts.com/) for Material file icons
 - A terminal with mouse reporting and true-color support
@@ -49,13 +48,20 @@ its pending Git read and releases the displayed document.
 
 ## Install
 
-Install the latest code from the default branch with Bun:
+Download the archive for your platform from the [latest release](https://github.com/lucashutch/tuig/releases/latest). The platforms are `x86_64-linux`, `aarch64-linux`, `x86_64-macos` and `aarch64-macos`. Each archive has a `.sha256` file beside it.
 
 ```sh
-bun install -g git+https://github.com/lucashutch/tuig.git
+VERSION=0.2.0 PLATFORM=x86_64-linux
+curl -LO https://github.com/lucashutch/tuig/releases/download/v$VERSION/tuig-$VERSION-$PLATFORM.tar.gz
+tar -xzf tuig-$VERSION-$PLATFORM.tar.gz
+install tuig-$VERSION-$PLATFORM/tuig ~/.local/bin/
 ```
 
-Tuig is not yet published to a package registry. The command above installs it directly from GitHub. Run `tuig update` later to switch to the latest tagged release.
+The binary has no run-time dependencies other than the system C library and Git. Run `tuig update` later to replace it with the latest release.
+
+If you installed an earlier version with `bun install -g`, remove it with `bun remove -g tuig` and install the binary as shown above. The `tuig update` command of those versions cannot install this release.
+
+To build from source, see [docs/building.md](docs/building.md).
 
 ## Run
 
@@ -74,10 +80,10 @@ tuig --help                  Show usage
 tuig --version               Show the installed version
 tuig -C ~/code/my-project    Open a repository without changing directories
 tuig --clean [path]          Open only one repository and replace saved tabs
-tuig update                  Install the latest Tuig release from Git
+tuig update                  Install the latest Tuig release
 ```
 
-`tuig update` finds the newest GitHub release and reinstalls Tuig at that tag. See [CONTRIBUTING.md](CONTRIBUTING.md) for a development checkout and release instructions.
+`tuig update` downloads the newest GitHub release for your platform, checks its SHA-256 sum, and replaces the running binary. See [CONTRIBUTING.md](CONTRIBUTING.md) for a development checkout and release instructions.
 
 ## Using Tuig
 
@@ -238,14 +244,14 @@ Tuig is useful, but not finished. Current limitations include:
 - The `h` key applies only the first hunk of the selected file. To stage other parts, select lines in the diff.
 - Worktrees can be opened, locked, unlocked, and removed from the UI, but creating one still requires Git.
 - Commit revert and conflict-specific views are not available yet.
-- Linux is the only supported platform for the first release.
+- Windows is not supported.
 
 See the [roadmap](docs/roadmap.md) for planned work. Bugs and focused contributions are welcome. Start with [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Credits
 
 - [OpenTUI](https://github.com/anomalyco/opentui) provides the terminal renderer and diff component.
-- The diff workflow and theme format follow [OpenCode](https://github.com/anomalyco/opencode). The bundled theme and palettes include their MIT attribution in `src/ui/themes/`.
+- The diff workflow and theme format follow [OpenCode](https://github.com/anomalyco/opencode). The bundled theme and palettes include their MIT attribution in `assets/themes/`.
 - The virtual file-tree and icon matching approach follows [Druk](https://github.com/letstri/druk).
 - Graph-routing design is independently inspired by [Serie](https://github.com/lusingander/serie) (MIT); no Serie code is copied.
 - Material icon associations derive from [Material Icon Theme](https://github.com/material-extensions/vscode-material-icon-theme). The bundled attribution is in [`licenses/`](licenses/).

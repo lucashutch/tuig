@@ -1,7 +1,0 @@
-# History pane: drag the scrollbar thumb down and back up.
-fixture history
-wait text "add md sample"
-drag 113 5 113 30
-snapshot dragged-down
-drag 113 20 113 6
-snapshot dragged-up
