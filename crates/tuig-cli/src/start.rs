@@ -98,17 +98,15 @@ where
         None
     };
     let requested_root = requested.as_ref().map(|r| r.root().to_string());
-    let mut repositories = Vec::new();
     let mut seen: Vec<&str> = Vec::new();
     for path in &saved.repositories {
-        if seen.contains(&path.as_str()) || Some(path) == requested_root.as_ref() {
-            continue;
-        }
-        seen.push(path);
-        if let Ok(repository) = open(path.clone()).await {
-            repositories.push(repository);
+        if !seen.contains(&path.as_str()) && Some(path) != requested_root.as_ref() {
+            seen.push(path);
         }
     }
+    // Each open runs Git, so the saved repositories open at the same time.
+    let opened = join_all(seen.iter().map(|path| open(path.to_string()))).await;
+    let mut repositories: Vec<R> = opened.into_iter().filter_map(Result::ok).collect();
     repositories.extend(requested);
     if repositories.is_empty() {
         repositories.push(open(to_string(&request.path)).await?);
@@ -123,6 +121,34 @@ where
         },
         recent_repositories: saved.recent_repositories.unwrap_or_default(),
     })
+}
+
+/// Runs `futures` concurrently on the current task and returns their outputs in input order.
+async fn join_all<Fut: Future>(futures: impl IntoIterator<Item = Fut>) -> Vec<Fut::Output> {
+    let mut pending: Vec<Option<std::pin::Pin<Box<Fut>>>> =
+        futures.into_iter().map(|f| Some(Box::pin(f))).collect();
+    let mut outputs: Vec<Option<Fut::Output>> = pending.iter().map(|_| None).collect();
+    std::future::poll_fn(|cx| {
+        let mut done = true;
+        for (slot, output) in pending.iter_mut().zip(outputs.iter_mut()) {
+            if let Some(future) = slot {
+                match future.as_mut().poll(cx) {
+                    std::task::Poll::Ready(value) => {
+                        *output = Some(value);
+                        *slot = None;
+                    }
+                    std::task::Poll::Pending => done = false,
+                }
+            }
+        }
+        if done {
+            std::task::Poll::Ready(())
+        } else {
+            std::task::Poll::Pending
+        }
+    })
+    .await;
+    outputs.into_iter().flatten().collect()
 }
 
 /// [`resolve_start_repositories`] with real Git repositories and the session file on disk.
@@ -198,6 +224,28 @@ mod tests {
         assert_eq!(roots(&result), ["/a", "/b"]);
         assert_eq!(result.active_repository.as_deref(), Some("/b"));
         assert_eq!(result.recent_repositories, ["/recent"]);
+    }
+
+    #[tokio::test]
+    async fn saved_tabs_open_concurrently_and_keep_their_order() {
+        // "/a" finishes only after "/b" started and finished, which a serial loop would never reach.
+        let b_done = tokio::sync::Notify::new();
+        let session = saved(&["/a", "/gone", "/b"], None);
+        let result =
+            resolve_start_repositories(&request("/cwd", false, false), session, |path: String| {
+                let b_done = &b_done;
+                async move {
+                    match path.as_str() {
+                        "/a" => b_done.notified().await,
+                        "/b" => b_done.notify_one(),
+                        _ => return Err(GitError::Io(std::io::Error::other("gone"))),
+                    }
+                    Ok(Fake(path))
+                }
+            })
+            .await
+            .unwrap();
+        assert_eq!(roots(&result), ["/a", "/b"]);
     }
 
     #[tokio::test]
