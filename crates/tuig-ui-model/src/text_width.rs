@@ -6,7 +6,7 @@
 //! `unicode-width` differs from Bun's for Indic marks, Hangul jungseong and unassigned code points.
 //! Emoji sequences use `unicode-width` and grapheme clusters. Thai U+0E33 next to U+200D or U+FE0F
 //! is the only known difference.
-//! The truncation helpers walk code points, not graphemes, like their TypeScript originals.
+//! The truncation helpers cut at code points, not graphemes, like their TypeScript originals.
 
 use unicode_segmentation::UnicodeSegmentation;
 use unicode_width::UnicodeWidthStr;
@@ -17,7 +17,16 @@ pub fn string_width(text: &str) -> usize {
         !text.contains('\x1b'),
         "string_width does not strip ANSI escapes"
     );
+    if text.is_ascii() {
+        return text.bytes().map(ascii_width).sum();
+    }
     text.graphemes(true).map(grapheme_width).sum()
+}
+
+/// Width of one ASCII byte. Controls are zero columns, as in `ZERO_WIDTH`. The only multi-char ASCII
+/// grapheme is CRLF, which is zero columns too, so the sum over bytes equals the grapheme sum.
+fn ascii_width(byte: u8) -> usize {
+    usize::from(!matches!(byte, 0x00..=0x1F | 0x7F))
 }
 
 fn grapheme_width(grapheme: &str) -> usize {
@@ -128,6 +137,12 @@ pub fn take_columns(text: &str, width: usize, from_end: bool) -> String {
 }
 
 /// Pads or truncates `value` to exactly `width` columns, with an optional ellipsis.
+///
+/// Truncation keeps the longest run of code points whose every prefix measures at most the target
+/// width. It can cut inside a grapheme cluster, like the TypeScript original, so `❤` + U+FE0F
+/// (two columns together, one column for `❤` alone) fits a one-column target as `❤`. The walk
+/// measures each grapheme once. Only the code points inside a multi-code-point grapheme are
+/// measured as prefixes, and a prefix of a grapheme is always a single grapheme.
 pub fn fit_columns(value: &str, width: i64, ellipsis: bool) -> String {
     if width <= 0 {
         return String::new();
@@ -135,22 +150,60 @@ pub fn fit_columns(value: &str, width: i64, ellipsis: bool) -> String {
     let width = width as usize;
     let value_width = string_width(value);
     if value_width <= width {
-        return format!("{value}{}", " ".repeat(width - value_width));
+        let mut result = String::with_capacity(value.len() + width - value_width);
+        result.push_str(value);
+        push_spaces(&mut result, width - value_width);
+        return result;
     }
     let suffix = if ellipsis && width > 1 { "…" } else { "" };
-    let target = width - string_width(suffix);
-    let mut result = String::new();
-    for c in value.chars() {
-        let mut next = result.clone();
-        next.push(c);
-        if string_width(&next) > target {
-            break;
-        }
-        result = next;
-    }
+    let suffix_width = string_width(suffix);
+    let kept = prefix_within(value, width - suffix_width);
+    let mut result = String::with_capacity(kept.len() + suffix.len() + width);
+    result.push_str(kept);
     result.push_str(suffix);
-    let padding = width.saturating_sub(string_width(&result));
-    result + &" ".repeat(padding)
+    // The ellipsis never joins the last grapheme of `kept`, so the widths add.
+    let padding = width.saturating_sub(string_width(kept) + suffix_width);
+    push_spaces(&mut result, padding);
+    result
+}
+
+fn push_spaces(out: &mut String, count: usize) {
+    out.extend(std::iter::repeat_n(' ', count));
+}
+
+/// The longest prefix of `value` that stops before the first code point whose prefix width
+/// exceeds `target`.
+fn prefix_within(value: &str, target: usize) -> &str {
+    if value.is_ascii() {
+        let mut used = 0;
+        for (index, byte) in value.bytes().enumerate() {
+            used += ascii_width(byte);
+            if used > target {
+                return &value[..index];
+            }
+        }
+        return value;
+    }
+    let mut used = 0;
+    for (start, grapheme) in value.grapheme_indices(true) {
+        let mut chars = grapheme.chars();
+        if let (Some(c), None) = (chars.next(), chars.next()) {
+            let columns = char_width(c);
+            if used + columns > target {
+                return &value[..start];
+            }
+            used += columns;
+            continue;
+        }
+        for (offset, c) in grapheme.char_indices() {
+            let end = offset + c.len_utf8();
+            if used + grapheme_width(&grapheme[..end]) > target {
+                return &value[..start + offset];
+            }
+        }
+        used += grapheme_width(grapheme);
+    }
+    value
 }
 
 /// Code point ranges that `Bun.stringWidth` counts as zero columns. Sorted, inclusive.
@@ -649,3 +702,124 @@ const WIDE: &[(u32, u32)] = &[
     (0x20000, 0x2FFFD),
     (0x30000, 0x3FFFD),
 ];
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// `string_width` before the ASCII fast path.
+    fn reference_string_width(text: &str) -> usize {
+        text.graphemes(true).map(grapheme_width).sum()
+    }
+
+    /// `fit_columns` before the single-pass rewrite: re-measures a cloned prefix per code point.
+    fn reference_fit_columns(value: &str, width: i64, ellipsis: bool) -> String {
+        if width <= 0 {
+            return String::new();
+        }
+        let width = width as usize;
+        let value_width = reference_string_width(value);
+        if value_width <= width {
+            return format!("{value}{}", " ".repeat(width - value_width));
+        }
+        let suffix = if ellipsis && width > 1 { "…" } else { "" };
+        let target = width - reference_string_width(suffix);
+        let mut result = String::new();
+        for c in value.chars() {
+            let mut next = result.clone();
+            next.push(c);
+            if reference_string_width(&next) > target {
+                break;
+            }
+            result = next;
+        }
+        result.push_str(suffix);
+        let padding = width.saturating_sub(reference_string_width(&result));
+        result + &" ".repeat(padding)
+    }
+
+    const SAMPLES: &[&str] = &[
+        "",
+        "a",
+        "fix: handle empty repositories when opening the history view and keep the cursor",
+        "tab\tand\u{7}bell\u{7f}del",
+        "line\r\nbreak\nnext\r",
+        "漢字かな交じり文のコミットメッセージ",
+        "ｱｲｳ half width kana",
+        "Ａｂｃ full width",
+        "😀😀😀 emoji run",
+        "a👨‍👩‍👧b👍🏽c🇯🇵d🇦🇧🇨e",
+        "❤\u{FE0F}❤ heart ❤\u{FE0F}",
+        "1\u{FE0F}\u{20E3}2\u{20E3}x",
+        "a\u{FE0F}b\u{200D}c",
+        "e\u{301}e\u{301}\u{302}\u{303} combining",
+        "\u{301}\u{200B}\u{AD}\u{FEFF}leading zero width",
+        "\u{600}\u{601}prepend marks \u{0600}x",
+        "\u{1100}\u{1161}\u{11A8}\u{1100}\u{1100}\u{200D}\u{1161}",
+        "한국어 hangul 가나다",
+        "क्षि हिन्दी คำไทย กำ\u{E33}\u{200D}",
+        "x\u{200D}\u{1F469}\u{200D}\u{1F469}\u{200D}y",
+        "…ellipsis … inside",
+        "𠀀𠀁 supplementary ideographs",
+    ];
+
+    #[test]
+    fn ascii_fast_path_matches_grapheme_walk() {
+        // `string_width` rejects ESC in debug builds, so the sweep skips it.
+        let every_ascii: String = (0u8..=0x7F)
+            .filter(|&b| b != 0x1B)
+            .map(char::from)
+            .collect();
+        for text in SAMPLES.iter().copied().chain([every_ascii.as_str()]) {
+            assert_eq!(string_width(text), reference_string_width(text), "{text:?}");
+        }
+    }
+
+    #[test]
+    fn fit_columns_matches_the_per_prefix_implementation() {
+        for text in SAMPLES {
+            // Every suffix too, so each sample is cut at many grapheme boundaries and inside clusters.
+            for (start, _) in text.char_indices() {
+                let text = &text[start..];
+                for width in -1..=40 {
+                    for ellipsis in [false, true] {
+                        assert_eq!(
+                            fit_columns(text, width, ellipsis),
+                            reference_fit_columns(text, width, ellipsis),
+                            "{text:?} width {width} ellipsis {ellipsis}"
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn fit_columns_cuts_inside_a_cluster_like_the_original() {
+        // `❤` is one column and `❤` + U+FE0F is two, so a one-column target keeps the bare heart.
+        assert_eq!(fit_columns("❤\u{FE0F}ab", 1, false), "❤");
+        assert_eq!(fit_columns("❤\u{FE0F}ab", 2, false), "❤\u{FE0F}");
+    }
+
+    /// Run with `cargo test --release -p tuig-ui-model --lib -- --ignored --nocapture fit_columns_timing`.
+    #[test]
+    #[ignore]
+    fn fit_columns_timing() {
+        let subject =
+            "fix(history): keep the selected commit visible when the list is filtered by text...";
+        let subject = &subject[..80];
+        let iterations = 200_000;
+        let time = |f: &dyn Fn() -> String| {
+            let start = std::time::Instant::now();
+            let mut sink = 0;
+            for _ in 0..iterations {
+                sink += std::hint::black_box(f()).len();
+            }
+            std::hint::black_box(sink);
+            start.elapsed().as_nanos() as f64 / iterations as f64
+        };
+        let old = time(&|| reference_fit_columns(std::hint::black_box(subject), 50, true));
+        let new = time(&|| fit_columns(std::hint::black_box(subject), 50, true));
+        println!("old {old:.0} ns, new {new:.0} ns, {:.1}x", old / new);
+    }
+}
