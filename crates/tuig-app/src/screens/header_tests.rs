@@ -30,7 +30,7 @@ fn head(dir: &TempDir) -> String {
 
 fn start() -> Harness {
     let harness = Harness::start(repository(), Services::default());
-    harness.wait("the first snapshot", |shell| shell.snapshot.is_some());
+    harness.wait("the first snapshot", |shell| shell.snapshot_complete());
     harness
 }
 
@@ -102,7 +102,7 @@ fn opening_an_open_repository_shows_its_tab_and_adds_none() {
     let first = harness.read(|shell| shell.header.tabs[0].repo.root().to_owned());
     harness.open_path(Path::new(&first));
     harness.wait("the first tab to be active again", |shell| {
-        shell.repo.root() == first && shell.snapshot.is_some()
+        shell.repo.root() == first && shell.snapshot_complete()
     });
     assert_eq!(harness.tab_roots().len(), 2);
 }
@@ -129,7 +129,7 @@ fn switching_tabs_drops_what_was_loaded_for_the_old_repository() {
     harness.wait("two tabs", |shell| {
         shell.header.tabs.len() == 2 && shell.repo.root().contains(other.0.to_str().unwrap())
     });
-    harness.wait("the second snapshot", |shell| shell.snapshot.is_some());
+    harness.wait("the second snapshot", |shell| shell.snapshot_complete());
     let first_id = harness.read(|shell| shell.header.tabs[0].id.clone());
     harness.with(|shell, app| shell.activate_tab(app, &first_id));
     // The first tab shows what it kept. Nothing of the second repository may show.
@@ -162,7 +162,7 @@ fn closing_the_active_tab_activates_its_neighbour_and_the_last_tab_stays() {
         assert_eq!(shell.header.active, first);
     });
     harness.wait("the first repository to load", |shell| {
-        shell.snapshot.is_some()
+        shell.snapshot_complete()
     });
 }
 
@@ -275,7 +275,7 @@ fn a_tab_keeps_its_history_position_when_you_switch_away_and_back() {
         crate::screens::test_support::repository(120),
         Services::default(),
     );
-    harness.wait("the first snapshot", |shell| shell.snapshot.is_some());
+    harness.wait("the first snapshot", |shell| shell.snapshot_complete());
     harness.wait("the head commit", |shell| {
         shell.history.selected_sha().is_some()
     });
@@ -294,12 +294,12 @@ fn a_tab_keeps_its_history_position_when_you_switch_away_and_back() {
     let other = repository();
     harness.open_path(&other.0);
     harness.wait("the second tab", |shell| {
-        shell.repo.root().contains(other.0.to_str().unwrap()) && shell.snapshot.is_some()
+        shell.repo.root().contains(other.0.to_str().unwrap()) && shell.snapshot_complete()
     });
     let first = harness.read(|shell| shell.header.tabs[0].id.clone());
     harness.with(|shell, app| shell.activate_tab(app, &first));
     harness.wait("the first tab again", |shell| {
-        shell.snapshot.is_some() && shell.history.selected_sha().is_some()
+        shell.snapshot_complete() && shell.history.selected_sha().is_some()
     });
     harness.read(|shell| {
         assert_eq!(shell.history.selected_sha(), Some(sha.as_str()));
@@ -398,7 +398,7 @@ fn directory_suggestions_are_read_off_the_ui_thread_and_only_the_latest_input_co
 fn leave_first_tab(harness: &Harness, other: &TempDir) -> String {
     harness.open_path(&other.0);
     harness.wait("the second tab", |shell| {
-        shell.repo.root().contains(other.0.to_str().unwrap()) && shell.snapshot.is_some()
+        shell.repo.root().contains(other.0.to_str().unwrap()) && shell.snapshot_complete()
     });
     harness.read(|shell| shell.header.tabs[0].id.clone())
 }
@@ -487,4 +487,37 @@ fn a_result_for_the_tab_you_left_does_not_land_in_the_new_one() {
                 .contains(other.0.to_str().unwrap())
         );
     });
+}
+
+#[test]
+fn a_tab_left_before_status_lands_is_not_cached_as_clean() {
+    let harness = start();
+    std::fs::write(harness._repo.0.join("new.txt"), "new\n").unwrap();
+    harness.with(|shell, app| shell.request_refresh(app, false));
+    harness.wait("the working file", |shell| shell.has_working());
+    // Put the first tab back in its first-load state: history shown, status pending.
+    harness.with(|shell, _| {
+        // A refresh still in flight would land during the tab switch and replace this state.
+        shell.tasks.snapshot.cancel();
+        let mut snapshot = shell.take_snapshot_for_cache().unwrap();
+        let head = tuig_git::types::HistoryHead {
+            root: snapshot.root.clone(),
+            head_sha: snapshot.head_sha.clone(),
+            branch: snapshot.branch.clone(),
+            branches: std::mem::take(&mut snapshot.branches),
+            stashes: Vec::new(),
+            commits: std::mem::take(&mut snapshot.commits),
+            commits_complete: snapshot.commits_complete,
+        };
+        shell.history_head_loaded(head);
+        assert!(shell.files.working_loading);
+    });
+    let other = repository();
+    let first = leave_first_tab(&harness, &other);
+
+    harness.with(|shell, app| shell.activate_tab(app, &first));
+    // A kept snapshot would show here with no files. The tab loads from scratch instead.
+    harness.read(|shell| assert!(shell.snapshot.is_none()));
+    harness.wait("the first tab to load", |shell| shell.has_working());
+    harness.read(|shell| assert!(!shell.files.working_loading));
 }

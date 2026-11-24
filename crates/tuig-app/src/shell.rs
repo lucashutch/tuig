@@ -36,7 +36,7 @@ use tuig_git::process::GitError;
 use tuig_git::pull_request_types::PullRequestList;
 use tuig_git::repository::GitRepository;
 use tuig_git::types::{
-    ChangedFile, CommitPage, LineBlame, RepositorySnapshot, RepositoryWatchPaths,
+    ChangedFile, CommitPage, HistoryHead, LineBlame, RepositorySnapshot, RepositoryWatchPaths,
 };
 use tuig_ui_model::file_tree::FileRowAction;
 use tuig_ui_model::history_viewport::history_lines;
@@ -135,6 +135,8 @@ pub enum Msg {
     Header(HeaderMsg),
 
     Snapshot(ReqId, GitResult<RepositorySnapshot>),
+    /// The history page and refs of the first snapshot, ahead of `git status`.
+    HistoryHead(ReqId, HistoryHead),
     CommitPage(ReqId, GitResult<CommitPage>),
     WatchPaths(ReqId, GitResult<Option<RepositoryWatchPaths>>),
     CommitFiles(ReqId, GitResult<Vec<ChangedFile>>),
@@ -475,6 +477,13 @@ impl Shell {
                     self.snapshot_loaded(app, result);
                     self.files_snapshot_applied();
                     self.diff_after_refresh(app);
+                }
+            }
+            Msg::HistoryHead(id, head) => {
+                // The head travels by proxy and the result by task completion. The head applies only while
+                // its request still runs and no snapshot has landed.
+                if self.tasks.snapshot.is_running(id) && self.snapshot.is_none() {
+                    self.history_head_loaded(head);
                 }
             }
             Msg::CommitPage(id, result) => {

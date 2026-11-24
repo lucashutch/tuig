@@ -2,6 +2,7 @@
 //! (`src/ui/runtime.ts`) with the retry that `watch_repository` used to do itself.
 
 use crate::shell::{GitResult, Inbox, Msg, Shell};
+use crate::tasks::ReqId;
 use opentui::app::ProxyError;
 use opentui::prelude::*;
 use std::rc::Rc;
@@ -12,7 +13,7 @@ use tuig_git::debug_log::{debug_log, debug_log_error};
 use tuig_git::repository_watcher::{
     RepositoryWatchOptions, RepositoryWatcher, WatchEvent, watch_repository,
 };
-use tuig_git::types::RepositoryWatchPaths;
+use tuig_git::types::{HistoryHead, RepositoryWatchPaths};
 
 /// Poll interval while the watcher runs. `auto-refresh.ts`.
 pub const WATCHED_REFRESH_INTERVAL: Duration = Duration::from_secs(30);
@@ -49,8 +50,22 @@ pub struct RefreshState {
     pub fetch_timer: Option<TimerId>,
 }
 
-/// Turns watcher messages from the forwarder into [`Msg::Watch`].
+/// The first history page of a snapshot, sent from the snapshot task before `git status` ends.
+#[derive(Clone)]
+pub struct HeadMsg {
+    pub id: ReqId,
+    pub head: std::sync::Arc<HistoryHead>,
+}
+
+/// Turns watcher messages from the forwarder into [`Msg::Watch`], and head messages into [`Msg::HistoryHead`].
 pub fn install(app: &App, inbox: &Rc<Inbox>) {
+    let head_inbox = inbox.clone();
+    app.on_message::<HeadMsg>(move |cx, message| {
+        head_inbox.post(
+            cx.app(),
+            Msg::HistoryHead(message.id, (*message.head).clone()),
+        );
+    });
     let inbox = inbox.clone();
     app.on_message::<WatchMsg>(move |cx, message| {
         inbox.post(

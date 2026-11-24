@@ -31,7 +31,7 @@ fn start(config: &TempDir) -> Harness {
         ..Services::default()
     };
     let h = Harness::start(repository(3), services);
-    h.wait("the first snapshot", |shell| shell.snapshot.is_some());
+    h.wait("the first snapshot", |shell| shell.snapshot_complete());
     h
 }
 

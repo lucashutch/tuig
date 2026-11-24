@@ -136,6 +136,9 @@ pub struct CommitFiles {
 }
 
 pub struct FilesState {
+    /// True from the first history rows until `git status` lands. The working lists show a loading state, not
+    /// "no changes".
+    pub working_loading: bool,
     pub focus: Focus,
     pub contents: Contents,
     /// The working section the selection and keys act on. `mode` in `Runtime`.
@@ -187,6 +190,7 @@ fn slot(kind: ListKind) -> usize {
 impl FilesState {
     pub fn new() -> Self {
         Self {
+            working_loading: false,
             focus: Focus::History,
             contents: Contents::Working,
             mode: FileSection::Unstaged,
@@ -551,6 +555,7 @@ impl Shell {
             return;
         };
         self.files.set_working_files(&snapshot.files);
+        self.files.working_loading = false;
         self.dirty |= Dirty::FILES;
     }
 
@@ -688,6 +693,9 @@ impl Shell {
                 },
                 files.commit.files.as_ref().map_or(0, |files| files.len()),
             ),
+            ListKind::Unstaged | ListKind::Staged if files.working_loading => {
+                (ListStatus::Loading, 0)
+            }
             ListKind::Unstaged => (ListStatus::Ready, files.unstaged.len()),
             ListKind::Staged => (ListStatus::Ready, files.staged.len()),
         };

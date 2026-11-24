@@ -146,7 +146,7 @@ fn a_disabled_preference_keeps_the_painted_dots() {
 #[test]
 fn the_commit_details_show_the_author_photo_in_place_of_the_initials() {
     let (h, fetcher, _cache) = start(3);
-    h.wait("the first snapshot", |shell| shell.snapshot.is_some());
+    h.wait("the first snapshot", |shell| shell.snapshot_complete());
     h.send(Msg::HistoryClick {
         row: 1,
         part: ClickPart::Row,
@@ -192,7 +192,7 @@ fn repository_with_trailers(trailers: &str) -> TempDir {
 }
 
 fn open_newest(h: &Harness) {
-    h.wait("the first snapshot", |shell| shell.snapshot.is_some());
+    h.wait("the first snapshot", |shell| shell.snapshot_complete());
     h.send(Msg::HistoryClick {
         row: 0,
         part: ClickPart::Row,

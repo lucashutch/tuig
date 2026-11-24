@@ -1284,3 +1284,66 @@ async fn a_credential_failure_blocks_background_fetch_until_a_fetch_succeeds() {
     repo.fetch(Some("origin"), None).await.unwrap();
     assert!(!repo.auth_blocked());
 }
+
+#[tokio::test]
+async fn early_history_matches_the_final_snapshot_and_keeps_refresh_reuse() {
+    let dir = repo_dir().await;
+    git(dir.path(), &["commit", "--allow-empty", "-m", "one"]).await;
+    git(dir.path(), &["tag", "v1"]).await;
+    git(dir.path(), &["commit", "--allow-empty", "-m", "two"]).await;
+    git(dir.path(), &["branch", "side"]).await;
+    std::fs::write(dir.path().join("dirty.txt"), "x").unwrap();
+    let repo = open(&dir).await;
+
+    let seen = std::sync::Arc::new(Mutex::new(Vec::new()));
+    let sink = seen.clone();
+    let snapshot = repo
+        .snapshot_early(
+            DEFAULT_HISTORY_PAGE,
+            Box::new(move |head| sink.lock().unwrap().push(head)),
+        )
+        .await
+        .unwrap();
+
+    let seen = seen.lock().unwrap().clone();
+    assert_eq!(seen.len(), 1, "early history is reported once");
+    let early = &seen[0];
+    assert_eq!(early.commits, snapshot.commits);
+    assert_eq!(early.commits_complete, snapshot.commits_complete);
+    assert_eq!(early.branches, snapshot.branches);
+    assert_eq!(early.branch, snapshot.branch);
+    assert_eq!(early.head_sha, snapshot.head_sha);
+    assert_eq!(early.branch.as_deref(), Some("main"));
+    assert!(snapshot.files.iter().any(|file| file.path == "dirty.txt"));
+
+    // The signature of an early snapshot lets a refresh reuse its commits.
+    let refreshed = repo
+        .refresh_snapshot(&snapshot, DEFAULT_HISTORY_PAGE)
+        .await
+        .unwrap();
+    assert_eq!(refreshed.commits, snapshot.commits);
+}
+
+#[tokio::test]
+async fn early_history_reports_a_detached_head() {
+    let dir = repo_dir().await;
+    git(dir.path(), &["commit", "--allow-empty", "-m", "one"]).await;
+    git(dir.path(), &["commit", "--allow-empty", "-m", "two"]).await;
+    git(dir.path(), &["checkout", "--detach", "HEAD~1"]).await;
+    let repo = open(&dir).await;
+
+    let seen = std::sync::Arc::new(Mutex::new(None));
+    let sink = seen.clone();
+    let snapshot = repo
+        .snapshot_early(
+            DEFAULT_HISTORY_PAGE,
+            Box::new(move |head| *sink.lock().unwrap() = Some(head)),
+        )
+        .await
+        .unwrap();
+
+    let early = seen.lock().unwrap().take().unwrap();
+    assert_eq!(early.branch, None);
+    assert_eq!(early.head_sha, snapshot.head_sha);
+    assert!(early.head_sha.is_some());
+}

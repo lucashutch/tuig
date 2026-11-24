@@ -74,7 +74,7 @@ impl Harness {
         let shell = Shell::start(app.app(), Arc::new(service));
         let harness = Self { app, shell, repo };
         harness.wait("the first snapshot", |shell| {
-            shell.snapshot.is_some() && shell.history.focus_sha.is_none()
+            shell.snapshot_complete() && shell.history.focus_sha.is_none()
         });
         harness
     }

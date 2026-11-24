@@ -143,6 +143,43 @@ pub struct RepositorySnapshot {
     pub commits_complete: bool,
 }
 
+/// The part of a snapshot that does not wait on `git status`: refs, HEAD, stashes, and the first
+/// history page. `snapshot_early` reports it before the working-tree files are known.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct HistoryHead {
+    pub root: String,
+    pub head_sha: Option<String>,
+    pub branch: Option<String>,
+    pub branches: Vec<BranchRef>,
+    pub stashes: Vec<Stash>,
+    pub commits: Vec<Commit>,
+    pub commits_complete: bool,
+}
+
+impl HistoryHead {
+    /// A snapshot with the history and refs set and no working-tree data.
+    pub fn into_partial_snapshot(self) -> RepositorySnapshot {
+        RepositorySnapshot {
+            root: self.root,
+            head_sha: self.head_sha,
+            branch: self.branch,
+            upstream: None,
+            ahead: 0,
+            behind: 0,
+            files: Vec::new(),
+            branches: self.branches,
+            stashes: self.stashes,
+            worktrees: Vec::new(),
+            submodules: Vec::new(),
+            commits: self.commits,
+            commits_complete: self.commits_complete,
+        }
+    }
+}
+
+/// Receives the [`HistoryHead`] of a snapshot ahead of the full result.
+pub type EarlyHistory = Box<dyn FnOnce(HistoryHead) + Send>;
+
 /// One page of history, with whether it reached the end of the graph.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CommitPage {

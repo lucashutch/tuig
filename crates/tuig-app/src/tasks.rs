@@ -46,6 +46,11 @@ impl Slot {
         true
     }
 
+    /// Whether `id` names the request that is running now.
+    pub fn is_running(&self, id: ReqId) -> bool {
+        id.0 == self.id && self.task.is_some()
+    }
+
     /// The id of the running or last request.
     #[cfg(test)]
     pub fn current(&self) -> ReqId {

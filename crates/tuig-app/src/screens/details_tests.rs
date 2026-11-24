@@ -74,7 +74,7 @@ impl Harness {
             shell,
             _repo: repo,
         };
-        harness.wait("the first snapshot", |shell| shell.snapshot.is_some());
+        harness.wait("the first snapshot", |shell| shell.snapshot_complete());
         harness
     }
 

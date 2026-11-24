@@ -45,8 +45,9 @@ use crate::remote_errors::{
     RemoteOperation, classify_remote_auth_failure, describe_remote_auth_failure,
 };
 use crate::types::{
-    ChangedFile, CommandResult, Commit, CommitPage, DiffRequest, FileState, LineBlame,
-    RepositorySnapshot, RepositoryWatchPaths, ResetMode, UndoPreview, WorkingStatus, Worktree,
+    ChangedFile, CommandResult, Commit, CommitPage, DiffRequest, EarlyHistory, FileState,
+    HistoryHead, LineBlame, RepositorySnapshot, RepositoryWatchPaths, ResetMode, UndoPreview,
+    WorkingStatus, Worktree,
 };
 use crate::undo;
 
@@ -78,6 +79,18 @@ pub trait GitRepository: Send + Sync {
         Ok(None)
     }
     async fn snapshot(&self, limit: usize) -> Result<RepositorySnapshot>;
+    /// Like `snapshot`, and calls `early` with the history page, refs, and
+    /// HEAD as soon as they are read, before working-tree status finishes.
+    /// `early` runs at most once, on the task that runs the snapshot. The
+    /// default never calls it.
+    async fn snapshot_early(
+        &self,
+        limit: usize,
+        early: EarlyHistory,
+    ) -> Result<RepositorySnapshot> {
+        let _ = early;
+        self.snapshot(limit).await
+    }
     /// Defaults to a full snapshot.
     async fn refresh_snapshot(
         &self,
@@ -233,6 +246,27 @@ fn without_linked_worktrees(
         .into_iter()
         .filter(|file| file.state != FileState::Untracked || !nested.contains(&file.path))
         .collect()
+}
+
+/// The reads that wait on `git status`.
+struct StatusPart {
+    status: String,
+    worktrees: String,
+    submodules: String,
+    submodule_names: HashMap<String, String>,
+    shallow: Vec<Vec<u8>>,
+}
+
+/// `for-each-ref` output filtered to local and remote branch refs.
+fn branch_refs(all_refs: &str) -> String {
+    all_refs
+        .split('\0')
+        .filter(|record| {
+            let record = record.strip_prefix('\n').unwrap_or(record);
+            record.starts_with("refs/heads/") || record.starts_with("refs/remotes/")
+        })
+        .collect::<Vec<_>>()
+        .join("\0")
 }
 
 struct SnapshotMetadata {
@@ -476,6 +510,76 @@ impl GitRepositoryService {
         signatures.insert(tip_key(commits), signature);
     }
 
+    /// Builds a snapshot. The history page, refs, and HEAD read in parallel
+    /// with `git status`. With `early`, they go to the callback when they are
+    /// ready, ahead of the status result.
+    async fn load_snapshot(
+        &self,
+        limit: usize,
+        early: Option<EarlyHistory>,
+    ) -> Result<RepositorySnapshot> {
+        // A snapshot is the refresh point for new history, so the walk restarts
+        // from the tip rather than continuing one taken before a fetch or commit.
+        self.invalidate_history().await;
+        let wanted = limit.max(1);
+        // The walk does not depend on status or the stash list, so it starts
+        // at once. The stash list feeds both the metadata and the stash rows.
+        let stash_rows = async {
+            let stash = self.read_stash_list().await;
+            let shas = parse_stashes(&stash).into_iter().map(|s| s.sha).collect();
+            let tips = self.stash_commits(shas).await;
+            (stash, tips)
+        };
+        let head_sha = async {
+            // Fails in a repository with no commits, which has no HEAD to report.
+            self.git_read(&["rev-parse", "-q", "--verify", "HEAD"])
+                .await
+                .ok()
+                .map(|out| out.stdout.trim().to_owned())
+                .filter(|sha| !sha.is_empty())
+        };
+        let history = async {
+            let ((stash, tips), walked, all_refs, head_sha) = tokio::join!(
+                stash_rows,
+                self.walk.read(0, wanted + 1),
+                self.read_all_refs(),
+                head_sha,
+            );
+            let all_refs = all_refs?.stdout;
+            let mut walked = walked?;
+            if !tips.is_empty() {
+                // The walk read above covered `wanted + 1`. Each stash row can
+                // push one more ordinary commit out of the page.
+                walked.extend(self.walk.read(walked.len(), tips.len()).await?);
+            }
+            let log = merge_page(tips, walked, wanted, 0);
+            if let Some(early) = early {
+                let branches = parse_refs(&branch_refs(&all_refs));
+                early(HistoryHead {
+                    root: self.root.clone(),
+                    head_sha,
+                    branch: branches
+                        .iter()
+                        .find(|branch| branch.current && !branch.remote)
+                        .map(|branch| branch.name.clone()),
+                    branches,
+                    stashes: parse_stashes(&stash),
+                    commits: log.commits.clone(),
+                    commits_complete: log.complete,
+                });
+            }
+            Ok::<_, GitError>((all_refs, stash, log))
+        };
+        let (history, part) = tokio::join!(history, self.read_status_part());
+        let (all_refs, stash, log) = history?;
+        let mut metadata = Self::metadata_from(all_refs, part?);
+        metadata.stash = stash;
+        let signature = metadata.history_signature.clone();
+        let snapshot = self.build_snapshot(metadata, log.commits, log.complete);
+        self.remember_signature(&snapshot.commits, signature);
+        Ok(snapshot)
+    }
+
     /// Reads everything in a snapshot except the stash list and the commit
     /// rows, so a caller can run those beside it.
     ///
@@ -497,6 +601,26 @@ impl GitRepositoryService {
     }
 
     async fn read_snapshot_core(&self) -> Result<SnapshotMetadata> {
+        let (all_refs, part) = tokio::join!(self.read_all_refs(), self.read_status_part());
+        Ok(Self::metadata_from(all_refs?.stdout, part?))
+    }
+
+    /// Every ref with its object name and `%(HEAD)` mark, NUL-terminated.
+    async fn read_all_refs(&self) -> Result<CommandResult> {
+        self.git_read(&[
+            "for-each-ref",
+            // %(HEAD) marks the checked-out local branch. Emit the
+            // record terminator explicitly: for-each-ref otherwise
+            // separates records with newlines, which makes the
+            // tabular parser see all refs as one row.
+            "--format=%(refname)\t%(objectname)\t%(HEAD)%00",
+        ])
+        .await
+    }
+
+    /// The slow half of a snapshot: working-tree status and the reads that
+    /// run beside it.
+    async fn read_status_part(&self) -> Result<StatusPart> {
         // Polling must not take the index lock: the auto-refresh would
         // otherwise collide with a Git command the user is running elsewhere.
         let status = self.git_read(&[
@@ -509,14 +633,6 @@ impl GitRepositoryService {
             "--untracked-files=all",
             "--branch",
             "-z",
-        ]);
-        let all_refs = self.git_read(&[
-            "for-each-ref",
-            // %(HEAD) marks the checked-out local branch. Emit the
-            // record terminator explicitly: for-each-ref otherwise
-            // separates records with newlines, which makes the
-            // tabular parser see all refs as one row.
-            "--format=%(refname)\t%(objectname)\t%(HEAD)%00",
         ]);
         let worktrees = self.git_read(&["worktree", "list", "--porcelain"]);
         // Only `submodule status` needs the names, so the config read chains
@@ -544,12 +660,25 @@ impl GitRepositoryService {
             (names, status)
         };
         let shallow = async { self.read_shallow_metadata() };
-        let (status, all_refs, worktrees, (submodule_names, submodules), shallow) =
-            tokio::join!(status, all_refs, worktrees, submodules, shallow);
-        let status = status?.stdout;
-        let all_refs = all_refs?.stdout;
-        let worktrees = worktrees?.stdout;
-        let shallow = shallow?;
+        let (status, worktrees, (submodule_names, submodules), shallow) =
+            tokio::join!(status, worktrees, submodules, shallow);
+        Ok(StatusPart {
+            status: status?.stdout,
+            worktrees: worktrees?.stdout,
+            submodules: submodules.stdout,
+            submodule_names,
+            shallow: shallow?,
+        })
+    }
+
+    fn metadata_from(all_refs: String, part: StatusPart) -> SnapshotMetadata {
+        let StatusPart {
+            status,
+            worktrees,
+            submodules,
+            submodule_names,
+            shallow,
+        } = part;
         let status_records: Vec<&str> = status.split('\0').collect();
         let branch_head = status_records
             .iter()
@@ -585,25 +714,18 @@ impl GitRepositoryService {
         for contents in &shallow {
             part(contents);
         }
-        let refs = all_refs
-            .split('\0')
-            .filter(|record| {
-                let record = record.strip_prefix('\n').unwrap_or(record);
-                record.starts_with("refs/heads/") || record.starts_with("refs/remotes/")
-            })
-            .collect::<Vec<_>>()
-            .join("\0");
-        Ok(SnapshotMetadata {
+        let refs = branch_refs(&all_refs);
+        SnapshotMetadata {
             status,
             refs,
             stash: String::new(),
             worktrees,
-            submodules: submodules.stdout,
+            submodules,
             submodule_names,
             branch: branch_head,
             head_sha,
             history_signature: signature,
-        })
+        }
     }
 
     fn read_shallow_metadata(&self) -> Result<Vec<Vec<u8>>> {
@@ -1161,36 +1283,15 @@ impl GitRepository for GitRepositoryService {
     }
 
     async fn snapshot(&self, limit: usize) -> Result<RepositorySnapshot> {
-        // A snapshot is the refresh point for new history, so the walk restarts
-        // from the tip rather than continuing one taken before a fetch or commit.
-        self.invalidate_history().await;
-        let wanted = limit.max(1);
-        // The walk does not depend on status or the stash list, so it starts
-        // at once. The stash list feeds both the metadata and the stash rows.
-        let stash_rows = async {
-            let stash = self.read_stash_list().await;
-            let shas = parse_stashes(&stash).into_iter().map(|s| s.sha).collect();
-            let tips = self.stash_commits(shas).await;
-            (stash, tips)
-        };
-        let (core, (stash, tips), walked) = tokio::join!(
-            self.read_snapshot_core(),
-            stash_rows,
-            self.walk.read(0, wanted + 1),
-        );
-        let mut metadata = core?;
-        metadata.stash = stash;
-        let mut walked = walked?;
-        if !tips.is_empty() {
-            // The walk read above covered `wanted + 1`. Each stash row can
-            // push one more ordinary commit out of the page.
-            walked.extend(self.walk.read(walked.len(), tips.len()).await?);
-        }
-        let log = merge_page(tips, walked, wanted, 0);
-        let signature = metadata.history_signature.clone();
-        let snapshot = self.build_snapshot(metadata, log.commits, log.complete);
-        self.remember_signature(&snapshot.commits, signature);
-        Ok(snapshot)
+        self.load_snapshot(limit, None).await
+    }
+
+    async fn snapshot_early(
+        &self,
+        limit: usize,
+        early: EarlyHistory,
+    ) -> Result<RepositorySnapshot> {
+        self.load_snapshot(limit, Some(early)).await
     }
 
     async fn refresh_snapshot(
