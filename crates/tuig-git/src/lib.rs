@@ -8,6 +8,7 @@ pub mod debug_log;
 pub mod hunks;
 #[cfg(target_os = "linux")]
 mod inotify_backend;
+pub mod lru_cache;
 pub mod parsers;
 pub mod process;
 pub mod pull_request_types;
