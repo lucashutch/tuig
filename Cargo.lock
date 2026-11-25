@@ -1203,7 +1203,7 @@ dependencies = [
 
 [[package]]
 name = "tuig-app"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "async-trait",
  "bitflags",
@@ -1221,7 +1221,7 @@ dependencies = [
 
 [[package]]
 name = "tuig-cli"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "async-trait",
  "serde_json",
@@ -1234,7 +1234,7 @@ dependencies = [
 
 [[package]]
 name = "tuig-git"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "async-trait",
  "inotify",
@@ -1251,7 +1251,7 @@ dependencies = [
 
 [[package]]
 name = "tuig-ui-model"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "icu_collator",
  "serde_json",
@@ -1262,7 +1262,7 @@ dependencies = [
 
 [[package]]
 name = "tuig-widgets"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "jiff",
  "opentui",
