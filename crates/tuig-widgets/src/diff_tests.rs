@@ -220,11 +220,21 @@ fn copy_spanning_two_hunks_holds_one_blank_line_and_never_one_at_the_ends() {
 }
 
 #[test]
-fn the_separator_row_is_painted_without_number_sign_or_color() {
+fn the_separator_row_shows_a_gutter_mark_and_rule_but_no_number_or_sign() {
     let rig = pane_rig();
     let screen = rig.app.render();
     assert!(screen.row(7).contains("tail"), "{screen}");
-    assert_eq!(screen.row(8).trim(), "", "{screen}");
+    let separator = screen.row(8);
+    assert!(
+        separator.contains('⋮') && separator.contains('┄'),
+        "{screen}"
+    );
+    assert!(
+        !separator
+            .chars()
+            .any(|c| c.is_ascii_alphanumeric() || c == '+' || c == '-'),
+        "{screen}"
+    );
     assert!(
         screen.row(9).contains("21") && screen.row(9).contains("ctx"),
         "{screen}"

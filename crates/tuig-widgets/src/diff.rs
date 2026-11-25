@@ -18,7 +18,7 @@
 //! - Long lines are cut at the pane edge. There is no horizontal scroll.
 //! - Text selection copies tabs as two spaces.
 //!
-//! Deliberate difference from the TypeScript app: one blank separator row sits between consecutive hunks of a file,
+//! Deliberate difference from the TypeScript app: one separator row sits between consecutive hunks of a file,
 //! so the end of one hunk and the start of the next are easy to see. The separator is a display row only. It has no
 //! [`DiffLineTarget`], no line number and no syntax text, and the raw patch rows that line staging and the hunk
 //! lookup use do not change.
@@ -356,6 +356,10 @@ struct Palette {
     added_highlight: Color,
     removed_highlight: Color,
     text_selection: Color,
+    /// Background of the separator row between hunks, a tint that sets it apart from context rows.
+    separator_bg: Color,
+    /// The rule and gutter mark drawn on the separator row.
+    separator_fg: Color,
     syntax: SyntaxTheme,
 }
 
@@ -503,6 +507,8 @@ impl Palette {
             added_highlight: diff_color(theme, "highlight.added", theme.selected),
             removed_highlight: diff_color(theme, "highlight.removed", theme.selected),
             text_selection: color(theme.selected),
+            separator_bg: diff_color(theme, "background.separator", theme.panel),
+            separator_fg: diff_color(theme, "text.hunkHeader", theme.muted),
             syntax: diff_syntax_theme(theme),
         }
     }
@@ -878,8 +884,23 @@ impl DiffPane {
                 break;
             };
             let Some(target) = entry.target else {
-                // A filler row of the split view, or the separator between hunks. Both are plain background.
-                painter.text(pane.left, y, &pane_fill, blank.bg(palette.bg));
+                if entry.separator {
+                    // The break between hunks: a tinted row with `⋮` in the gutter and a dim rule over the code.
+                    let style = Style::new()
+                        .fg(palette.separator_fg)
+                        .bg(palette.separator_bg);
+                    painter.text(pane.left, y, &pane_fill, style);
+                    painter.text(
+                        pane.left + 1 + digits.saturating_sub(1) as i32,
+                        y,
+                        "⋮",
+                        style,
+                    );
+                    painter.text(pane.left + gutter, y, &"┄".repeat(code_width), style);
+                } else {
+                    // A filler row of the split view is plain background.
+                    painter.text(pane.left, y, &pane_fill, blank.bg(palette.bg));
+                }
                 continue;
             };
             let selected = self.selected_rows.contains(&target.raw_row);
