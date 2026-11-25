@@ -4,7 +4,7 @@ members = ["crates/tuig-app", "crates/tuig-cli", "crates/tuig-git", "crates/tuig
 
 [workspace.package]
 edition = "2024"
-version = "0.2.0"
+version = "0.3.0"
 license = "MIT"
 
 [workspace.lints.clippy]
